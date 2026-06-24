@@ -1,21 +1,15 @@
 # src/mcq_eval/methods/pride.py
-# Ported from src/mcq_eval/runners/pride.py (legacy Together-client logprob
-# path) and cross-referenced against ../model-generalization's
-# src/modelgen/runners/pride.py (backend.score_options()-based port,
-# read-only reference; that repo was not modified). pride_debias.py math is
-# untouched — this file only changes how logprobs are obtained.
 
 """
-Method: PriDe (Permutation Debiasing) — Backend Port
+Method: PriDe (Permutation Debiasing)
 --------------------------------------------------------
 Description: Estimates the model's positional bias prior on a calibration set
 disjoint from the evaluation split, by running cyclic permutation rollouts and
 reading each rotation's per-letter log-probabilities via the backend (Eq. 7),
 then debiases each evaluation question's observed logprob distribution
-against that prior (Eq. 8) and picks the argmax. Unlike the legacy
-runners/pride.py, this version calls backend.score_options() directly and has
-no Together-specific request_logprobs / merge_option_logprobs parsing — the
-backend is responsible for returning a clean per-letter logprob list.
+against that prior (Eq. 8) and picks the argmax. Calls backend.score_options()
+directly — the backend is responsible for returning a clean per-letter
+logprob list.
 Reference: Zheng et al., ICLR 2024, "Large Language Models Are Not Robust
 Multiple Choice Selectors" (arXiv:2309.03882), §3, Eq. 1/7/8.
 Backend requirements: generate + score_options

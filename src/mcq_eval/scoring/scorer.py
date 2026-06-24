@@ -13,10 +13,7 @@ def is_choice_correct(predicted_choice: str, gold_choice: str) -> bool:
     """
     Compare a parsed prediction against the gold label.
 
-    Intended later behavior:
-    - Canonicalize both inputs if needed.
-    - Return True only for exact choice-letter equality.
-    - Keep this helper intentionally simple and deterministic.
+    Returns True only for exact choice-letter equality (e.g. "A" == "A").
 
     Args:
         predicted_choice: Parsed answer letter from the model output.
@@ -32,11 +29,10 @@ def score_prediction(parse_result: ParseResult, gold_choice: str) -> ScoreResult
     """
     Convert a ParseResult into a scoring outcome.
 
-    Intended later rules:
-    - If parse_result.status is not PARSE_OK, mark the result unscorable.
-    - If parsed choice equals gold_choice, mark correct.
-    - Otherwise mark incorrect.
-    - Carry parse status through to the score result.
+    If parse_result.status is not PARSE_OK, the result is marked
+    unscorable. Otherwise it is marked correct or incorrect based on
+    whether the parsed choice equals gold_choice. The parse status is
+    always carried through to the returned ScoreResult.
 
     Args:
         parse_result: Structured parser output.

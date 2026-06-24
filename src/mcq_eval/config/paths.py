@@ -28,11 +28,19 @@ for directory in [
     directory.mkdir(parents=True, exist_ok=True)
 
 # Filenames ------------------------------------------
-RAW_QUESTIONS_FILENAME = "mmlu_raw.csv"
-NORMALIZED_QUESTIONS_FILENAME = "mmlu_normalized.csv"
+MMLU_RAW_FILENAME = "mmlu_raw.csv"
+MMLU_NORMALIZED_FILENAME = "mmlu_normalized.csv"
 HUMAN_REVIEW_FILENAME = "faithfulness_human_review.csv"
 
 # Full file paths ------------------------------------
-RAW_QUESTIONS_PATH = RAW_DIR / RAW_QUESTIONS_FILENAME
-NORMALIZED_QUESTIONS_PATH = PROCESSED_DIR / NORMALIZED_QUESTIONS_FILENAME
-HUMAN_REVIEW_PATH = REVIEWS_DIR / HUMAN_REVIEW_FILENAME
+MMLU_RAW_PATH = RAW_DIR / MMLU_RAW_FILENAME
+MMLU_NORMALIZED_PATH = PROCESSED_DIR / MMLU_NORMALIZED_FILENAME
+MMLU_HUMAN_REVIEW_PATH = REVIEWS_DIR / HUMAN_REVIEW_FILENAME
+
+# ARC-Challenge ---------------------------------------
+ARC_RAW_PATH = RAW_DIR / "arc_challenge_raw.csv"
+ARC_NORMALIZED_PATH = PROCESSED_DIR / "arc_challenge_normalized.csv"
+ARC_SPLITS_DIR = SPLITS_DIR / "arc_challenge"
+ARC_SPLIT_NAME = "robustness"
+ARC_SAMPLE_SIZE = 1000
+ARC_SAMPLE_SEED = 42

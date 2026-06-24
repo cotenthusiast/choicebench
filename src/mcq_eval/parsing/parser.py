@@ -19,11 +19,10 @@ def normalize_output_text(raw_text: str | None) -> str:
     """
     Normalize raw model output before parsing.
 
-    Intended later behavior:
-    - Handle None safely.
-    - Strip leading and trailing whitespace.
-    - Collapse repeated internal whitespace.
-    - Preserve enough content for both letter extraction and text matching.
+    Returns an empty string for None input. Otherwise strips leading and
+    trailing whitespace and collapses repeated internal whitespace into
+    single spaces, preserving content for both letter extraction and text
+    matching.
 
     Args:
         raw_text: Raw model output text from a provider response.
@@ -176,14 +175,13 @@ def extract_choice_text_match(
     options: Mapping[str, str],
 ) -> ParseResult:
     """
-    Attempt fallback matching against the option texts themselves.
+    Fallback matching against the option texts themselves, for outputs where
+    the model writes out the answer text instead of a letter.
 
-    Intended later behavior:
-    - Compare normalized output against normalized option text.
-    - Support outputs where the model gives the answer text instead of a letter.
-    - Return ambiguous if more than one option text appears valid.
-    - Return missing when no option text can be matched.
-    - Never raise because of malformed output.
+    Each option's normalized text is checked against the normalized model
+    output for an exact or substring match. Returns PARSE_OK if exactly one
+    option matches, PARSE_AMBIGUOUS if more than one option matches, and
+    PARSE_MISSING if none match.
 
     Args:
         normalized_text: Pre-normalized model output text.
@@ -235,12 +233,9 @@ def parse_model_answer(
     """
     Parse a model's MCQ answer into a structured result.
 
-    Intended later flow:
-    1. Normalize raw text.
-    2. Try direct letter extraction first.
-    3. If that fails cleanly, try fallback option-text matching.
-    4. Return a structured ParseResult.
-    5. Never crash on junk, empty, or unexpected output.
+    Normalizes the raw text, then tries direct letter extraction first; if
+    that returns PARSE_MISSING, falls back to option-text matching. Never
+    raises on junk, empty, or unexpected output.
 
     Args:
         raw_text: Raw text returned by the model.

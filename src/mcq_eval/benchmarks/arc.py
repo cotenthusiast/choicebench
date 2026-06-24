@@ -4,6 +4,8 @@ import hashlib
 
 import pandas as pd
 
+from mcq_eval.benchmarks.base import build_normalized_dataframe as _build_normalized_dataframe
+
 _ARC_SUBJECT = "arc_challenge"
 _VALID_LABELS = {"A", "B", "C", "D"}
 
@@ -80,16 +82,4 @@ def build_normalized_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     Returns:
         DataFrame where each row follows the normalized schema.
     """
-    rows = []
-    for _, row in df.iterrows():
-        rows.append(
-            normalize_row(
-                {
-                    "id": row["id"],
-                    "question": row["question"],
-                    "choices": row["choices"],
-                    "answerKey": row["answerKey"],
-                }
-            )
-        )
-    return pd.DataFrame(rows)
+    return _build_normalized_dataframe(df, normalize_row)

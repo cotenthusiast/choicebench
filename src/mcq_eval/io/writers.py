@@ -7,10 +7,10 @@ from typing import Any
 import pandas as pd
 
 from mcq_eval.benchmarks.mmlu import build_normalized_dataframe
-from mcq_eval.config.paths import NORMALIZED_QUESTIONS_PATH, RAW_QUESTIONS_PATH
+from mcq_eval.config.paths import MMLU_NORMALIZED_PATH, MMLU_RAW_PATH
 
 
-def write_raw_questions(raw_questions_path: Path = RAW_QUESTIONS_PATH) -> None:
+def write_raw_questions(raw_questions_path: Path = MMLU_RAW_PATH) -> None:
     from datasets import load_dataset
     """
     Downloads the raw MMLU test split and saves it as a CSV file.
@@ -26,8 +26,8 @@ def write_raw_questions(raw_questions_path: Path = RAW_QUESTIONS_PATH) -> None:
 
 
 def write_normalized_questions(
-    raw_questions_path: Path = RAW_QUESTIONS_PATH,
-    normalized_questions_path: Path = NORMALIZED_QUESTIONS_PATH,
+    raw_questions_path: Path = MMLU_RAW_PATH,
+    normalized_questions_path: Path = MMLU_NORMALIZED_PATH,
 ) -> None:
     """
     Reads the raw MMLU CSV, converts it into the project's normalized

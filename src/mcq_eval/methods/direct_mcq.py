@@ -1,8 +1,4 @@
 # src/mcq_eval/methods/direct_mcq.py
-# Migrated from src/mcq_eval/runners/direct_mcq.py (Session 3) — already
-# backend-based and synchronous as of that file's Session 1/2 wiring, so no
-# logic changed in this move. See runners/direct_mcq.py for the deprecation
-# notice pointing back here.
 
 """
 Method: Direct MCQ (Baseline)

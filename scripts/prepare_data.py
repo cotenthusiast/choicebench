@@ -9,10 +9,16 @@ import pandas as pd
 from mcq_eval.benchmarks.split import build_all_splits
 from mcq_eval.config.experiment import ROBUSTNESS_TRACK_NAME, REVIEW_TRACK_NAME
 from mcq_eval.config.paths import (
-    NORMALIZED_QUESTIONS_FILENAME,
-    NORMALIZED_QUESTIONS_PATH,
+    ARC_NORMALIZED_PATH,
+    ARC_RAW_PATH,
+    ARC_SAMPLE_SEED,
+    ARC_SAMPLE_SIZE,
+    ARC_SPLIT_NAME,
+    ARC_SPLITS_DIR,
+    MMLU_NORMALIZED_FILENAME,
+    MMLU_NORMALIZED_PATH,
+    MMLU_RAW_PATH,
     PROCESSED_DIR,
-    RAW_QUESTIONS_PATH,
     SPLITS_DIR,
 )
 from mcq_eval.io.readers import read_normalized_questions
@@ -21,18 +27,6 @@ from mcq_eval.io.writers import (
     write_normalized_questions,
     write_raw_questions,
 )
-
-# ---------------------------------------------------------------------------
-# ARC-Challenge constants
-# ---------------------------------------------------------------------------
-
-ARC_RAW_PATH = RAW_QUESTIONS_PATH.parent / "arc_challenge_raw.csv"
-ARC_NORMALIZED_PATH = PROCESSED_DIR / "arc_challenge_normalized.csv"
-ARC_SPLITS_DIR = SPLITS_DIR / "arc_challenge"
-ARC_SPLIT_NAME = "robustness"
-ARC_SAMPLE_SIZE = 1000
-ARC_SAMPLE_SEED = 42
-
 
 # ---------------------------------------------------------------------------
 # ARC helpers
@@ -102,22 +96,22 @@ def main():
     """Download MMLU and ARC-Challenge, produce normalized CSVs, and generate splits."""
 
     # ── MMLU ──────────────────────────────────────────────────────────────
-    if RAW_QUESTIONS_PATH.exists():
-        print(f"[skip] MMLU raw questions already exist at {RAW_QUESTIONS_PATH}")
+    if MMLU_RAW_PATH.exists():
+        print(f"[skip] MMLU raw questions already exist at {MMLU_RAW_PATH}")
     else:
         print("[1/8] Downloading MMLU test split from HuggingFace...")
-        write_raw_questions(RAW_QUESTIONS_PATH)
-        print(f"[done] Saved raw MMLU questions to {RAW_QUESTIONS_PATH}")
+        write_raw_questions(MMLU_RAW_PATH)
+        print(f"[done] Saved raw MMLU questions to {MMLU_RAW_PATH}")
 
-    if NORMALIZED_QUESTIONS_PATH.exists():
-        print(f"[skip] MMLU normalized questions already exist at {NORMALIZED_QUESTIONS_PATH}")
+    if MMLU_NORMALIZED_PATH.exists():
+        print(f"[skip] MMLU normalized questions already exist at {MMLU_NORMALIZED_PATH}")
     else:
         print("[2/8] Normalizing MMLU raw questions...")
-        write_normalized_questions(RAW_QUESTIONS_PATH, NORMALIZED_QUESTIONS_PATH)
-        print(f"[done] Saved normalized MMLU questions to {NORMALIZED_QUESTIONS_PATH}")
+        write_normalized_questions(MMLU_RAW_PATH, MMLU_NORMALIZED_PATH)
+        print(f"[done] Saved normalized MMLU questions to {MMLU_NORMALIZED_PATH}")
 
     print("[3/8] Reading MMLU normalized questions and deduplicating...")
-    df_mmlu = read_normalized_questions(NORMALIZED_QUESTIONS_FILENAME, PROCESSED_DIR)
+    df_mmlu = read_normalized_questions(MMLU_NORMALIZED_FILENAME, PROCESSED_DIR)
     original_count = len(df_mmlu)
     df_mmlu = df_mmlu.drop_duplicates(subset="question_id")
     deduped_count = len(df_mmlu)
@@ -180,8 +174,8 @@ def main():
 
     print("[8/8] Verifying output files...")
     artifacts = [
-        RAW_QUESTIONS_PATH,
-        NORMALIZED_QUESTIONS_PATH,
+        MMLU_RAW_PATH,
+        MMLU_NORMALIZED_PATH,
         SPLITS_DIR / "benchmark" / "robustness_ids.json",
         ARC_RAW_PATH,
         ARC_NORMALIZED_PATH,

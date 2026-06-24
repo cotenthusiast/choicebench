@@ -8,13 +8,7 @@
 # ConfigError with a clear message if anything here is missing or
 # inconsistent (e.g. a logprob method paired with an API backend).
 #
-# NOTE: this schema describes ONE model running against ONE benchmark. The
-# existing overnight batch runner (config/default.yaml) instead describes a
-# multi-model job MATRIX (every model x every method x every benchmark) and
-# is not yet unified with this schema — see the TODO in
-# scripts/run_experiment.py. Use config/default.yaml for multi-model batch
-# runs against real APIs; use this schema for a single researcher-driven
-# experiment (especially against a local HuggingFace model).
+# NOTE: this schema describes ONE model running against ONE benchmark.
 
 experiment:
   # Free-form label for this experiment — used in output paths/logs only.
@@ -80,7 +74,7 @@ benchmark:
 # Methods
 # ---------------------------------------------------------------------------
 # One entry per method to run against this model/benchmark. See
-# src/mcq_eval/methods/README.md for the full list and what each does.
+# src/mcq_eval/methods/ for the full list and what each does.
 methods:
   - name: direct_mcq
   - name: cyclic_permutation
@@ -93,8 +87,8 @@ methods:
 # ---------------------------------------------------------------------------
 # Metrics
 # ---------------------------------------------------------------------------
-# Computed over this run's results. See src/mcq_eval/metrics/README or
-# metrics/__init__.py's BUILTIN_METRICS for what's available.
+# Computed over this run's results. See
+# src/mcq_eval/metrics/__init__.py's BUILTIN_METRICS for what's available.
 metrics:
   - accuracy
   - mad

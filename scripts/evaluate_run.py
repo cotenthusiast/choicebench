@@ -25,7 +25,6 @@ from mcq_eval.config.experiment import (
     BASELINE_METHOD,
     PRIDE_METHOD,
     TWOPROMPT_METHOD,
-    TWOPROMPT_CYCLIC_METHOD,
 )
 from mcq_eval.config.paths import REPORTS_DIR, RUNS_DIR
 from mcq_eval.parsing.parser import parse_model_answer
@@ -126,11 +125,11 @@ def reparse_run(df: pd.DataFrame) -> pd.DataFrame:
     """Re-apply the current parser and scorer to eligible rows in-place.
 
     Only rows whose answer came from a single raw API response are re-parsed.
-    Rows produced by majority voting (cyclic / two_prompt_cyclic) store
-    parse_reason == "majority_vote" and raw_text from only one of the N
-    permutation calls — re-parsing them from that single raw_text would
-    discard the other permutations and corrupt the result.  Those rows are
-    left exactly as they were saved by the original run.
+    Rows produced by majority voting (cyclic) store parse_reason ==
+    "majority_vote" and raw_text from only one of the N permutation calls —
+    re-parsing them from that single raw_text would discard the other
+    permutations and corrupt the result.  Those rows are left exactly as
+    they were saved by the original run.
 
     Eligible rows must additionally have model_status != "failure" so that
     raw_text is present.
@@ -181,14 +180,14 @@ def reparse_run(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-_FALLBACK_METHODS = {TWOPROMPT_METHOD, TWOPROMPT_CYCLIC_METHOD}
+_FALLBACK_METHODS = {TWOPROMPT_METHOD}
 
 
 def apply_baseline_fallback(df: pd.DataFrame) -> pd.DataFrame:
-    """For unscorable two_prompt / two_prompt_cyclic rows, substitute baseline results.
+    """For unscorable two_prompt rows, substitute baseline results.
 
     A row is eligible for fallback when:
-    - its method is two_prompt or two_prompt_cyclic
+    - its method is two_prompt
     - model_status != "failure" (the API call succeeded)
     - is_correct is NaN (parsing produced no scorable answer)
 
@@ -620,7 +619,7 @@ def compute_subject_accuracy(df: pd.DataFrame) -> pd.DataFrame:
 def compute_two_stage_metrics(df: pd.DataFrame) -> pd.DataFrame:
     """Metrics specific to two-stage methods."""
     rows = []
-    two_stage_methods = [TWOPROMPT_METHOD, TWOPROMPT_CYCLIC_METHOD]
+    two_stage_methods = [TWOPROMPT_METHOD]
 
     for method in METHOD_ORDER:
         for model in MODEL_ORDER:
@@ -690,7 +689,7 @@ def main() -> None:
         action="store_true",
         default=False,
         help=(
-            "For two_prompt / two_prompt_cyclic rows that are still unscorable after "
+            "For two_prompt rows that are still unscorable after "
             "reparsing, substitute the baseline result for that question_id. "
             "Adds a fallback_count column to accuracy.csv."
         ),

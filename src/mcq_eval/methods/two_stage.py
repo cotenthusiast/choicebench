@@ -1,8 +1,4 @@
 # src/mcq_eval/methods/two_stage.py
-# Migrated from src/mcq_eval/runners/two_stage.py (Session 3) — already
-# backend-based and synchronous as of that file's Session 1/2 wiring, so no
-# logic changed in this move. See runners/two_stage.py for the deprecation
-# notice pointing back here.
 
 """
 Method: Two-Stage Prompting (Free-Text then Match)

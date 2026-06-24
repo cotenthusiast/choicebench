@@ -5,6 +5,7 @@ import hashlib
 
 import pandas as pd
 
+from mcq_eval.benchmarks.base import build_normalized_dataframe as _build_normalized_dataframe
 from mcq_eval.config.experiment import MCQ_ANSWER_MAP
 
 
@@ -75,13 +76,4 @@ def build_normalized_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     Returns:
         Pandas dataframe where each row follows the normalized schema.
     """
-    rows = []
-    for _, row in df.iterrows():
-        row_dict = {
-            "subject": row["subject"],
-            "question": row["question"],
-            "choices": row["choices"],
-            "answer": row["answer"]
-        }
-        rows.append(normalize_row(row_dict))
-    return pd.DataFrame(rows)
+    return _build_normalized_dataframe(df, normalize_row)

@@ -1,4 +1,4 @@
-# tests/evaluation/test_evaluate_run.py
+# tests/scripts/test_evaluate_run.py
 #
 # Tests for the post-hoc baseline fallback logic in scripts/evaluate_run.py.
 # The script lives outside the mcq_eval package, so we load it via importlib.
@@ -66,8 +66,6 @@ def df_mixed():
             # two_prompt — q1 unscorable (parse failure), q2 scored normally
             _row(question_id="q1", method_name="two_prompt", is_correct=None, parsed_choice=None, parse_status="missing"),
             _row(question_id="q2", method_name="two_prompt", is_correct=True, parsed_choice="C", parse_status="ok"),
-            # two_prompt_cyclic — q1 unscorable
-            _row(question_id="q1", method_name="two_prompt_cyclic", is_correct=None, parsed_choice=None, parse_status="missing"),
             # cyclic — q1 unscorable (should NOT be substituted)
             _row(question_id="q1", method_name="cyclic", is_correct=None, parsed_choice=None, parse_status="missing"),
         ]
@@ -109,12 +107,6 @@ class TestApplyBaselineFallbackSubstitution:
         result = apply_baseline_fallback(df_mixed)
         row = result[(result["question_id"] == "q1") & (result["method_name"] == "two_prompt")]
         assert row.iloc[0]["parsed_choice"] == "C"
-
-    def test_unscorable_two_prompt_cyclic_row_substituted(self, df_mixed):
-        result = apply_baseline_fallback(df_mixed)
-        row = result[(result["question_id"] == "q1") & (result["method_name"] == "two_prompt_cyclic")]
-        assert bool(row.iloc[0]["is_correct"]) is True
-        assert bool(row.iloc[0]["fallback_applied"]) is True
 
     def test_already_scored_row_not_changed(self, df_mixed):
         result = apply_baseline_fallback(df_mixed)

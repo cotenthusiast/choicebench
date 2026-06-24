@@ -1,8 +1,4 @@
 # src/mcq_eval/methods/permutation.py
-# Migrated from src/mcq_eval/runners/permutation.py (Session 3) — already
-# backend-based and synchronous as of that file's Session 1/2 wiring, so no
-# logic changed in this move. See runners/permutation.py for the deprecation
-# notice pointing back here.
 
 """
 Method: Cyclic Permutation (Majority Vote)

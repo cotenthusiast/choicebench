@@ -1,11 +1,8 @@
 # src/mcq_eval/config/schema.py
 #
 # Validated schema for the unified experiment config (config/experiment_template.yaml).
-# This describes a single (model, benchmark, methods, metrics) experiment —
-# distinct from config/default.yaml's multi-model job matrix, which
-# scripts/run_experiment.py's existing overnight-batch pipeline still uses.
-# See the TODO in scripts/run_experiment.py for the open question of how
-# (or whether) the two converge.
+# Describes a single (model, benchmark, methods, metrics) experiment, loaded
+# and validated by load_config() before scripts/run_experiment.py uses it.
 
 from __future__ import annotations
 

@@ -68,6 +68,7 @@ STRONG_MODELS = [
 
 # Together / open-weights models ----------------------------------------
 TOGETHER_QWEN_MODEL = "Qwen/Qwen2.5-7B-Instruct-Turbo"
+TOGETHER_CORE_MODEL = TOGETHER_QWEN_MODEL
 
 TOGETHER_MODELS = [
     TOGETHER_QWEN_MODEL,
