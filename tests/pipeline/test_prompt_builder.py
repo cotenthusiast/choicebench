@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from twoprompt.pipeline.prompt_builder import (
+from mcq_eval.pipeline.prompt_builder import (
     build_direct_mcq_prompt,
     build_free_text_prompt,
     build_option_matching_prompt,

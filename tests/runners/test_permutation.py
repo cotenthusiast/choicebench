@@ -2,15 +2,15 @@
 
 from pathlib import Path
 
-from twoprompt.methods.permutation import PermutationRunner
-from twoprompt.pipeline.prompt_builder import load_prompt_templates
+from mcq_eval.methods.permutation import PermutationRunner
+from mcq_eval.pipeline.prompt_builder import load_prompt_templates
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 _PROMPTS_DIR = REPO_ROOT / "prompts"
 _TEMPLATES = load_prompt_templates("v1", _PROMPTS_DIR)
-from twoprompt.clients.types import ProviderTimeoutError
-from twoprompt.scoring.types import SCORE_CORRECT, SCORE_INCORRECT, SCORE_UNSCORABLE
-from twoprompt.parsing.types import PARSE_OK, PARSE_MISSING
+from mcq_eval.clients.types import ProviderTimeoutError
+from mcq_eval.scoring.types import SCORE_CORRECT, SCORE_INCORRECT, SCORE_UNSCORABLE
+from mcq_eval.parsing.types import PARSE_OK, PARSE_MISSING
 
 from tests.runners.conftest import MockBackend
 

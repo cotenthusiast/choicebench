@@ -2,9 +2,9 @@
 
 import pytest
 
-from twoprompt.backends.base import BaseBackend
-from twoprompt.clients.base import BaseClient
-from twoprompt.clients.types import (
+from mcq_eval.backends.base import BaseBackend
+from mcq_eval.clients.base import BaseClient
+from mcq_eval.clients.types import (
     ModelRequest,
     ModelResponse,
     UsageInfo,

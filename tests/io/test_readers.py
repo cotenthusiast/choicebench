@@ -5,7 +5,7 @@ import json
 import pandas as pd
 import pytest
 
-from twoprompt.io.readers import (
+from mcq_eval.io.readers import (
     read_all_run_results,
     read_group_splits,
     read_normalized_questions,
@@ -14,7 +14,7 @@ from twoprompt.io.readers import (
     read_split_ids,
     read_split_metadata,
 )
-from twoprompt.io.writers import write_run_results
+from mcq_eval.io.writers import write_run_results
 
 
 @pytest.fixture

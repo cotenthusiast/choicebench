@@ -2,7 +2,7 @@
 
 import pytest
 
-from twoprompt.clients.types import (
+from mcq_eval.clients.types import (
     RequestValidationError,
     ResponseValidationError,
 )

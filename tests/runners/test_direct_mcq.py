@@ -2,10 +2,10 @@
 
 from pathlib import Path
 
-from twoprompt.clients.types import ProviderTimeoutError
-from twoprompt.methods.direct_mcq import DirectMCQRunner
-from twoprompt.scoring.types import SCORE_CORRECT, SCORE_INCORRECT, SCORE_UNSCORABLE
-from twoprompt.parsing.types import PARSE_OK, PARSE_MISSING
+from mcq_eval.clients.types import ProviderTimeoutError
+from mcq_eval.methods.direct_mcq import DirectMCQRunner
+from mcq_eval.scoring.types import SCORE_CORRECT, SCORE_INCORRECT, SCORE_UNSCORABLE
+from mcq_eval.parsing.types import PARSE_OK, PARSE_MISSING
 
 from tests.runners.conftest import MockBackend
 

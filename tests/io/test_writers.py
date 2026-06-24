@@ -5,7 +5,7 @@ import json
 import pandas as pd
 import pytest
 
-from twoprompt.io.writers import (
+from mcq_eval.io.writers import (
     write_normalized_questions,
     write_run_results,
     write_split_ids,

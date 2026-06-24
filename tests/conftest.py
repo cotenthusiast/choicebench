@@ -7,7 +7,7 @@ from typing import Any
 import pandas as pd
 import pytest
 
-from twoprompt.clients.types import (
+from mcq_eval.clients.types import (
     SUCCESS_STATUS,
     FAILURE_STATUS,
     ErrorInfo,
@@ -16,7 +16,7 @@ from twoprompt.clients.types import (
     RequestMetadata,
     UsageInfo,
 )
-from twoprompt.config.experiment import (
+from mcq_eval.config.experiment import (
     MMLU_QUESTIONS_PER_SUBJECT,
     REVIEW_SUBJECTS,
     ROBUSTNESS_SUBJECTS,

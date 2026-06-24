@@ -1,9 +1,9 @@
 """Compute evaluation metrics for one experiment run."""
 
 # TODO (Session 3 Task 5): compute_accuracy() and compute_positional_bias()
-# below duplicate logic that now also lives in src/twoprompt/metrics/
+# below duplicate logic that now also lives in src/mcq_eval/metrics/
 # (Accuracy, MAD — BaseMetric subclasses, registered in
-# twoprompt.metrics.BUILTIN_METRICS). This script was not rewritten to use
+# mcq_eval.metrics.BUILTIN_METRICS). This script was not rewritten to use
 # them — it still computes accuracy/MAD/CIs inline, plus several
 # metrics/tables (overlap, choice shifts, subject accuracy, two-stage
 # metrics) that have no BaseMetric equivalent yet. Migrating this script to
@@ -21,15 +21,15 @@ import pandas as pd
 import yaml
 from scipy.stats import beta as _beta_dist
 
-from twoprompt.config.experiment import (
+from mcq_eval.config.experiment import (
     BASELINE_METHOD,
     PRIDE_METHOD,
     TWOPROMPT_METHOD,
     TWOPROMPT_CYCLIC_METHOD,
 )
-from twoprompt.config.paths import REPORTS_DIR, RUNS_DIR
-from twoprompt.parsing.parser import parse_model_answer
-from twoprompt.scoring.scorer import score_prediction
+from mcq_eval.config.paths import REPORTS_DIR, RUNS_DIR
+from mcq_eval.parsing.parser import parse_model_answer
+from mcq_eval.scoring.scorer import score_prediction
 
 _ROOT = Path(__file__).resolve().parents[1]
 

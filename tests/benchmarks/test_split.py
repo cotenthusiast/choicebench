@@ -2,13 +2,13 @@
 
 import pytest
 
-import twoprompt.benchmarks.split as split
-from twoprompt.benchmarks.split import (
+import mcq_eval.benchmarks.split as split
+from mcq_eval.benchmarks.split import (
     DuplicateSplitIdsError,
     InsufficientQuestionsError,
     SplitSizeMismatchError,
 )
-from twoprompt.config.experiment import ROBUSTNESS_SPLIT_SEED
+from mcq_eval.config.experiment import ROBUSTNESS_SPLIT_SEED
 
 
 def _assert_split_ids_match_expected_subject_distribution(

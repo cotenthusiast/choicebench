@@ -7,8 +7,8 @@ import pytest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-from twoprompt.clients.together_client import TogetherAIClient
-from twoprompt.clients.types import (
+from mcq_eval.clients.together_client import TogetherAIClient
+from mcq_eval.clients.types import (
     ModelRequest,
     RequestMetadata,
     ProviderCallError,

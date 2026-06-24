@@ -2,8 +2,8 @@
 
 import pytest
 
-from twoprompt.clients.base import BaseClient
-from twoprompt.clients.types import (
+from mcq_eval.clients.base import BaseClient
+from mcq_eval.clients.types import (
     ErrorInfo,
     FAILURE_STATUS,
     ModelRequest,

@@ -2,10 +2,10 @@
 
 from pathlib import Path
 
-from twoprompt.methods.two_stage_permutation import TwoStagePermutationRunner
-from twoprompt.methods.permutation import PermutationRunner
-from twoprompt.clients.types import ProviderTimeoutError
-from twoprompt.scoring.types import SCORE_CORRECT, SCORE_INCORRECT
+from mcq_eval.methods.two_stage_permutation import TwoStagePermutationRunner
+from mcq_eval.methods.permutation import PermutationRunner
+from mcq_eval.clients.types import ProviderTimeoutError
+from mcq_eval.scoring.types import SCORE_CORRECT, SCORE_INCORRECT
 
 from tests.runners.conftest import MockBackend
 

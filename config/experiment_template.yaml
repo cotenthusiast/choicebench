@@ -4,7 +4,7 @@
 # Copy this file, fill in the fields below, and run:
 #   python scripts/run_experiment.py --config path/to/your_config.yaml
 #
-# Validated by src/twoprompt/config/schema.py — load_config() raises a
+# Validated by src/mcq_eval/config/schema.py — load_config() raises a
 # ConfigError with a clear message if anything here is missing or
 # inconsistent (e.g. a logprob method paired with an API backend).
 #
@@ -32,7 +32,7 @@ model:
   # "huggingface" — local inference via HuggingFaceBackend. Supports any
   #   method with requires_logprobs: true (e.g. pride).
   # "api"         — API-backed inference via APIBackend (currently a stub —
-  #   see src/twoprompt/backends/api_backend.py). generate() only; any
+  #   see src/mcq_eval/backends/api_backend.py). generate() only; any
   #   method with requires_logprobs: true will be rejected at config-load
   #   time, not at runtime.
   # "dummy"       — DummyBackend: fixed responses, no model/API calls at
@@ -65,7 +65,7 @@ benchmark:
   name: arc_challenge
 
   # Which named split to draw from (benchmark-specific; see
-  # src/twoprompt/benchmarks/split.py for how splits are produced).
+  # src/mcq_eval/benchmarks/split.py for how splits are produced).
   split: test
 
   # Cap the number of questions for a quick/cheap run. null = use the full
@@ -80,7 +80,7 @@ benchmark:
 # Methods
 # ---------------------------------------------------------------------------
 # One entry per method to run against this model/benchmark. See
-# src/twoprompt/methods/README.md for the full list and what each does.
+# src/mcq_eval/methods/README.md for the full list and what each does.
 methods:
   - name: direct_mcq
   - name: cyclic_permutation
@@ -93,13 +93,13 @@ methods:
 # ---------------------------------------------------------------------------
 # Metrics
 # ---------------------------------------------------------------------------
-# Computed over this run's results. See src/twoprompt/metrics/README or
+# Computed over this run's results. See src/mcq_eval/metrics/README or
 # metrics/__init__.py's BUILTIN_METRICS for what's available.
 metrics:
   - accuracy
   - mad
   # Add your own metric: subclass BaseMetric in
-  # src/twoprompt/metrics/<your_metric>.py (see
+  # src/mcq_eval/metrics/<your_metric>.py (see
   # metrics/templates/base_metric_template.py) and list its name here.
 
 # ---------------------------------------------------------------------------

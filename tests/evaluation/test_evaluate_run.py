@@ -1,7 +1,7 @@
 # tests/evaluation/test_evaluate_run.py
 #
 # Tests for the post-hoc baseline fallback logic in scripts/evaluate_run.py.
-# The script lives outside the twoprompt package, so we load it via importlib.
+# The script lives outside the mcq_eval package, so we load it via importlib.
 
 import importlib.util
 import sys

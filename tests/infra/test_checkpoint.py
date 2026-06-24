@@ -4,7 +4,7 @@ import json
 import pytest
 from pathlib import Path
 
-from twoprompt.infra.checkpoint import CheckpointManager
+from mcq_eval.infra.checkpoint import CheckpointManager
 
 
 @pytest.fixture
