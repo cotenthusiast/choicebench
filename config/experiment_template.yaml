@@ -1,0 +1,117 @@
+# config/experiment_template.yaml
+#
+# Template for a single (model, benchmark, methods, metrics) experiment.
+# Copy this file, fill in the fields below, and run:
+#   python scripts/run_experiment.py --config path/to/your_config.yaml
+#
+# Validated by src/twoprompt/config/schema.py — load_config() raises a
+# ConfigError with a clear message if anything here is missing or
+# inconsistent (e.g. a logprob method paired with an API backend).
+#
+# NOTE: this schema describes ONE model running against ONE benchmark. The
+# existing overnight batch runner (config/default.yaml) instead describes a
+# multi-model job MATRIX (every model x every method x every benchmark) and
+# is not yet unified with this schema — see the TODO in
+# scripts/run_experiment.py. Use config/default.yaml for multi-model batch
+# runs against real APIs; use this schema for a single researcher-driven
+# experiment (especially against a local HuggingFace model).
+
+experiment:
+  # Free-form label for this experiment — used in output paths/logs only.
+  name: my_experiment
+
+  # Where results, logs, and any sidecars (e.g. PriDe calibration) get
+  # written. Created automatically if it doesn't exist; load_config() fails
+  # loudly if it can't be created or isn't writable.
+  output_dir: runs/my_experiment
+
+# ---------------------------------------------------------------------------
+# Model
+# ---------------------------------------------------------------------------
+model:
+  # "huggingface" — local inference via HuggingFaceBackend. Supports any
+  #   method with requires_logprobs: true (e.g. pride).
+  # "api"         — API-backed inference via APIBackend (currently a stub —
+  #   see src/twoprompt/backends/api_backend.py). generate() only; any
+  #   method with requires_logprobs: true will be rejected at config-load
+  #   time, not at runtime.
+  # "dummy"       — DummyBackend: fixed responses, no model/API calls at
+  #   all. For onboarding/smoke-testing the pipeline itself — see
+  #   config/toy_experiment.yaml. Also supports requires_logprobs methods
+  #   (fixed scores), so the full method set can be exercised without a GPU.
+  backend: huggingface
+
+  # HuggingFace hub ID (e.g. "Qwen/Qwen2.5-7B-Instruct") or local path when
+  # backend: huggingface. Provider model name (e.g. "gpt-4.1-mini") when
+  # backend: api.
+  model_name_or_path: Qwen/Qwen2.5-7B-Instruct
+
+  # "cuda" | "cpu" | "auto" (auto = device_map=auto, for multi-GPU). Ignored
+  # when backend: api.
+  device: cuda
+
+  generation_kwargs:
+    max_new_tokens: 512
+    temperature: 0.0
+    do_sample: false
+
+# ---------------------------------------------------------------------------
+# Benchmark
+# ---------------------------------------------------------------------------
+benchmark:
+  # "mmlu" | "arc_challenge" | "custom". "custom" expects your own normalized
+  # CSV — see data/processed/ for the expected column shape
+  # (question_id, subject, question_text, choice_a..d, correct_option).
+  name: arc_challenge
+
+  # Which named split to draw from (benchmark-specific; see
+  # src/twoprompt/benchmarks/split.py for how splits are produced).
+  split: test
+
+  # Cap the number of questions for a quick/cheap run. null = use the full
+  # split.
+  n_samples: null
+
+  # Restrict to specific subjects/categories (benchmark-specific; mainly
+  # meaningful for mmlu). null = no filter.
+  subject_filter: null
+
+# ---------------------------------------------------------------------------
+# Methods
+# ---------------------------------------------------------------------------
+# One entry per method to run against this model/benchmark. See
+# src/twoprompt/methods/README.md for the full list and what each does.
+methods:
+  - name: direct_mcq
+  - name: cyclic_permutation
+  - name: pride
+    # requires_logprobs methods can only be paired with backend: huggingface
+    # — load_config() raises ConfigError at load time otherwise, before any
+    # backend call is made.
+    requires_logprobs: true
+
+# ---------------------------------------------------------------------------
+# Metrics
+# ---------------------------------------------------------------------------
+# Computed over this run's results. See src/twoprompt/metrics/README or
+# metrics/__init__.py's BUILTIN_METRICS for what's available.
+metrics:
+  - accuracy
+  - mad
+  # Add your own metric: subclass BaseMetric in
+  # src/twoprompt/metrics/<your_metric>.py (see
+  # metrics/templates/base_metric_template.py) and list its name here.
+
+# ---------------------------------------------------------------------------
+# Run
+# ---------------------------------------------------------------------------
+run:
+  seed: 42
+
+  # Resume from a previous incomplete run of this experiment (checkpoint-
+  # based) rather than starting over.
+  resume: true
+
+  # Validate this config and print a preflight estimate without making any
+  # backend calls.
+  dry_run: false

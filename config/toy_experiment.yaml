@@ -1,0 +1,46 @@
+# config/toy_experiment.yaml
+#
+# Onboarding config. Uses DummyBackend (fixed responses, no model weights,
+# no API calls) against a tiny bundled 10-question synthetic dataset
+# (data/processed/toy_normalized.csv) so the pipeline can be exercised
+# without a GPU or any API key.
+#
+# Real ARC-Challenge data is NOT present in this repo (data/processed/ and
+# data/splits/ only contain a .gitkeep — see scripts/prepare_data.py for how
+# real benchmark data gets generated). benchmark.name is "custom" here,
+# pointing at the bundled toy CSV instead, so this config can actually run
+# without first downloading and preprocessing a real dataset.
+#
+# Verified: this file loads and validates via
+# twoprompt.config.schema.load_config() — see Session 3 Task 4 report for
+# what end-to-end execution wiring is and isn't done yet.
+
+experiment:
+  name: toy_experiment
+  output_dir: runs/toy_experiment
+
+model:
+  backend: dummy
+  model_name_or_path: dummy
+  device: cpu
+  generation_kwargs:
+    max_new_tokens: 16
+    temperature: 0.0
+    do_sample: false
+
+benchmark:
+  name: custom
+  split: test
+  n_samples: 10
+  subject_filter: null
+
+methods:
+  - name: direct_mcq
+
+metrics:
+  - accuracy
+
+run:
+  seed: 42
+  resume: false
+  dry_run: false

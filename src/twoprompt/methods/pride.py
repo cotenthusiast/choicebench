@@ -1,15 +1,29 @@
-# src/twoprompt/runners/pride.py
+# src/twoprompt/methods/pride.py
+# Ported from src/twoprompt/runners/pride.py (legacy Together-client logprob
+# path) and cross-referenced against ../model-generalization's
+# src/modelgen/runners/pride.py (backend.score_options()-based port,
+# read-only reference; that repo was not modified). pride_debias.py math is
+# untouched — this file only changes how logprobs are obtained.
 
-"""PriDe runner (Zheng et al., ICLR 2024) — Together + first-token logits for A/B/C/D.
-
-The position prior is estimated on a calibration set that is disjoint from
-the evaluation split.  All evaluation questions are scored with Eq.(8)
-transfer debiasing; the Eq.(1) estimation-only path has been removed.
+"""
+Method: PriDe (Permutation Debiasing) — Backend Port
+--------------------------------------------------------
+Description: Estimates the model's positional bias prior on a calibration set
+disjoint from the evaluation split, by running cyclic permutation rollouts and
+reading each rotation's per-letter log-probabilities via the backend (Eq. 7),
+then debiases each evaluation question's observed logprob distribution
+against that prior (Eq. 8) and picks the argmax. Unlike the legacy
+runners/pride.py, this version calls backend.score_options() directly and has
+no Together-specific request_logprobs / merge_option_logprobs parsing — the
+backend is responsible for returning a clean per-letter logprob list.
+Reference: Zheng et al., ICLR 2024, "Large Language Models Are Not Robust
+Multiple Choice Selectors" (arXiv:2309.03882), §3, Eq. 1/7/8.
+Backend requirements: generate + score_options
+Logprob support required: yes
 """
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 from pathlib import Path
@@ -17,11 +31,10 @@ from typing import Any, Sequence
 
 import numpy as np
 
-from twoprompt.clients.types import ModelResponse, ProviderConfigurationError
 from twoprompt.parsing.types import PARSE_OK, ParseResult
 from twoprompt.pipeline.prompt_builder import build_direct_mcq_prompt
 from twoprompt.runners.base import ExperimentRunner
-from twoprompt.runners.permutation import PermutationRunner
+from twoprompt.methods.permutation import PermutationRunner
 from twoprompt.runners.pride_debias import (
     OPTION_LETTERS,
     CalibrationState,
@@ -31,7 +44,6 @@ from twoprompt.runners.pride_debias import (
     calibration_state_uniform,
     equation7_prior_from_rollouts,
     logprob_map_to_label_distribution,
-    merge_option_logprobs,
 )
 
 logger = logging.getLogger(__name__)
@@ -69,11 +81,13 @@ class PriDeRunner(ExperimentRunner):
     Calibration questions must be disjoint from evaluation questions so that
     the estimated prior is not contaminated by in-distribution label leakage.
     All evaluation rows use ``eq8_transfer`` mode.
+
+    Logprobs come from backend.score_options() — no provider/client logic.
     """
 
     def __init__(
             self,
-            client: Any,
+            backend: Any,
             method_name: str,
             split_name: str,
             prompt_version: str,
@@ -91,7 +105,7 @@ class PriDeRunner(ExperimentRunner):
             calibration_questions: list[dict] | None = None,
     ) -> None:
         kw: dict[str, Any] = dict(
-            client=client,
+            backend=backend,
             method_name=method_name,
             split_name=split_name,
             prompt_version=prompt_version,
@@ -108,9 +122,19 @@ class PriDeRunner(ExperimentRunner):
             kw["perturbation_name"] = perturbation_name
         super().__init__(**kw)
 
-        if client.provider != "together":
-            raise ProviderConfigurationError(
-                f"PriDe requires provider 'together' (logprobs); got {client.provider!r}"
+        # REVIEW NEEDED: the legacy runners/pride.py hard-checked
+        # `client.provider != "together"` because Together was the only
+        # client wired for logprobs. The backend-based equivalent is checking
+        # supports_logprobs rather than a provider string, so this works with
+        # any future backend that implements score_options(), not just
+        # HuggingFaceBackend by name. I have not run this end-to-end against
+        # a real HuggingFaceBackend (no inference was run this session), so
+        # flagging the check itself for review.
+        if not backend.supports_logprobs:
+            raise ValueError(
+                f"PriDe requires a backend with score_options() support; "
+                f"{backend.__class__.__name__} does not "
+                f"(supports_logprobs=False)."
             )
 
         self._calibration_n = max(0, int(calibration_n))
@@ -123,19 +147,24 @@ class PriDeRunner(ExperimentRunner):
         self._calibration_state: CalibrationState = calibration_state_uniform()
 
     def _sidecar_path(self) -> Path:
-        slug = self.client.model_name.replace("/", "_").replace(" ", "_")
+        slug = self.backend.model_name.replace("/", "_").replace(" ", "_")
         return (
             self._calibration_runs_dir
             / self.run_id
             / f"pride_calibration__{slug}__{self._calibration_benchmark}.json"
         )
 
-    async def run_many(self, question_rows: Sequence[Any]) -> list[dict]:
-        await self._ensure_calibration()
-        tasks = [self.run_one(row, i) for i, row in enumerate(question_rows)]
-        return list(await asyncio.gather(*tasks))
+    def run_many(self, question_rows: Sequence[Any]) -> list[dict]:
+        # RESOLVED (Session 3 decision #2): this was async with
+        # asyncio.gather() over run_one() coroutines, but
+        # HuggingFaceBackend.generate()/score_options() are plain synchronous
+        # calls (local forward passes, nothing to await) — the gather never
+        # provided real concurrency, only complexity. Now fully synchronous,
+        # matching ExperimentRunner.run_many in runners/base.py.
+        self._ensure_calibration()
+        return [self.run_one(row, i) for i, row in enumerate(question_rows)]
 
-    async def _ensure_calibration(self) -> None:
+    def _ensure_calibration(self) -> None:
         if self._calibration_ready:
             return
 
@@ -174,12 +203,8 @@ class PriDeRunner(ExperimentRunner):
             self._calibration_state = calibration_state_uniform()
         else:
             prior_vectors: list[np.ndarray] = []
-            sample_index_hint = 0
             for row in cal_rows:
-                roll_mat, _ = await self._cyclic_rollout_prob_matrix(
-                    row, sample_index_hint
-                )
-                sample_index_hint += len(OPTION_LETTERS)
+                roll_mat = self._cyclic_rollout_prob_matrix(row)
                 prior_vectors.append(equation7_prior_from_rollouts(roll_mat))
 
             pep_global = average_prior_probability_vectors(prior_vectors)
@@ -209,13 +234,30 @@ class PriDeRunner(ExperimentRunner):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(sidecar_payload, indent=2))
 
-    async def _cyclic_rollout_prob_matrix(
-            self,
-            question_row: Any,
-            sample_index_base: int,
-    ) -> tuple[np.ndarray, ModelResponse | None]:
-        """Run all 4 cyclic permutations with logprobs → shape-(4,4) probability matrix."""
+    def _cyclic_rollout_prob_matrix(self, question_row: Any) -> np.ndarray:
+        """Run all 4 cyclic permutations through score_options() → shape-(4,4) matrix.
+
+        Per-question math is option-count-agnostic: ``letters`` below is this
+        question's real option keys (whatever length), and
+        logprob_map_to_label_distribution(..., letters=letters) now handles
+        any length >= 2 (Session 3: pride_debias.py was generalized beyond
+        the hardcoded 4-option assumption).
+
+        REVIEW NEEDED (narrower than before): _ensure_calibration still
+        averages this method's per-question prior vectors with
+        average_prior_probability_vectors(prior_vectors), which requires
+        every vector in the list to be the same length — i.e. it still
+        assumes all calibration questions share one option count. Mixing,
+        say, 3-option and 4-option calibration questions in the same run
+        would need _ensure_calibration switched to the new
+        average_prior_probability_dicts (masked per-letter averaging) and
+        this method updated to return per-question (vector, real_letters)
+        pairs instead of a bare array. Not done here — Task 3 was scoped to
+        pride_debias.py itself, not to wiring every caller's calibration
+        loop through the new capability.
+        """
         canon = self._build_options(question_row)
+        letters = list(canon.keys())
         permutations = PermutationRunner._generate_permutations(canon)
         prompts = [
             PermutationRunner._build_permuted_prompt(
@@ -225,96 +267,90 @@ class PriDeRunner(ExperimentRunner):
             )
             for perm in permutations
         ]
-        reqs = [
-            self._build_model_request(
-                question_row,
-                prompt,
-                sample_index_base + k,
-                request_logprobs=True,
-            )
-            for k, prompt in enumerate(prompts)
-        ]
-        responses = list(
-            await asyncio.gather(*[self.client.generate(r) for r in reqs])
-        )
+
+        uni = np.ones(len(letters), dtype=np.float64) / len(letters)
         rows: list[np.ndarray] = []
-        display: ModelResponse | None = None
-        uni = np.ones(len(OPTION_LETTERS), dtype=np.float64) / len(OPTION_LETTERS)
-        for resp in responses:
-            if display is None and resp is not None and resp.is_success():
-                display = resp
-            if resp.is_success():
-                lp = merge_option_logprobs(resp.logprobs)
-                rows.append(logprob_map_to_label_distribution(lp) if lp else uni.copy())
-            else:
+        for prompt in prompts:
+            try:
+                scores = self.backend.score_options(prompt, letters)
+                lp_map = dict(zip(letters, scores))
+                rows.append(logprob_map_to_label_distribution(lp_map, letters=letters))
+            except Exception as exc:
+                logger.warning("PriDe calibration: score_options failed — %s", exc)
                 rows.append(uni.copy())
 
-        return np.stack(rows, axis=0).astype(np.float64), display
+        return np.stack(rows, axis=0).astype(np.float64)
 
-    async def run_one(self, question_row: Any, sample_index: int) -> dict:
-        await self._ensure_calibration()
+    def run_one(self, question_row: Any, sample_index: int) -> dict:
+        self._ensure_calibration()
 
         options = self._build_options(question_row)
+        letters = list(options.keys())
         prompt = self._build_prompt(question_row)
-        model_request = self._build_model_request(
-            question_row, prompt, sample_index, request_logprobs=True
-        )
-        model_response = await self.client.generate(model_request)
 
-        parsed_result_raw = None
-        score_raw = None
-        score_adjusted = None
+        # PriDe never calls backend.generate() — score_options() is the only
+        # backend call this method makes. model_request is still built (no
+        # I/O — it's just a metadata object) so _build_result_row can
+        # populate provider/model_name/temperature/etc. as usual.
+        model_request = self._build_model_request(question_row, prompt, sample_index)
+
         adjusted_letter: str | None = None
+        score_adjusted = None
+        lp_map: dict[str, float] = {}
+        scoring_error: str | None = None
 
-        if model_response.is_success():
-            parsed_result_raw, score_raw = self._parse_and_score(
-                raw_text=model_response.raw_text,
-                correct_option=question_row["correct_option"],
-                options=options,
+        try:
+            scores = self.backend.score_options(prompt, letters)
+            lp_map = dict(zip(letters, scores))
+        except Exception as exc:
+            scoring_error = str(exc)
+            logger.warning(
+                "PriDe: score_options failed for question %s — %s",
+                question_row["question_id"],
+                exc,
             )
-            lp = merge_option_logprobs(model_response.logprobs)
-            if not lp:
-                logger.warning(
-                    "PriDe: empty logprobs for question %s — skipping debiasing.",
-                    question_row["question_id"],
-                )
-            else:
-                adjusted_letter = apply_debiased_choice_from_defaults(
-                    self._calibration_state,
-                    lp,
-                    eps_prob=1e-12,
-                )
-                adj_parse = ParseResult(
-                    final_choice=adjusted_letter,
-                    status=PARSE_OK,
-                    raw_text=model_response.raw_text,
-                    normalized_text=(
-                        adjusted_letter
-                        if parsed_result_raw is None
-                        else parsed_result_raw.normalized_text
-                    ),
-                    reason="pride_eq8",
-                )
-                score_adjusted = self._score(adj_parse, question_row["correct_option"])
 
+        if not lp_map:
+            logger.warning(
+                "PriDe: empty logprobs for question %s — skipping debiasing.",
+                question_row["question_id"],
+            )
+        else:
+            adjusted_letter = apply_debiased_choice_from_defaults(
+                self._calibration_state,
+                lp_map,
+                letters=tuple(letters),
+                eps_prob=1e-12,
+            )
+            adj_parse = ParseResult(
+                final_choice=adjusted_letter,
+                status=PARSE_OK,
+                raw_text=None,
+                normalized_text=adjusted_letter,
+                reason="pride_eq8",
+            )
+            score_adjusted = self._score(adj_parse, question_row["correct_option"])
+
+        # PORT NOTE: the legacy runners/pride.py also called backend.generate()
+        # to get an unmitigated "raw" text answer for comparison, and stored
+        # it as is_correct_raw / score_status_raw. This port only calls
+        # score_options() (no generate() call at all), so there is no raw
+        # text answer to compare against — those two columns are dropped.
+        # Confirmed no script or test reads them (grepped scripts/, src/,
+        # tests/ — only runners/pride.py itself wrote them).
         row = self._build_result_row(
             question_row=question_row,
             prompt=prompt,
             model_request=model_request,
-            model_response=model_response,
-            parsed_result=parsed_result_raw,
-            score_result=score_raw,
+            model_response=None,
+            parsed_result=None,
+            score_result=None,
+            error=scoring_error,
         )
         row["pride_inference_mode"] = "eq8_transfer"
         row["pride_adjusted_choice"] = adjusted_letter
-        row["is_correct_raw"] = score_raw.is_correct if score_raw else None
-        row["score_status_raw"] = score_raw.status if score_raw else None
         row["peprior_json"] = json.dumps(self._calibration_state.peprior_probs)
-        row["option_logprob_json"] = (
-            json.dumps(merge_option_logprobs(model_response.logprobs))
-            if model_response.is_success()
-            else None
-        )
+        row["option_logprob_json"] = json.dumps(lp_map) if lp_map else None
         if score_adjusted is not None:
             row["score_status"] = score_adjusted.status
             row["is_correct"] = score_adjusted.is_correct

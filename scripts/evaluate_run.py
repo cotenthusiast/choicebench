@@ -1,5 +1,17 @@
 """Compute evaluation metrics for one experiment run."""
 
+# TODO (Session 3 Task 5): compute_accuracy() and compute_positional_bias()
+# below duplicate logic that now also lives in src/twoprompt/metrics/
+# (Accuracy, MAD — BaseMetric subclasses, registered in
+# twoprompt.metrics.BUILTIN_METRICS). This script was not rewritten to use
+# them — it still computes accuracy/MAD/CIs inline, plus several
+# metrics/tables (overlap, choice shifts, subject accuracy, two-stage
+# metrics) that have no BaseMetric equivalent yet. Migrating this script to
+# discover and run metrics from config.yaml's metrics: list via
+# BUILTIN_METRICS (per the framework's "one config.yaml, one command" goal)
+# is the next step, not done this session — flagging the integration point,
+# not rewriting the script.
+
 import argparse
 import sys
 from pathlib import Path

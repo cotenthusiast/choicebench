@@ -1,4 +1,23 @@
-# src/twoprompt/runners/direct_mcq.py
+# src/twoprompt/methods/direct_mcq.py
+# Migrated from src/twoprompt/runners/direct_mcq.py (Session 3) — already
+# backend-based and synchronous as of that file's Session 1/2 wiring, so no
+# logic changed in this move. See runners/direct_mcq.py for the deprecation
+# notice pointing back here.
+
+"""
+Method: Direct MCQ (Baseline)
+------------------------------
+Description: Presents the model with the question and all four lettered options
+in a single prompt and parses the letter it selects. This is the conventional,
+unmitigated way of evaluating an LLM on multiple-choice questions — every other
+method in this package exists to measure or reduce the positional bias this
+baseline is susceptible to.
+Reference: n/a (standard MCQ evaluation baseline; contrasted against by
+Zheng et al., ICLR 2024, "Large Language Models Are Not Robust Multiple Choice
+Selectors", arXiv:2309.03882).
+Backend requirements: generate only
+Logprob support required: no
+"""
 
 from typing import Any
 
@@ -10,11 +29,11 @@ class DirectMCQRunner(ExperimentRunner):
     """Runner for the direct MCQ baseline condition.
 
     Presents the model with a standard multiple-choice question and
-    expects a single letter response. One prompt, one API call per
+    expects a single letter response. One prompt, one backend call per
     question.
     """
 
-    async def run_one(self, question_row: Any, sample_index: int) -> dict:
+    def run_one(self, question_row: Any, sample_index: int) -> dict:
         """Execute one question through the direct MCQ baseline.
 
         Args:
@@ -27,7 +46,7 @@ class DirectMCQRunner(ExperimentRunner):
         """
         prompt = self._build_prompt(question_row)
         model_request = self._build_model_request(question_row, prompt, sample_index)
-        model_response = await self.client.generate(model_request)
+        model_response = self._call_backend_generate(model_request, prompt)
 
         parsed_result = None
         score_result = None

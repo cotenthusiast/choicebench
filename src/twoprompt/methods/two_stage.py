@@ -1,4 +1,24 @@
-# src/twoprompt/runners/two_stage.py
+# src/twoprompt/methods/two_stage.py
+# Migrated from src/twoprompt/runners/two_stage.py (Session 3) — already
+# backend-based and synchronous as of that file's Session 1/2 wiring, so no
+# logic changed in this move. See runners/two_stage.py for the deprecation
+# notice pointing back here.
+
+"""
+Method: Two-Stage Prompting (Free-Text then Match)
+-----------------------------------------------------
+Description: Stage one asks the model to answer the question in free text,
+without showing it the lettered options at all — removing any positional
+anchoring at the point the model actually reasons about the answer. Stage two
+shows the model its own free-text answer alongside the four lettered options
+and asks it to pick the matching letter. An optional fallback re-issues a
+direct MCQ prompt if stage two's match is unparseable.
+Reference: this project's primary research method — tests whether eliciting
+a free-text answer before the model ever sees option letters reduces the
+positional bias documented by Zheng et al., ICLR 2024 (arXiv:2309.03882).
+Backend requirements: generate only (2 calls per question, or 3 with fallback)
+Logprob support required: no
+"""
 
 from typing import Any
 
@@ -26,7 +46,7 @@ class TwoStageRunner(ExperimentRunner):
         super().__init__(*args, **kwargs)
         self._fallback_on_parse_failure = fallback_on_parse_failure
 
-    async def run_one(self, question_row: Any, sample_index: int) -> dict:
+    def run_one(self, question_row: Any, sample_index: int) -> dict:
         """Execute one question through the two-stage pipeline.
 
         Args:
@@ -46,7 +66,7 @@ class TwoStageRunner(ExperimentRunner):
         free_text_request = self._build_model_request(
             question_row, free_text_prompt, sample_index,
         )
-        free_text_response = await self.client.generate(free_text_request)
+        free_text_response = self._call_backend_generate(free_text_request, free_text_prompt)
 
         # If stage 1 fails, return early
         if not free_text_response.is_success():
@@ -74,7 +94,7 @@ class TwoStageRunner(ExperimentRunner):
         matching_request = self._build_model_request(
             question_row, matching_prompt, sample_index,
         )
-        matching_response = await self.client.generate(matching_request)
+        matching_response = self._call_backend_generate(matching_request, matching_prompt)
 
         # Parse and score the stage 2 response
         parsed_result = None
@@ -88,8 +108,9 @@ class TwoStageRunner(ExperimentRunner):
             )
 
         # Fallback: if matching was unparseable, re-issue the direct MCQ prompt.
-        # Goes through the normal client path — hits cache if baseline already ran,
-        # makes a live API call otherwise.
+        # Goes through the normal backend.generate() path — caching, if any,
+        # is the backend's responsibility (e.g. inside APIBackend), not
+        # something this runner controls directly.
         fallback_used = False
         if (
             self._fallback_on_parse_failure
@@ -107,7 +128,7 @@ class TwoStageRunner(ExperimentRunner):
             fallback_request = self._build_model_request(
                 question_row, fallback_prompt, sample_index
             )
-            fallback_response = await self.client.generate(fallback_request)
+            fallback_response = self._call_backend_generate(fallback_request, fallback_prompt)
             if fallback_response.is_success():
                 parsed_result, score_result = self._parse_and_score(
                     raw_text=fallback_response.raw_text,

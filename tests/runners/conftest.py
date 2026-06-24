@@ -2,6 +2,7 @@
 
 import pytest
 
+from twoprompt.backends.base import BaseBackend
 from twoprompt.clients.base import BaseClient
 from twoprompt.clients.types import (
     ModelRequest,
@@ -45,6 +46,57 @@ class MockClient(BaseClient):
             self._call_count += 1
             return response
         raise RuntimeError("MockClient has no more queued responses.")
+
+
+class MockBackend(BaseBackend):
+    """Test double: queues a sequence of fixed text responses for backend.generate().
+
+    Mirrors MockClient's queueing behavior (one entry consumed per call,
+    raises once exhausted) but implements BaseBackend's generate(prompt) -> str
+    contract instead of the client-level ModelRequest/ModelResponse contract.
+
+    Each queued entry is either a str (returned as the generated text) or an
+    Exception instance (raised — ExperimentRunner._call_backend_generate
+    catches it and turns it into a failure ModelResponse, so
+    result["error_type"] becomes the exception's class name, matching the
+    old MockClient + _make_failure_response behavior).
+    """
+
+    def __init__(
+            self,
+            responses: list[str | Exception] | None = None,
+            provider: str = "openai",
+            model_name: str = "gpt-4.1-mini",
+            supports_logprobs: bool = False,
+    ) -> None:
+        self._provider = provider
+        self._model_name = model_name
+        self._supports_logprobs = supports_logprobs
+        self._responses = list(responses) if responses else []
+        self._call_count = 0
+        self.requests_received: list[str] = []
+
+    @property
+    def model_name(self) -> str:
+        return self._model_name
+
+    @property
+    def provider(self) -> str:
+        return self._provider
+
+    @property
+    def supports_logprobs(self) -> bool:
+        return self._supports_logprobs
+
+    def generate(self, prompt: str, **kwargs) -> str:
+        self.requests_received.append(prompt)
+        if self._call_count < len(self._responses):
+            response = self._responses[self._call_count]
+            self._call_count += 1
+            if isinstance(response, Exception):
+                raise response
+            return response
+        raise RuntimeError("MockBackend has no more queued responses.")
 
 
 def _make_success_response(

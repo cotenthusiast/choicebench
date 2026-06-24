@@ -1,6 +1,28 @@
-# src/twoprompt/runners/two_stage_permutation.py
+# src/twoprompt/methods/two_stage_permutation.py
+# Migrated from src/twoprompt/runners/two_stage_permutation.py (Session 3) —
+# already backend-based and synchronous as of that file's Session 1/2 wiring,
+# so no logic changed in this move. The only change is the PermutationRunner
+# import, repointed to its sibling methods/permutation.py instead of the
+# soon-to-be-deprecated runners/permutation.py, so methods/ does not depend
+# on runners/ for anything but the shared ExperimentRunner base. See
+# runners/two_stage_permutation.py for the deprecation notice pointing here.
 
-import asyncio
+"""
+Method: Two-Stage + Cyclic Permutation
+-----------------------------------------
+Description: Combines the two methods above. Stage one elicits one free-text
+answer per question, exactly as in two_stage. Stage two reuses that same
+free-text answer across every cyclic permutation of the option ordering,
+issuing N option-matching prompts, un-permuting each parsed letter, and
+taking a majority vote. Tests whether the two mitigations compose rather
+than substitute for one another.
+Reference: combination of this project's two-stage method with the
+cyclic-permutation mitigation from Zheng et al., ICLR 2024 (arXiv:2309.03882).
+Backend requirements: generate only (1 + N calls per question, or +1 with
+fallback)
+Logprob support required: no
+"""
+
 from typing import Any
 
 from twoprompt.parsing.types import ParseResult, PARSE_OK, PARSE_MISSING
@@ -10,7 +32,7 @@ from twoprompt.pipeline.prompt_builder import (
     build_option_matching_prompt,
 )
 from twoprompt.runners.base import ExperimentRunner
-from twoprompt.runners.permutation import PermutationRunner
+from twoprompt.methods.permutation import PermutationRunner
 
 
 class TwoStagePermutationRunner(ExperimentRunner):
@@ -19,7 +41,7 @@ class TwoStagePermutationRunner(ExperimentRunner):
     Stage one elicits a free-text answer without exposing options.
     Stage two generates N cyclic permutations of the option order,
     builds N option-matching prompts using the same free-text answer,
-    makes N parallel API calls, un-permutes each parsed letter, and
+    makes N backend calls, un-permutes each parsed letter, and
     determines the final answer by majority vote.
 
     Reuses permutation helpers from PermutationRunner.
@@ -29,7 +51,7 @@ class TwoStagePermutationRunner(ExperimentRunner):
         super().__init__(*args, **kwargs)
         self._fallback_on_parse_failure = fallback_on_parse_failure
 
-    async def run_one(self, question_row: Any, sample_index: int) -> dict:
+    def run_one(self, question_row: Any, sample_index: int) -> dict:
         """Execute one question through two-stage + permutation.
 
         Args:
@@ -49,7 +71,7 @@ class TwoStagePermutationRunner(ExperimentRunner):
         free_text_request = self._build_model_request(
             question_row, free_text_prompt, sample_index,
         )
-        free_text_response = await self.client.generate(free_text_request)
+        free_text_response = self._call_backend_generate(free_text_request, free_text_prompt)
 
         # If stage 1 fails, return early
         if not free_text_response.is_success():
@@ -86,10 +108,12 @@ class TwoStagePermutationRunner(ExperimentRunner):
             for prompt in prompts
         ]
 
-        # Fire all permutation calls in parallel
-        responses = await asyncio.gather(
-            *[self.client.generate(req) for req in requests]
-        )
+        # One backend call per permutation (sequential — backend calls are
+        # compute-bound local forward passes or already-blocking API calls).
+        responses = [
+            self._call_backend_generate(req, prompt)
+            for req, prompt in zip(requests, prompts)
+        ]
 
         # Parse each response and un-permute back to canonical ordering
         canonical_choices: list[str | None] = []
@@ -125,8 +149,9 @@ class TwoStagePermutationRunner(ExperimentRunner):
             score_result = self._score(voted_parse, question_row["correct_option"])
 
         # Fallback: if majority vote produced no winner, re-issue the direct MCQ prompt.
-        # Goes through the normal client path — hits cache if baseline already ran,
-        # makes a live API call otherwise.
+        # Goes through the normal backend.generate() path — caching, if any,
+        # is the backend's responsibility (e.g. inside APIBackend), not
+        # something this runner controls directly.
         fallback_used = False
         if self._fallback_on_parse_failure and voted_letter is None:
             fallback_prompt = build_direct_mcq_prompt(
@@ -140,7 +165,7 @@ class TwoStagePermutationRunner(ExperimentRunner):
             fallback_request = self._build_model_request(
                 question_row, fallback_prompt, sample_index
             )
-            fallback_response = await self.client.generate(fallback_request)
+            fallback_response = self._call_backend_generate(fallback_request, fallback_prompt)
             if fallback_response.is_success():
                 fallback_parse, fallback_score = self._parse_and_score(
                     raw_text=fallback_response.raw_text,

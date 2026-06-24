@@ -1,6 +1,25 @@
-# src/twoprompt/runners/permutation.py
+# src/twoprompt/methods/permutation.py
+# Migrated from src/twoprompt/runners/permutation.py (Session 3) — already
+# backend-based and synchronous as of that file's Session 1/2 wiring, so no
+# logic changed in this move. See runners/permutation.py for the deprecation
+# notice pointing back here.
 
-import asyncio
+"""
+Method: Cyclic Permutation (Majority Vote)
+-------------------------------------------
+Description: Generates every cyclic rotation of the option ordering for a
+question (4 rotations for a 4-option question), issues one prompt per
+rotation, maps each parsed letter back to the canonical ordering, and takes
+the majority vote across rotations as the final answer. Mitigates positional
+bias by averaging a single question's answer over every position the correct
+option could have been placed in.
+Reference: Zheng et al., ICLR 2024, "Large Language Models Are Not Robust
+Multiple Choice Selectors" (arXiv:2309.03882) — cyclic-permutation mitigation
+(related to their Eq. 1).
+Backend requirements: generate only
+Logprob support required: no
+"""
+
 import collections
 from typing import Any
 
@@ -13,11 +32,11 @@ class PermutationRunner(ExperimentRunner):
     """Runner for the cyclic permutation condition.
 
     Generates N cyclic permutations of the option order for each question,
-    makes N parallel API calls, un-permutes each parsed answer back to
+    makes N backend calls, un-permutes each parsed answer back to
     canonical ordering, and determines the final answer by majority vote.
     """
 
-    async def run_one(self, question_row: Any, sample_index: int) -> dict:
+    def run_one(self, question_row: Any, sample_index: int) -> dict:
         """Execute one question through all cyclic permutations.
 
         Args:
@@ -41,10 +60,12 @@ class PermutationRunner(ExperimentRunner):
             for prompt in prompts
         ]
 
-        # Fire all permutation calls in parallel
-        responses = await asyncio.gather(
-            *[self.client.generate(req) for req in requests]
-        )
+        # One backend call per permutation (sequential — backend calls are
+        # compute-bound local forward passes or already-blocking API calls).
+        responses = [
+            self._call_backend_generate(req, prompt)
+            for req, prompt in zip(requests, prompts)
+        ]
 
         # Parse each response and un-permute back to canonical ordering
         canonical_choices: list[str | None] = []

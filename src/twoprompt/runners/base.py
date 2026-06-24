@@ -2,14 +2,20 @@
 
 from __future__ import annotations
 
-import asyncio
 from abc import ABC, abstractmethod
 from typing import Any, Sequence
 
 from pathlib import Path
 
-from twoprompt.clients.base import BaseClient
-from twoprompt.clients.types import ModelRequest, ModelResponse, RequestMetadata
+from twoprompt.backends.base import BaseBackend
+from twoprompt.clients.types import (
+    ErrorInfo,
+    FAILURE_STATUS,
+    ModelRequest,
+    ModelResponse,
+    RequestMetadata,
+    SUCCESS_STATUS,
+)
 from twoprompt.config.models import MAX_TOKENS, SEED, TEMPERATURE
 from twoprompt.parsing.parser import parse_model_answer
 from twoprompt.parsing.types import ParseResult
@@ -29,7 +35,7 @@ class ExperimentRunner(ABC):
 
     def __init__(
             self,
-            client: BaseClient,
+            backend: BaseBackend,
             method_name: str,
             split_name: str,
             prompt_version: str,
@@ -40,7 +46,7 @@ class ExperimentRunner(ABC):
             seed: int | None = SEED,
             perturbation_name: str | None = None,
     ) -> None:
-        self.client = client
+        self.backend = backend
         self.method_name = method_name
         self.split_name = split_name
         self.prompt_version = prompt_version
@@ -52,7 +58,7 @@ class ExperimentRunner(ABC):
         self._prompts = load_prompt_templates(prompt_version, prompts_dir)
 
     @abstractmethod
-    async def run_one(self, question_row: Any, sample_index: int) -> dict:
+    def run_one(self, question_row: Any, sample_index: int) -> dict:
         """Execute a single question through this experimental condition.
 
         Args:
@@ -63,8 +69,12 @@ class ExperimentRunner(ABC):
             Flat result dictionary ready for serialization.
         """
 
-    async def run_many(self, question_rows: Sequence[Any]) -> list[dict]:
+    def run_many(self, question_rows: Sequence[Any]) -> list[dict]:
         """Execute multiple questions through this experimental condition.
+
+        Synchronous: backend calls (generate/score_options) are compute-bound
+        local forward passes or already-blocking API calls, not awaitable
+        I/O, so there is no concurrency to gain from asyncio here.
 
         Args:
             question_rows: Sequence of normalized question records.
@@ -72,8 +82,53 @@ class ExperimentRunner(ABC):
         Returns:
             List of flat result dictionaries, one per question.
         """
-        tasks = [self.run_one(row, i) for i, row in enumerate(question_rows)]
-        return list(await asyncio.gather(*tasks))
+        return [self.run_one(row, i) for i, row in enumerate(question_rows)]
+
+    def _call_backend_generate(
+            self,
+            model_request: ModelRequest,
+            prompt: str,
+    ) -> ModelResponse:
+        """Call backend.generate() and wrap the result in a ModelResponse.
+
+        BaseBackend.generate() takes a bare prompt string and returns a bare
+        string (or raises) — it carries no latency/usage/finish_reason
+        metadata, unlike the old client-level ModelResponse contract. This
+        wraps that minimal contract back into the existing ModelResponse
+        shape so _build_result_row keeps working unchanged. latency_seconds,
+        finish_reason, usage, and timestamp_utc are not available at this
+        layer and are left at their empty defaults.
+
+        Args:
+            model_request: The request metadata object for this call (used
+                only for its .metadata field here — the prompt itself is
+                passed separately since BaseBackend.generate() takes a plain
+                string, not a ModelRequest).
+            prompt: The prompt string to send to the backend.
+
+        Returns:
+            A ModelResponse reflecting success (raw_text set) or failure
+            (error set), matching the shape _build_result_row expects.
+        """
+        try:
+            raw_text = self.backend.generate(prompt)
+        except Exception as exc:
+            return ModelResponse(
+                provider=self.backend.provider,
+                model_name=self.backend.model_name,
+                status=FAILURE_STATUS,
+                latency_seconds=0.0,
+                metadata=model_request.metadata,
+                error=ErrorInfo(type(exc).__name__, str(exc), False, "backend_generate"),
+            )
+        return ModelResponse(
+            provider=self.backend.provider,
+            model_name=self.backend.model_name,
+            status=SUCCESS_STATUS,
+            latency_seconds=0.0,
+            metadata=model_request.metadata,
+            raw_text=raw_text,
+        )
 
     def _build_model_request(
             self,
@@ -92,7 +147,7 @@ class ExperimentRunner(ABC):
                 (Together only in this codebase).
 
         Returns:
-            A validated ModelRequest ready for client execution.
+            A validated ModelRequest ready for backend execution.
         """
         metadata = RequestMetadata(
             question_id=question_row["question_id"],
@@ -106,8 +161,8 @@ class ExperimentRunner(ABC):
         )
 
         return ModelRequest(
-            provider=self.client.provider,
-            model_name=self.client.model_name,
+            provider=self.backend.provider,
+            model_name=self.backend.model_name,
             payload=prompt,
             metadata=metadata,
             temperature=self.temperature,
@@ -131,13 +186,13 @@ class ExperimentRunner(ABC):
         Args:
             question_row: Normalized question record.
             prompt: Prompt string that was sent to the model.
-            model_request: The request object sent to the client.
-            model_response: The response object returned by the client,
+            model_request: The request object sent to the backend.
+            model_response: The response object returned by the backend,
                 or None if the call was never made.
             parsed_result: Structured parse output, or None.
             score_result: Structured score output, or None.
             error: Optional error message for failures that occur
-                outside the client layer.
+                outside the backend layer.
 
         Returns:
             Flat dictionary containing all trace, model, parse, and

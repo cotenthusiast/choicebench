@@ -75,9 +75,20 @@ def logprob_map_to_label_distribution(
     """Softmax over option-ID letters from merged first-token logprobs.
 
     Missing letters receive ``_LOGPROB_FLOOR`` logits so they rarely win but
-    the distribution still normalizes like a categorical over four labels.
+    the distribution still normalizes like a categorical over ``len(letters)``
+    labels. ``letters`` may be any subset of OPTION_LETTERS with length >= 2
+    — e.g. a question's real options only (3 for a 3-option ARC-Challenge
+    item with no D) — the option count is inferred from ``len(letters)``.
+
+    Raises:
+        ValueError: if fewer than 2 option letters are given.
     """
     letters_t = tuple(letters)
+    if len(letters_t) < 2:
+        raise ValueError(
+            f"logprob_map_to_label_distribution requires at least 2 option "
+            f"letters; got {len(letters_t)} ({letters_t!r})."
+        )
     logits = []
     for L in letters_t:
         v = float(logp_map.get(L, _LOGPROB_FLOOR))
@@ -112,12 +123,21 @@ def equation1_cyclic_debiased_content_probs(
 
     ``per_perm_label_probs[k, j]`` = P(observed picks letter ``OPTION_LETTERS[j]``
     ``|`` cyclic permutation ``k``), matching :class:`PermutationRunner`'s
-    rotations over option *text*.
+    rotations over option *text*. Works for any option count n >= 2 — n is
+    inferred from the matrix shape, not hardcoded.
+
+    Raises:
+        ValueError: if the rollout matrix isn't square, or represents fewer
+            than 2 options.
     """
     n = per_perm_label_probs.shape[0]
     if per_perm_label_probs.shape[1] != n:
         raise ValueError(
             f"Expect square rollout matrix ({n}x{n}), got {per_perm_label_probs.shape}"
+        )
+    if n < 2:
+        raise ValueError(
+            f"Eq.(1) requires at least 2 options; got an {n}x{n} rollout matrix."
         )
     out = np.zeros(n, dtype=np.float64)
     for canon_idx in range(n):
@@ -138,9 +158,23 @@ def equation8_debiased_content_probs(
         *,
         eps: float = 1e-12,
 ) -> np.ndarray:
-    """Eq.~(8): P_debiased(oi | q,x) proportional to P_obs(di|q,x)/P_eprior(di)."""
+    """Eq.~(8): P_debiased(oi | q,x) proportional to P_obs(di|q,x)/P_eprior(di).
+
+    Works for any option count n >= 2 — n is inferred from the input shapes.
+
+    Raises:
+        ValueError: if the two probability vectors have mismatched shapes,
+            or represent fewer than 2 options.
+    """
     num = np.array(default_label_probs, dtype=np.float64, copy=True)
     den = np.array(peprior_probs, dtype=np.float64, copy=True)
+    if num.shape != den.shape:
+        raise ValueError(
+            f"Eq.(8) requires default_label_probs and peprior_probs to have "
+            f"matching shape; got {num.shape} vs {den.shape}."
+        )
+    if num.size < 2:
+        raise ValueError(f"Eq.(8) requires at least 2 options; got {num.size}.")
     den = np.clip(den, eps, None)
     num = np.clip(num, eps, None)
     w = num / den
@@ -151,7 +185,13 @@ def equation8_debiased_content_probs(
 
 
 def average_prior_probability_vectors(vectors: list[np.ndarray]) -> np.ndarray:
-    """Mean of per-sample Eq.~(7) priors, renormalized."""
+    """Mean of per-sample Eq.~(7) priors, renormalized.
+
+    Requires every vector to be the same length — use
+    ``average_prior_probability_dicts`` when calibration questions can have
+    different real-option counts (e.g. a 3-option ARC-Challenge item mixed
+    in with 4-option items).
+    """
     if not vectors:
         u = np.ones(len(OPTION_LETTERS), dtype=np.float64) / len(OPTION_LETTERS)
         return u
@@ -160,6 +200,46 @@ def average_prior_probability_vectors(vectors: list[np.ndarray]) -> np.ndarray:
     m = np.clip(m, 1e-12, None)
     m = m / m.sum()
     return m
+
+
+def average_prior_probability_dicts(
+        dicts: list[Mapping[str, float]],
+        letters: tuple[str, ...] = OPTION_LETTERS,
+) -> dict[str, float]:
+    """Mean of per-question Eq.~(7) priors, masked per letter.
+
+    Each per-question dict only contains the letters that were real options
+    for that question — e.g. 3 entries (A, B, C) for a 3-option ARC-Challenge
+    item with no D. A letter's global average is taken only over the
+    questions that actually had that letter as a real option, so a question
+    missing D still contributes to A/B/C's average but is excluded from D's
+    rather than diluting it with a phantom or floor-filled value.
+
+    Use this instead of ``average_prior_probability_vectors`` when
+    calibration questions can have different real-option counts. If every
+    question in your calibration set has the same option count, the two are
+    equivalent and ``average_prior_probability_vectors`` is simpler.
+
+    Raises:
+        ValueError: if letters has fewer than 2 entries.
+    """
+    if len(letters) < 2:
+        raise ValueError(
+            f"average_prior_probability_dicts requires at least 2 option "
+            f"letters; got {len(letters)} ({letters!r})."
+        )
+    if not dicts:
+        uni = 1.0 / len(letters)
+        return {L: uni for L in letters}
+    out: dict[str, float] = {}
+    for L in letters:
+        vals = [float(d[L]) for d in dicts if L in d]
+        out[L] = sum(vals) / len(vals) if vals else 0.0
+    total = sum(out.values())
+    if total > 0:
+        return {L: v / total for L, v in out.items()}
+    uni = 1.0 / len(letters)
+    return {L: uni for L in letters}
 
 
 def dict_probs_to_ordered(prob_map: Mapping[str, float]) -> np.ndarray:
@@ -233,12 +313,33 @@ def apply_debiased_choice_from_defaults(
         state: CalibrationState,
         default_logp_map: Mapping[str, float],
         *,
+        letters: tuple[str, ...] = OPTION_LETTERS,
         eps_prob: float = 1e-12,
 ) -> str:
-    """Argmax Eq.~(8) over canonical content slots (letters A–D order)."""
-    default_probs = logprob_map_to_label_distribution(dict(default_logp_map), eps_prob=eps_prob)
-    pep = dict_probs_to_ordered(state.peprior_probs)
+    """Argmax Eq.~(8), restricted to ``letters`` — this question's real options.
+
+    ``letters`` defaults to the full A-D set (preserving existing 4-option
+    behavior) but should be passed explicitly as the question's real option
+    letters (e.g. ``("A", "B", "C")`` for a 3-option ARC-Challenge item) so a
+    non-existent option can never win the argmax. The global prior
+    (``state.peprior_probs``, always estimated over the full A-D set) is
+    restricted and renormalized over just ``letters`` before the Eq.~(8)
+    division, since D's share of the global prior doesn't apply to a
+    question where D was never a real choice.
+
+    Raises:
+        ValueError: if letters has fewer than 2 entries.
+    """
+    if len(letters) < 2:
+        raise ValueError(
+            f"apply_debiased_choice_from_defaults requires at least 2 option "
+            f"letters; got {len(letters)} ({letters!r})."
+        )
+    default_probs = logprob_map_to_label_distribution(
+        dict(default_logp_map), letters=letters, eps_prob=eps_prob
+    )
+    pep = np.array([float(state.peprior_probs.get(L, 0.0)) for L in letters], dtype=np.float64)
     pep = np.clip(pep, state.epsilon, None)
     pep = pep / pep.sum()
     deb_content = equation8_debiased_content_probs(default_probs, pep, eps=eps_prob)
-    return OPTION_LETTERS[int(np.argmax(deb_content))]
+    return letters[int(np.argmax(deb_content))]

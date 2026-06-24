@@ -23,19 +23,20 @@ from pathlib import Path
 
 import yaml
 
+from twoprompt.backends.api_backend import APIBackend
+from twoprompt.backends.base import BaseBackend
 from twoprompt.clients.gemini_client import GeminiClient
 from twoprompt.clients.groq_client import GroqClient
 from twoprompt.clients.openai_client import OpenAIClient
 from twoprompt.clients.together_client import TogetherAIClient
-from twoprompt.infra.cache import CachingClientWrapper, ResponseCache
 from twoprompt.infra.checkpoint import CheckpointManager
 from twoprompt.io.readers import read_normalized_questions, read_split_ids
 from twoprompt.io.writers import write_run_results
-from twoprompt.runners.direct_mcq import DirectMCQRunner
-from twoprompt.runners.permutation import PermutationRunner
-from twoprompt.runners.pride import PriDeRunner
-from twoprompt.runners.two_stage import TwoStageRunner
-from twoprompt.runners.two_stage_permutation import TwoStagePermutationRunner
+from twoprompt.methods.direct_mcq import DirectMCQRunner
+from twoprompt.methods.permutation import PermutationRunner
+from twoprompt.methods.pride import PriDeRunner
+from twoprompt.methods.two_stage import TwoStageRunner
+from twoprompt.methods.two_stage_permutation import TwoStagePermutationRunner
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -50,6 +51,7 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
+# Methods dispatch — add new methods here and in src/twoprompt/methods/
 _METHOD_TO_RUNNER = {
     "baseline": DirectMCQRunner,
     "two_prompt": TwoStageRunner,
@@ -171,11 +173,15 @@ def count_split_questions(benchmark: str, split: str, paths: dict[str, Path]) ->
 
 
 # ---------------------------------------------------------------------------
-# Client factory
+# Backend factory
 # ---------------------------------------------------------------------------
 
-def build_client(model_name: str, model_cfg: dict):
-    """Construct a typed provider client from a model config dict."""
+def _build_client(model_name: str, model_cfg: dict):
+    """Construct a typed provider client from a model config dict.
+
+    Internal helper for build_backend() — runners must never call this
+    directly; they only ever see a BaseBackend.
+    """
     provider = model_cfg["provider"]
     kwargs = dict(
         model_name=model_name,
@@ -193,6 +199,22 @@ def build_client(model_name: str, model_cfg: dict):
     if provider == "together":
         return TogetherAIClient(**kwargs)
     raise ValueError(f"Unknown provider: {provider!r} for model {model_name!r}")
+
+
+def build_backend(model_name: str, model_cfg: dict) -> BaseBackend:
+    """Construct a provider client and wrap it in an APIBackend.
+
+    # TODO: APIBackend (src/twoprompt/backends/api_backend.py) is currently
+    # a stub and raises NotImplementedError on construction. This function
+    # is wired correctly for when APIBackend is implemented, but the overall
+    # run pipeline cannot execute against a real API model until then.
+    # Also TODO: response caching (formerly CachingClientWrapper, wrapping
+    # the raw client) has no equivalent at the backend layer yet — caching
+    # needs to move inside APIBackend's generate() once it exists. It is not
+    # wired here; see use_cache in run_model_jobs below.
+    """
+    client = _build_client(model_name, model_cfg)
+    return APIBackend(client)
 
 
 # ---------------------------------------------------------------------------
@@ -274,7 +296,7 @@ def preflight_estimate(config: dict, paths: dict[str, Path]) -> None:
 # ---------------------------------------------------------------------------
 
 async def run_single_method(
-    client,
+    backend: BaseBackend,
     model_name: str,
     method: str,
     benchmark: str,
@@ -290,7 +312,7 @@ async def run_single_method(
     """
     runner_cls = _METHOD_TO_RUNNER[method]
     common_kw = dict(
-        client=client,
+        backend=backend,
         method_name=method,
         split_name=split,
         prompt_version=run_cfg.get("prompt_version", "v1"),
@@ -358,7 +380,11 @@ async def run_single_method(
         for batch_start in range(0, len(remaining), n):
             batch = remaining[batch_start : batch_start + n]
             try:
-                batch_results = await runner.run_many(batch)
+                # runner.run_many() is synchronous (BaseBackend.generate()/
+                # score_options() are plain calls, not awaitable) — see
+                # REVIEW NEEDED below on the model-level asyncio.gather()
+                # this no longer meaningfully parallelizes.
+                batch_results = runner.run_many(batch)
             except Exception as exc:
                 logger.error("%s  batch failed: %s — continuing", tag, exc)
                 failed += len(batch)
@@ -405,16 +431,21 @@ async def run_model_jobs(
     paths: dict[str, Path],
     use_cache: bool,
 ) -> list[dict]:
-    """Run all jobs for one model sequentially, sharing a single client."""
+    """Run all jobs for one model sequentially, sharing a single backend."""
     try:
-        client = build_client(model_name, model_cfg)
+        backend = build_backend(model_name, model_cfg)
     except Exception as exc:
-        logger.error("[%s] Failed to build client: %s — skipping all jobs", model_name, exc)
+        logger.error("[%s] Failed to build backend: %s — skipping all jobs", model_name, exc)
         return []
 
+    # TODO: caching is not wired at the backend layer yet — see the TODO on
+    # build_backend() above. use_cache is accepted but currently a no-op.
     if use_cache:
-        cache = ResponseCache(paths["cache_dir"])
-        client = CachingClientWrapper(client, cache)
+        logger.warning(
+            "[%s] cache_enabled is set, but response caching is not yet "
+            "implemented at the backend layer — running uncached.",
+            model_name,
+        )
 
     summaries = []
     for job in jobs_for_model:
@@ -423,7 +454,7 @@ async def run_model_jobs(
             questions = questions_cache[key]
             try:
                 summary = await run_single_method(
-                    client=client,
+                    backend=backend,
                     model_name=model_name,
                     method=method,
                     benchmark=job["benchmark"],
@@ -447,6 +478,38 @@ async def run_model_jobs(
 
     return summaries
 
+
+# ---------------------------------------------------------------------------
+# TODO: unified single-experiment config (config/experiment_template.yaml)
+# ---------------------------------------------------------------------------
+# twoprompt.config.schema.load_config() validates a single (model, benchmark,
+# methods, metrics) experiment config — see config/experiment_template.yaml
+# and config/toy_experiment.yaml. It is NOT wired into main() below: this
+# script's existing CLI/job-matrix engine (config/default.yaml: multiple
+# models x methods x benchmarks, run via --config/--run-id/--dry-run/
+# --no-cache/--yes) is the actively-used overnight batch runner, and
+# replacing its argparse surface with a single --config (per Task 4's
+# instructions) would mean rearchitecting this whole file around a
+# single-job shape instead of a job matrix — a bigger, riskier rewrite than
+# "add config schema + template files," which is what was asked to
+# prioritize this session. Deferring that rewrite is an explicit choice, not
+# an oversight; the schema/validator/template/toy-config are real, tested
+# deliverables (see Session 3 Task 4 report) independent of this script.
+#
+# from twoprompt.config.schema import load_config, ConfigError
+#
+# What's proven to work (manually, not via this script):
+#   load_config("config/toy_experiment.yaml") -> ExperimentConfig
+#   + DummyBackend + twoprompt.methods.DirectMCQRunner against
+#   data/processed/toy_normalized.csv runs end-to-end and scores correctly.
+#
+# What's still missing for real wiring:
+#   - A loader for benchmark.name == "custom" (arbitrary CSV path)
+#   - Metrics computation (src/twoprompt/metrics/ — Task 5, not done yet)
+#   - Either a second entry point or a real merge of the job-matrix and
+#     single-experiment shapes — an explicit design decision, not something
+#     to infer here.
+# ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
 # Entry point

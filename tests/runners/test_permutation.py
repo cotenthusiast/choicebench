@@ -2,19 +2,17 @@
 
 from pathlib import Path
 
-import pytest
-
-from twoprompt.runners.permutation import PermutationRunner
+from twoprompt.methods.permutation import PermutationRunner
 from twoprompt.pipeline.prompt_builder import load_prompt_templates
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 _PROMPTS_DIR = REPO_ROOT / "prompts"
 _TEMPLATES = load_prompt_templates("v1", _PROMPTS_DIR)
-from twoprompt.clients.types import ModelResponse, RequestMetadata
+from twoprompt.clients.types import ProviderTimeoutError
 from twoprompt.scoring.types import SCORE_CORRECT, SCORE_INCORRECT, SCORE_UNSCORABLE
 from twoprompt.parsing.types import PARSE_OK, PARSE_MISSING
 
-from tests.runners.conftest import MockClient, _make_success_response, _make_failure_response
+from tests.runners.conftest import MockBackend
 
 
 class TestGeneratePermutations:
@@ -155,8 +153,7 @@ class TestMajorityVote:
 class TestPermutationRunnerRunOne:
     """Tests for PermutationRunner.run_one execution flow."""
 
-    @pytest.mark.asyncio
-    async def test_all_agree_correct(self, runner_question_row, runner_metadata):
+    def test_all_agree_correct(self, runner_question_row):
         """All permutations return the correct answer — should score correct."""
         # Correct answer is C (HTTPS). For each permutation, figure out
         # which letter maps to HTTPS and return that letter.
@@ -168,12 +165,12 @@ class TestPermutationRunnerRunOne:
             # Find which letter points to HTTPS in this permutation
             for letter, text in perm.items():
                 if text == "HTTPS":
-                    responses.append(_make_success_response(letter, runner_metadata))
+                    responses.append(letter)
                     break
 
-        client = MockClient(responses=responses)
+        backend = MockBackend(responses=responses)
         runner = PermutationRunner(
-            client=client,
+            backend=backend,
             method_name="pride",
             split_name="robustness",
             prompt_version="v1",
@@ -181,14 +178,13 @@ class TestPermutationRunnerRunOne:
             run_id="test_run_001",
         )
 
-        result = await runner.run_one(runner_question_row, sample_index=0)
+        result = runner.run_one(runner_question_row, sample_index=0)
 
         assert result["parsed_choice"] == "C"
         assert result["is_correct"] is True
         assert result["score_status"] == SCORE_CORRECT
 
-    @pytest.mark.asyncio
-    async def test_majority_correct(self, runner_question_row, runner_metadata):
+    def test_majority_correct(self, runner_question_row):
         """Three correct, one wrong — majority vote should give correct answer."""
         canonical = {"A": "FTP", "B": "HTTP", "C": "HTTPS", "D": "SMTP"}
         perms = PermutationRunner._generate_permutations(canonical)
@@ -197,16 +193,16 @@ class TestPermutationRunnerRunOne:
         for i, perm in enumerate(perms):
             if i == 0:
                 # First permutation returns wrong answer
-                responses.append(_make_success_response("A", runner_metadata))
+                responses.append("A")
             else:
                 for letter, text in perm.items():
                     if text == "HTTPS":
-                        responses.append(_make_success_response(letter, runner_metadata))
+                        responses.append(letter)
                         break
 
-        client = MockClient(responses=responses)
+        backend = MockBackend(responses=responses)
         runner = PermutationRunner(
-            client=client,
+            backend=backend,
             method_name="pride",
             split_name="robustness",
             prompt_version="v1",
@@ -214,18 +210,17 @@ class TestPermutationRunnerRunOne:
             run_id="test_run_001",
         )
 
-        result = await runner.run_one(runner_question_row, sample_index=0)
+        result = runner.run_one(runner_question_row, sample_index=0)
 
         assert result["parsed_choice"] == "C"
         assert result["is_correct"] is True
 
-    @pytest.mark.asyncio
-    async def test_all_fail(self, runner_question_row, runner_metadata):
+    def test_all_fail(self, runner_question_row):
         """All four calls fail — should have no parsed choice."""
-        responses = [_make_failure_response(runner_metadata) for _ in range(4)]
-        client = MockClient(responses=responses)
+        responses = [ProviderTimeoutError("Request timed out.") for _ in range(4)]
+        backend = MockBackend(responses=responses)
         runner = PermutationRunner(
-            client=client,
+            backend=backend,
             method_name="pride",
             split_name="robustness",
             prompt_version="v1",
@@ -233,18 +228,16 @@ class TestPermutationRunnerRunOne:
             run_id="test_run_001",
         )
 
-        result = await runner.run_one(runner_question_row, sample_index=0)
+        result = runner.run_one(runner_question_row, sample_index=0)
 
         assert result["parsed_choice"] is None
         assert result["is_correct"] is None
 
-    @pytest.mark.asyncio
-    async def test_makes_four_api_calls(self, runner_question_row, runner_metadata):
+    def test_makes_four_api_calls(self, runner_question_row):
         """Should fire exactly 4 requests — one per permutation."""
-        responses = [_make_success_response("C", runner_metadata) for _ in range(4)]
-        client = MockClient(responses=responses)
+        backend = MockBackend(responses=["C"] * 4)
         runner = PermutationRunner(
-            client=client,
+            backend=backend,
             method_name="pride",
             split_name="robustness",
             prompt_version="v1",
@@ -252,17 +245,15 @@ class TestPermutationRunnerRunOne:
             run_id="test_run_001",
         )
 
-        await runner.run_one(runner_question_row, sample_index=0)
+        runner.run_one(runner_question_row, sample_index=0)
 
-        assert len(client.requests_received) == 4
+        assert len(backend.requests_received) == 4
 
-    @pytest.mark.asyncio
-    async def test_result_row_has_metadata(self, runner_question_row, runner_metadata):
+    def test_result_row_has_metadata(self, runner_question_row):
         """Result row should carry trace metadata."""
-        responses = [_make_success_response("C", runner_metadata) for _ in range(4)]
-        client = MockClient(responses=responses)
+        backend = MockBackend(responses=["C"] * 4)
         runner = PermutationRunner(
-            client=client,
+            backend=backend,
             method_name="pride",
             split_name="robustness",
             prompt_version="v1",
@@ -270,7 +261,7 @@ class TestPermutationRunnerRunOne:
             run_id="test_run_001",
         )
 
-        result = await runner.run_one(runner_question_row, sample_index=0)
+        result = runner.run_one(runner_question_row, sample_index=0)
 
         assert result["run_id"] == "test_run_001"
         assert result["method_name"] == "pride"
