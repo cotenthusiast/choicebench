@@ -1,4 +1,4 @@
-# src/mcq_eval/runners/pride_debias.py
+# src/mcq_eval/methods/pride_math.py
 
 """PriDe (Zheng et al., ICLR 2024) — probabilities from token logprobs.
 
@@ -21,7 +21,9 @@ from typing import Any, Iterable, Mapping
 
 import numpy as np
 
-OPTION_LETTERS: tuple[str, ...] = ("A", "B", "C", "D")
+from mcq_eval.constants import MCQ_OPTIONS
+
+OPTION_LETTERS: tuple[str, ...] = tuple(MCQ_OPTIONS)
 
 
 def _normalize_option_letter(token: str | None) -> str | None:

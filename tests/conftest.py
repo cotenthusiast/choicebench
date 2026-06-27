@@ -15,7 +15,7 @@ from mcq_eval.clients.types import (
     ModelResponse,
     UsageInfo,
 )
-from mcq_eval.config.experiment import (
+from mcq_eval.config.research import (
     MMLU_QUESTIONS_PER_SUBJECT,
     REVIEW_SUBJECTS,
     ROBUSTNESS_SUBJECTS,

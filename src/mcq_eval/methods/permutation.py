@@ -21,7 +21,7 @@ from typing import Any
 
 from mcq_eval.parsing.types import ParseResult, PARSE_OK, PARSE_MISSING
 from mcq_eval.pipeline.prompt_builder import build_direct_mcq_prompt
-from mcq_eval.runners.base import ExperimentRunner
+from mcq_eval.methods.base import ExperimentRunner
 
 
 class PermutationRunner(ExperimentRunner):

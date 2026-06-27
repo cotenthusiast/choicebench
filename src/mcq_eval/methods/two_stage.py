@@ -23,7 +23,7 @@ from mcq_eval.pipeline.prompt_builder import (
     build_free_text_prompt,
     build_option_matching_prompt,
 )
-from mcq_eval.runners.base import ExperimentRunner
+from mcq_eval.methods.base import ExperimentRunner
 
 
 class TwoStageRunner(ExperimentRunner):

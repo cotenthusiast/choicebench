@@ -2,7 +2,7 @@
 
 from numbers import Real
 
-from mcq_eval.config.models import (
+from mcq_eval.config.providers import (
     MAX_TOKENS,
     SEED,
     SUPPORTED_MODELS_BY_PROVIDER,

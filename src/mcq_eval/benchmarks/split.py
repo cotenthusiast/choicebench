@@ -5,7 +5,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from mcq_eval.config.experiment import (
+from mcq_eval.config.research import (
     REVIEW_QUESTIONS_PER_SUBJECT,
     REVIEW_SPLIT_SEED,
     REVIEW_SUBJECTS,

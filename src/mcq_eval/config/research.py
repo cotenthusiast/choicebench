@@ -1,21 +1,10 @@
-# src/mcq_eval/config/experiment.py
+# src/mcq_eval/config/research.py
+
+from mcq_eval.constants import MCQ_OPTIONS
 
 # MMLU dataset constants --------------------------------
-MCQ_ANSWER_MAP = {0: "A", 1: "B", 2: "C", 3: "D"}
+MCQ_ANSWER_MAP = {i: L for i, L in enumerate(MCQ_OPTIONS)}
 MMLU_QUESTIONS_PER_SUBJECT = 50
-
-# Shared method names -----------------------------------
-BASELINE_METHOD = "baseline"
-TWOPROMPT_METHOD = "two_prompt"
-CYCLIC_METHOD = "cyclic"
-PRIDE_METHOD = "pride"
-
-ALL_METHODS = [
-    BASELINE_METHOD,
-    TWOPROMPT_METHOD,
-    CYCLIC_METHOD,
-    PRIDE_METHOD,
-]
 
 # Track A: robustness / accuracy ------------------------
 ROBUSTNESS_TRACK_NAME = "robustness"
@@ -79,18 +68,9 @@ ROBUSTNESS_TOTAL_QUESTIONS = (
     ROBUSTNESS_NO_OF_SUBJECTS * ROBUSTNESS_QUESTIONS_PER_SUBJECT
 )
 
-ROBUSTNESS_METHODS = [
-    BASELINE_METHOD,
-    TWOPROMPT_METHOD,
-    CYCLIC_METHOD,
-]
-
 ROBUSTNESS_SPLIT_SEED = 42
 
 # Shared review split -----------------------------------
-# This single split is reused for:
-# 1) stronger-model evaluation
-# 2) faithfulness / human-review analysis
 REVIEW_TRACK_NAME = "review"
 
 REVIEW_SUBJECTS = [
@@ -120,39 +100,3 @@ REVIEW_NO_OF_SUBJECTS = len(REVIEW_SUBJECTS)
 REVIEW_QUESTIONS_PER_SUBJECT = 3
 REVIEW_TOTAL_QUESTIONS = REVIEW_NO_OF_SUBJECTS * REVIEW_QUESTIONS_PER_SUBJECT
 REVIEW_SPLIT_SEED = 42
-
-REVIEW_METHODS = [
-    BASELINE_METHOD,
-    TWOPROMPT_METHOD,
-    CYCLIC_METHOD,
-]
-
-# Track B: stronger models ------------------------------
-STRONG_MODELS_TRACK_NAME = "strong_models"
-STRONG_MODELS_USE_REVIEW_SPLIT = True
-STRONG_MODELS_METHODS = REVIEW_METHODS
-
-# Track C: faithfulness ---------------------------------
-FAITHFULNESS_TRACK_NAME = "faithfulness"
-FAITHFULNESS_USE_REVIEW_SPLIT = True
-FAITHFULNESS_METHODS = REVIEW_METHODS
-
-# Review / scoring protocols ----------------------------
-ANSWER_MATCHING_PROTOCOL = "answer_matching"
-HUMAN_REVIEW_PROTOCOL = "human_review"
-
-REVIEW_PROTOCOLS = [
-    ANSWER_MATCHING_PROTOCOL,
-    HUMAN_REVIEW_PROTOCOL,
-]
-
-# Human review labels -----------------------------------
-HUMAN_LABEL_CORRECT = "correct"
-HUMAN_LABEL_INCORRECT = "incorrect"
-HUMAN_LABEL_AMBIGUOUS = "ambiguous"
-
-HUMAN_LABELS = [
-    HUMAN_LABEL_CORRECT,
-    HUMAN_LABEL_INCORRECT,
-    HUMAN_LABEL_AMBIGUOUS,
-]

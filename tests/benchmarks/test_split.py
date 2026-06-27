@@ -8,7 +8,7 @@ from mcq_eval.benchmarks.split import (
     InsufficientQuestionsError,
     SplitSizeMismatchError,
 )
-from mcq_eval.config.experiment import ROBUSTNESS_SPLIT_SEED
+from mcq_eval.config.research import ROBUSTNESS_SPLIT_SEED
 
 
 def _assert_split_ids_match_expected_subject_distribution(

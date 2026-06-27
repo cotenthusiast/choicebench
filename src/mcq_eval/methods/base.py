@@ -1,4 +1,4 @@
-# src/mcq_eval/runners/base.py
+# src/mcq_eval/methods/base.py
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from mcq_eval.clients.types import (
     ModelResponse,
     SUCCESS_STATUS,
 )
-from mcq_eval.config.models import MAX_TOKENS, SEED, TEMPERATURE
+from mcq_eval.config.providers import MAX_TOKENS, SEED, TEMPERATURE
 from mcq_eval.parsing.parser import parse_model_answer
 from mcq_eval.parsing.types import ParseResult
 from mcq_eval.pipeline.prompt_builder import load_prompt_templates
@@ -80,7 +80,8 @@ class ExperimentRunner(ABC):
         Returns:
             List of flat result dictionaries, one per question.
         """
-        return [self.run_one(row, i) for i, row in enumerate(question_rows)]
+        rows = question_rows.to_dict(orient="records")
+        return [self.run_one(row, i) for i, row in enumerate(rows)]
 
     def _call_backend_generate(self, prompt: str) -> ModelResponse:
         """Call backend.generate() and wrap the result in a ModelResponse.

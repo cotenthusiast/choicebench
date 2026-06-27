@@ -19,7 +19,7 @@ from mcq_eval.clients.types import (
     ModelRequest,
     ModelResponse,
 )
-from mcq_eval.config.models import MAX_RETRIES, TIMEOUT
+from mcq_eval.config.providers import MAX_RETRIES, TIMEOUT
 
 logger = logging.getLogger(__name__)
 

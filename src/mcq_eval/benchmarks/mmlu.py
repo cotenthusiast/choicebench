@@ -6,7 +6,7 @@ import hashlib
 import pandas as pd
 
 from mcq_eval.benchmarks.base import build_normalized_dataframe as _build_normalized_dataframe
-from mcq_eval.config.experiment import MCQ_ANSWER_MAP
+from mcq_eval.config.research import MCQ_ANSWER_MAP
 
 
 def normalize_row(row: dict[str, object]) -> dict[str, object]:
