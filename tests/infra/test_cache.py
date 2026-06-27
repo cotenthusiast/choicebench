@@ -111,19 +111,6 @@ class TestCacheKey:
         assert len(key) == 64
         int(key, 16)  # raises ValueError if not valid hex
 
-    def test_request_logprobs_toggle_changes_key(self, base_request):
-        """Logprob requests must not share cache entries with non-logprob."""
-        with_lp = ModelRequest(
-            provider=base_request.provider,
-            model_name=base_request.model_name,
-            payload=base_request.payload,
-            temperature=base_request.temperature,
-            max_tokens=base_request.max_tokens,
-            seed=base_request.seed,
-            request_logprobs=True,
-        )
-        assert _cache_key(base_request) != _cache_key(with_lp)
-
 
 # ---------------------------------------------------------------------------
 # ResponseCache

@@ -24,13 +24,7 @@ def _cache_key(request: ModelRequest) -> str:
     Only deterministic generation parameters are included — not trace
     metadata (question_id, run_id, etc.), which vary per request but
     don't affect the model output.
-
-    When request_logprobs=True the Together client sends an extra assistant
-    prefill message that changes the effective API call.  A discriminator
-    field is included in the key so that pre-prefill cache entries are never
-    served for post-prefill calls (and vice-versa).
     """
-    use_logprobs = getattr(request, "request_logprobs", False)
     key_data: dict = {
         "provider": request.provider,
         "model_name": request.model_name,
@@ -38,13 +32,7 @@ def _cache_key(request: ModelRequest) -> str:
         "temperature": request.temperature,
         "max_tokens": request.max_tokens,
         "seed": request.seed,
-        "request_logprobs": use_logprobs,
     }
-    if use_logprobs and request.provider == "together":
-        # Bumped when the Together logprob strategy changes (e.g. adding a
-        # prefill message) so stale entries from a different strategy are
-        # never returned.
-        key_data["together_logprob_strategy"] = "v2_prefill"
     fingerprint = json.dumps(key_data, sort_keys=True)
     return hashlib.sha256(fingerprint.encode()).hexdigest()
 

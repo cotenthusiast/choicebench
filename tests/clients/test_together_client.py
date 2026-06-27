@@ -7,6 +7,7 @@ import pytest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+
 from mcq_eval.clients.together_client import TogetherAIClient
 from mcq_eval.clients.types import (
     ModelRequest,
@@ -36,52 +37,6 @@ def model_request() -> ModelRequest:
     )
 
 
-@pytest.fixture
-def model_request_with_logprobs() -> ModelRequest:
-    return ModelRequest(
-        provider="together",
-        model_name="Qwen/Qwen2.5-7B-Instruct",
-        payload="test prompt",
-        temperature=0.0,
-        max_tokens=128,
-        request_logprobs=True,
-    )
-
-
-def _make_top_logprob_entry(token: str, logprob: float) -> SimpleNamespace:
-    return SimpleNamespace(token=token, logprob=logprob)
-
-
-def _make_token_logprob_entry(
-    token: str, logprob: float, top_logprobs: list
-) -> SimpleNamespace:
-    return SimpleNamespace(token=token, logprob=logprob, top_logprobs=top_logprobs)
-
-
-def _make_together_response_nonstandard_logprobs(
-    *,
-    text: str = "A",
-    tokens: list,
-    token_logprobs_list: list,
-    top_logprobs: list,
-) -> SimpleNamespace:
-    """Together AI non-standard parallel-array logprob format."""
-    choice_logprobs = SimpleNamespace(
-        content=[],  # empty → client falls through to parallel-array path
-        tokens=tokens,
-        token_logprobs=token_logprobs_list,
-        top_logprobs=top_logprobs,
-    )
-    choices = [
-        SimpleNamespace(
-            message=SimpleNamespace(content=text),
-            finish_reason="stop",
-            logprobs=choice_logprobs,
-        )
-    ]
-    usage = SimpleNamespace(prompt_tokens=10, completion_tokens=1, total_tokens=11)
-    return SimpleNamespace(choices=choices, usage=usage)
-
 
 def _make_together_response(
     *,
@@ -92,18 +47,13 @@ def _make_together_response(
     total_tokens: int = 15,
     include_choices: bool = True,
     include_usage: bool = True,
-    logprobs_content: list | None = None,
 ) -> SimpleNamespace:
     choices = None
     if include_choices:
-        choice_logprobs = None
-        if logprobs_content is not None:
-            choice_logprobs = SimpleNamespace(content=logprobs_content)
         choices = [
             SimpleNamespace(
                 message=SimpleNamespace(content=text),
                 finish_reason=finish_reason,
-                logprobs=choice_logprobs,
             )
         ]
     usage = None
@@ -196,112 +146,6 @@ class TestTogetherAIClientGenerateProviderResponse:
 
         with pytest.raises(ProviderResponseError):
             asyncio.run(_inner())
-
-    # ── logprobs ────────────────────────────────────────────────────────────
-
-    def test_logprobs_none_when_not_requested(
-        self, together_client, model_request, mock_create
-    ) -> None:
-        async def _inner():
-            mock_create.return_value = _make_together_response()
-            return await together_client._generate_provider_response(model_request)
-
-        response = asyncio.run(_inner())
-        assert response.logprobs is None
-
-    def test_logprobs_populated_when_requested(
-        self, together_client, model_request_with_logprobs, mock_create
-    ) -> None:
-        async def _inner():
-            top_lps = [
-                _make_top_logprob_entry("A", -0.1),
-                _make_top_logprob_entry("B", -1.5),
-            ]
-            token_lps = [_make_token_logprob_entry("A", -0.1, top_lps)]
-            mock_create.return_value = _make_together_response(logprobs_content=token_lps)
-            return await together_client._generate_provider_response(model_request_with_logprobs)
-
-        response = asyncio.run(_inner())
-        assert response.logprobs is not None
-        assert len(response.logprobs) == 1
-        assert response.logprobs[0]["token"] == "A"
-        assert response.logprobs[0]["logprob"] == pytest.approx(-0.1)
-        assert len(response.logprobs[0]["top_logprobs"]) == 2
-
-    def test_logprobs_top_logprobs_entries_have_token_and_logprob(
-        self, together_client, model_request_with_logprobs, mock_create
-    ) -> None:
-        async def _inner():
-            top_lps = [_make_top_logprob_entry("C", -0.5)]
-            token_lps = [_make_token_logprob_entry("C", -0.5, top_lps)]
-            mock_create.return_value = _make_together_response(logprobs_content=token_lps)
-            return await together_client._generate_provider_response(model_request_with_logprobs)
-
-        response = asyncio.run(_inner())
-        entry = response.logprobs[0]["top_logprobs"][0]
-        assert "token" in entry
-        assert "logprob" in entry
-
-    def test_logprobs_empty_list_when_content_empty(
-        self, together_client, model_request_with_logprobs, mock_create
-    ) -> None:
-        async def _inner():
-            mock_create.return_value = _make_together_response(logprobs_content=[])
-            return await together_client._generate_provider_response(model_request_with_logprobs)
-
-        response = asyncio.run(_inner())
-        assert response.logprobs == []
-
-    def test_logprobs_param_not_sent_when_not_requested(
-        self, together_client, model_request, mock_create
-    ) -> None:
-        async def _inner():
-            mock_create.return_value = _make_together_response()
-            await together_client._generate_provider_response(model_request)
-
-        asyncio.run(_inner())
-        call_kwargs = mock_create.call_args.kwargs
-        assert "logprobs" not in call_kwargs
-        assert "top_logprobs" not in call_kwargs
-
-    def test_logprobs_params_sent_when_requested(
-        self, together_client, model_request_with_logprobs, mock_create
-    ) -> None:
-        async def _inner():
-            mock_create.return_value = _make_together_response(logprobs_content=[])
-            await together_client._generate_provider_response(model_request_with_logprobs)
-
-        asyncio.run(_inner())
-        call_kwargs = mock_create.call_args.kwargs
-        assert call_kwargs.get("logprobs") is True
-        assert call_kwargs.get("top_logprobs") == 20
-        # Assistant prefill must be appended so the first token is a letter.
-        messages = call_kwargs.get("messages", [])
-        assert len(messages) == 2
-        assert messages[-1]["role"] == "assistant"
-        assert messages[-1]["content"] == "The answer is "
-
-    def test_logprobs_populated_from_nonstandard_parallel_array_format(
-        self, together_client, model_request_with_logprobs, mock_create
-    ) -> None:
-        """Together AI non-standard format: parallel arrays with top_logprobs as list of dicts."""
-        async def _inner():
-            mock_create.return_value = _make_together_response_nonstandard_logprobs(
-                text="A",
-                tokens=["A"],
-                token_logprobs_list=[-0.1],
-                top_logprobs=[{"A": -0.1, "B": -1.5, "C": -2.0, "D": -2.5}],
-            )
-            return await together_client._generate_provider_response(model_request_with_logprobs)
-
-        response = asyncio.run(_inner())
-        assert response.logprobs is not None
-        assert len(response.logprobs) == 1
-        assert response.logprobs[0]["token"] == "A"
-        assert response.logprobs[0]["logprob"] == pytest.approx(-0.1)
-        top = response.logprobs[0]["top_logprobs"]
-        assert len(top) == 4
-        assert {e["token"] for e in top} == {"A", "B", "C", "D"}
 
     # ── provider error mapping ──────────────────────────────────────────────
 
