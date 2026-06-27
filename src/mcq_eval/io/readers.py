@@ -126,6 +126,18 @@ def read_group_splits(
     return data
 
 
+def read_benchmark(path: Path) -> pd.DataFrame:
+    """Read a normalized benchmark CSV at a known full path.
+
+    Args:
+        path: Full path to the benchmark CSV file.
+
+    Returns:
+        DataFrame containing the benchmark questions.
+    """
+    return pd.read_csv(path)
+
+
 def read_run_results(input_path: Path) -> pd.DataFrame:
     """Read experiment results from a CSV file.
 
