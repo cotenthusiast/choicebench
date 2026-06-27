@@ -13,11 +13,6 @@ class APIBackend(BaseBackend):
     (OpenAIClient, GeminiClient, GroqClient, TogetherAIClient) behind the
     BaseBackend interface, so runners depend only on BaseBackend and never
     import a provider client directly.
-
-    # TODO: implement __init__(self, client: BaseClient), model_name,
-    # provider, generate(), and score_options() (Together-only, via
-    # request_logprobs + ModelResponse.logprobs) by delegating to the
-    # wrapped client's generate(ModelRequest) -> ModelResponse.
     """
 
     def __init__(self, provider: str, model_name: str, client: BaseClient, cache_dir: Path, temperature: float, max_tokens: int, seed: int) -> None:
