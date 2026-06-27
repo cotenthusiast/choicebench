@@ -6,9 +6,9 @@ import mcq_eval.benchmarks.split as split
 from mcq_eval.benchmarks.split import (
     DuplicateSplitIdsError,
     InsufficientQuestionsError,
+    ROBUSTNESS_SPLIT_SEED,
     SplitSizeMismatchError,
 )
-from mcq_eval.config.research import ROBUSTNESS_SPLIT_SEED
 
 
 def _assert_split_ids_match_expected_subject_distribution(

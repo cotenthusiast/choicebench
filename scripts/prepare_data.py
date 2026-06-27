@@ -6,8 +6,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from mcq_eval.benchmarks.split import build_all_splits
-from mcq_eval.config.research import ROBUSTNESS_TRACK_NAME, REVIEW_TRACK_NAME
+from mcq_eval.benchmarks.split import build_all_splits, ROBUSTNESS_TRACK_NAME, REVIEW_TRACK_NAME
 from mcq_eval.config.paths import (
     ARC_NORMALIZED_PATH,
     ARC_RAW_PATH,

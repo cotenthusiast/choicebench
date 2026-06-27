@@ -5,18 +5,49 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from mcq_eval.config.research import (
-    REVIEW_QUESTIONS_PER_SUBJECT,
-    REVIEW_SPLIT_SEED,
-    REVIEW_SUBJECTS,
-    REVIEW_TOTAL_QUESTIONS,
-    REVIEW_TRACK_NAME,
-    ROBUSTNESS_QUESTIONS_PER_SUBJECT,
-    ROBUSTNESS_SPLIT_SEED,
-    ROBUSTNESS_SUBJECTS,
-    ROBUSTNESS_TOTAL_QUESTIONS,
-    ROBUSTNESS_TRACK_NAME,
-)
+# ---------------------------------------------------------------------------
+# Research-paper split configuration
+# These constants define the two experiment tracks from the paper.
+# ---------------------------------------------------------------------------
+
+ROBUSTNESS_TRACK_NAME = "robustness"
+REVIEW_TRACK_NAME = "review"
+
+ROBUSTNESS_SUBJECTS = [
+    "high_school_physics", "college_mathematics", "anatomy", "college_chemistry",
+    "computer_security", "medical_genetics", "college_biology", "clinical_knowledge",
+    "high_school_psychology", "econometrics", "sociology", "philosophy",
+    "high_school_world_history", "jurisprudence", "professional_law",
+    "professional_medicine", "professional_accounting", "moral_scenarios", "nutrition",
+    "global_facts", "abstract_algebra", "astronomy", "business_ethics",
+    "college_computer_science", "college_medicine", "college_physics",
+    "conceptual_physics", "electrical_engineering", "elementary_mathematics",
+    "formal_logic", "high_school_biology", "high_school_chemistry",
+    "high_school_computer_science", "high_school_european_history",
+    "high_school_geography", "high_school_government_and_politics",
+    "high_school_macroeconomics", "high_school_mathematics",
+    "high_school_microeconomics", "high_school_statistics", "high_school_us_history",
+    "international_law", "logical_fallacies", "machine_learning", "prehistory",
+    "professional_psychology", "security_studies", "us_foreign_policy", "virology",
+    "world_religions",
+]
+
+REVIEW_SUBJECTS = [
+    "high_school_physics", "college_mathematics", "anatomy", "college_chemistry",
+    "computer_security", "medical_genetics", "college_biology", "clinical_knowledge",
+    "high_school_psychology", "econometrics", "sociology", "philosophy",
+    "high_school_world_history", "jurisprudence", "professional_law",
+    "professional_medicine", "professional_accounting", "moral_scenarios", "nutrition",
+    "global_facts",
+]
+
+ROBUSTNESS_QUESTIONS_PER_SUBJECT = 20
+ROBUSTNESS_SPLIT_SEED = 42
+ROBUSTNESS_TOTAL_QUESTIONS = len(ROBUSTNESS_SUBJECTS) * ROBUSTNESS_QUESTIONS_PER_SUBJECT
+
+REVIEW_QUESTIONS_PER_SUBJECT = 3
+REVIEW_SPLIT_SEED = 42
+REVIEW_TOTAL_QUESTIONS = len(REVIEW_SUBJECTS) * REVIEW_QUESTIONS_PER_SUBJECT
 
 
 class InsufficientQuestionsError(ValueError):

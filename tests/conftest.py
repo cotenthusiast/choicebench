@@ -15,11 +15,9 @@ from mcq_eval.clients.types import (
     ModelResponse,
     UsageInfo,
 )
-from mcq_eval.config.research import (
-    MMLU_QUESTIONS_PER_SUBJECT,
-    REVIEW_SUBJECTS,
-    ROBUSTNESS_SUBJECTS,
-)
+from mcq_eval.benchmarks.split import REVIEW_SUBJECTS, ROBUSTNESS_SUBJECTS
+
+MMLU_QUESTIONS_PER_SUBJECT = 50
 
 
 # ---------------------------------------------------------------------------

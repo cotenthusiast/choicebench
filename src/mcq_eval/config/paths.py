@@ -39,6 +39,9 @@ MMLU_RAW_PATH = RAW_DIR / MMLU_RAW_FILENAME
 MMLU_NORMALIZED_PATH = PROCESSED_DIR / MMLU_NORMALIZED_FILENAME
 MMLU_HUMAN_REVIEW_PATH = REVIEWS_DIR / HUMAN_REVIEW_FILENAME
 
+# Benchmark-specific paths below.
+# TODO: move these to a benchmark registry when HuggingFace integration is added.
+
 # ARC-Challenge ---------------------------------------
 ARC_RAW_PATH = RAW_DIR / "arc_challenge_raw.csv"
 ARC_NORMALIZED_PATH = PROCESSED_DIR / "arc_challenge_normalized.csv"

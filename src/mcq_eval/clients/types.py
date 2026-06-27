@@ -2,12 +2,7 @@
 
 from numbers import Real
 
-from mcq_eval.config.providers import (
-    MAX_TOKENS,
-    SEED,
-    SUPPORTED_MODELS_BY_PROVIDER,
-    TEMPERATURE,
-)
+from mcq_eval.config.providers import MAX_TOKENS, SEED, TEMPERATURE
 
 SUCCESS_STATUS = "success"
 FAILURE_STATUS = "failure"
@@ -111,17 +106,6 @@ class ModelRequest:
 
     def validate(self) -> None:
         """Validate that the request contains supported values and metadata."""
-        if self.provider not in SUPPORTED_MODELS_BY_PROVIDER:
-            raise RequestValidationError(
-                f"Provider '{self.provider}' is not supported."
-            )
-
-        allowed_models = SUPPORTED_MODELS_BY_PROVIDER[self.provider]
-        if self.model_name not in allowed_models:
-            raise RequestValidationError(
-                f"Model '{self.model_name}' is not supported for provider '{self.provider}'."
-            )
-
         if not isinstance(self.payload, str) or not self.payload.strip():
             raise RequestValidationError("payload must be a non-empty string.")
 
@@ -176,17 +160,6 @@ class ModelResponse:
 
     def validate(self) -> None:
         """Validate that the response contains supported values and metadata."""
-        if self.provider not in SUPPORTED_MODELS_BY_PROVIDER:
-            raise ResponseValidationError(
-                f"Provider '{self.provider}' is not supported."
-            )
-
-        allowed_models = SUPPORTED_MODELS_BY_PROVIDER[self.provider]
-        if self.model_name not in allowed_models:
-            raise ResponseValidationError(
-                f"Model '{self.model_name}' is not supported for provider '{self.provider}'."
-            )
-
         if self.status not in VALID_STATUS:
             raise ResponseValidationError(
                 f"status must be one of {sorted(VALID_STATUS)}."

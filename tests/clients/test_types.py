@@ -14,21 +14,6 @@ class TestModelRequestValidation:
     def test_passes_for_valid_request(self, valid_request):
         valid_request.validate()
 
-    @pytest.mark.parametrize(
-        "provider,model_name",
-        [
-            ("bad_provider", "gpt-5-mini"),
-            ("openai", "gemini-2.5-flash"),
-            ("gemini", "gpt-5-mini"),
-            ("groq", "gpt-5-mini"),
-        ],
-    )
-    def test_fails_for_invalid_provider_or_model_pair(self, valid_request, provider, model_name):
-        valid_request.model_name = model_name
-        valid_request.provider = provider
-        with pytest.raises(RequestValidationError):
-            valid_request.validate()
-
     @pytest.mark.parametrize("payload", ["", 123, None])
     def test_fails_for_invalid_payload(self, valid_request, payload):
         valid_request.payload = payload
