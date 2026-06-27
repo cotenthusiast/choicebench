@@ -85,7 +85,7 @@ class ExperimentConfig:
     """
 
     name: str
-    model: ModelConfig
+    models: list[ModelConfig]
     benchmark: BenchmarkConfig
     methods: list[MethodConfig]
     metrics: list[str]
@@ -107,26 +107,31 @@ def _build_generation_kwargs(raw: dict | None) -> GenerationKwargsConfig:
     )
 
 
-def _build_model(raw: dict) -> ModelConfig:
-    backend = _require(raw, "backend", "model")
-    if backend not in _VALID_BACKENDS:
-        raise ConfigError(
-            f"model.backend must be one of {sorted(_VALID_BACKENDS)}; got {backend!r}."
+def _build_models(raw: dict) -> list[ModelConfig]:
+    models = []
+    for i, entry in enumerate(raw.get("models", [])):
+        backend = _require(entry, "backend", f"models[{i}]")
+        if backend not in _VALID_BACKENDS:
+            raise ConfigError(
+                f"model.backend must be one of {sorted(_VALID_BACKENDS)}; got {backend!r}."
+            )
+        device = entry.get("device", "cuda")
+        if device not in _VALID_DEVICES:
+            raise ConfigError(
+                f"model.device must be one of {sorted(_VALID_DEVICES)}; got {device!r}."
+            )
+        if backend == "api" and "provider" not in entry:
+            raise ConfigError("model.provider is required for API backends.")
+        models.append(
+            ModelConfig(
+                backend=backend,
+                model_name_or_path=_require(entry, "model_name_or_path", f"models[{i}]"),
+                provider=entry.get("provider"),
+                device=device,
+                generation_kwargs=_build_generation_kwargs(entry.get("generation_kwargs")),
+            )
         )
-    device = raw.get("device", "cuda")
-    if device not in _VALID_DEVICES:
-        raise ConfigError(
-            f"model.device must be one of {sorted(_VALID_DEVICES)}; got {device!r}."
-        )
-    if backend == "api" and "provider" not in raw:
-        raise ConfigError("model.provider is required for API backends.")
-    return ModelConfig(
-        backend=backend,
-        model_name_or_path=_require(raw, "model_name_or_path", "model"),
-        provider=raw.get("provider"),
-        device=device,
-        generation_kwargs=_build_generation_kwargs(raw.get("generation_kwargs")),
-    )
+    return models
 
 
 def _build_benchmark(raw: dict) -> BenchmarkConfig:
@@ -188,26 +193,20 @@ def _build_run(raw: dict | None) -> RunConfig:
 
 def _validate_cross_field(config: ExperimentConfig) -> None:
     """Rules that span more than one section — can't be checked per-field."""
-    logprob_methods = [m.name for m in config.methods if m.requires_logprobs]
-    if logprob_methods and config.model.backend not in _LOGPROB_CAPABLE_BACKENDS:
-        raise ConfigError(
-            f"Method(s) {logprob_methods} require score_options() / logprobs, "
-            f"but model.backend is {config.model.backend!r}. API backends are "
-            f"closed/opaque by design (generate() only) — only "
-            f"{sorted(_LOGPROB_CAPABLE_BACKENDS)} currently support "
-            f"score_options(). Either drop these methods or switch backends."
-        )
+    for m in config.methods:
+        for model in config.models:
+            if m.requires_logprobs and model.backend not in _LOGPROB_CAPABLE_BACKENDS:
+                raise ConfigError(
+                    f"Method {m.name!r} requires score_options() / logprobs, "
+                    f"but model.backend is {model.backend!r}. API backends are "
+                    f"closed/opaque by design (generate() only) — only "
+                    f"{sorted(_LOGPROB_CAPABLE_BACKENDS)} currently support "
+                    f"score_options(). Either drop this method or switch backends."
+                )
 
 
 def load_config(path: str) -> ExperimentConfig:
-    """Load and validate an experiment config from a YAML path.
-
-    Raises:
-        ConfigError: with a human-readable message if the file is missing
-            required fields, has individually-invalid field values, or has
-            fields that are valid alone but mutually inconsistent (e.g. a
-            logprob-requiring method paired with an API backend).
-    """
+    """Load and validate an experiment config from a YAML path."""
     p = Path(path)
     if not p.exists():
         raise ConfigError(f"Config file not found: {path}")
@@ -221,9 +220,13 @@ def load_config(path: str) -> ExperimentConfig:
         raise ConfigError(f"{path} must contain a YAML mapping at the top level.")
 
     experiment = raw.get("experiment") or {}
+    models = _build_models(raw)
+    if not models:
+        raise ConfigError("models must be a non-empty list.")
+
     config = ExperimentConfig(
         name=_require(experiment, "name", "experiment"),
-        model=_build_model(_require(raw, "model", "top level")),
+        models=models,
         benchmark=_build_benchmark(_require(raw, "benchmark", "top level")),
         methods=_build_methods(raw.get("methods")),
         metrics=_build_metrics(raw.get("metrics")),

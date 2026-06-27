@@ -18,14 +18,21 @@
 experiment:
   name: toy_experiment
 
-model:
-  backend: dummy
-  model_name_or_path: dummy
-  device: cpu
-  generation_kwargs:
-    max_new_tokens: 16
-    temperature: 0.0
-    do_sample: false
+models:
+  - backend: dummy
+    model_name_or_path: dummy_1
+    device: cpu
+    generation_kwargs:
+      max_new_tokens: 16
+      temperature: 0.0
+      do_sample: false
+  - backend: dummy
+    model_name_or_path: dummy_2
+    device: cpu
+    generation_kwargs:
+      max_new_tokens: 16
+      temperature: 0.0
+      do_sample: false
 
 benchmark:
   name: toy
