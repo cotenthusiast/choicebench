@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from mcq_eval.methods.pride import PriDeRunner
+from mcq_eval.methods.library.pride import PriDeRunner
 
 from tests.runners.conftest import MockBackend
 

@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from mcq_eval.methods.permutation import PermutationRunner
+from mcq_eval.methods.library.permutation import PermutationRunner
 from mcq_eval.pipeline.prompt_builder import load_prompt_templates
 
 REPO_ROOT = Path(__file__).resolve().parents[2]

@@ -28,8 +28,8 @@ import numpy as np
 from mcq_eval.parsing.types import PARSE_OK, ParseResult
 from mcq_eval.pipeline.prompt_builder import build_direct_mcq_prompt
 from mcq_eval.methods.base import ExperimentRunner
-from mcq_eval.methods.permutation import PermutationRunner
-from mcq_eval.methods.pride_math import (
+from mcq_eval.methods.library.permutation import PermutationRunner
+from mcq_eval.methods.library.pride_math import (
     OPTION_LETTERS,
     CalibrationState,
     apply_debiased_choice_from_defaults,

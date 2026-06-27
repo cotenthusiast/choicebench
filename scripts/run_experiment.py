@@ -20,42 +20,26 @@ import pandas as pd
 from mcq_eval.backends.api_backend import APIBackend
 from mcq_eval.backends.dummy_backend import DummyBackend
 from mcq_eval.backends.hf_backend import HuggingFaceBackend
-from mcq_eval.config.paths import ARC_NORMALIZED_PATH, MMLU_NORMALIZED_PATH, PROMPTS_DIR, RUNS_DIR, TOY_BENCHMARK_PATH, ensure_dirs
+from mcq_eval.config.paths import (
+    ARC_NORMALIZED_PATH,
+    MMLU_NORMALIZED_PATH,
+    PROMPTS_DIR,
+    RUNS_DIR,
+    TOY_BENCHMARK_PATH,
+    ensure_dirs,
+)
 from mcq_eval.config.schema import (
     BENCHMARK_ARC_CHALLENGE,
     BENCHMARK_MMLU,
     BENCHMARK_TOY,
     ExperimentConfig,
+    ModelConfig,
     load_config,
 )
 from mcq_eval.infra.checkpoint import CheckpointManager
 from mcq_eval.io.readers import read_benchmark
 from mcq_eval.io.writers import write_run_results
-from mcq_eval.methods import DirectMCQRunner, PermutationRunner, PriDeRunner, TwoStageRunner
-from mcq_eval.clients import OpenAIClient, GeminiClient, GroqClient, TogetherAIClient
-
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-
-# Maps method name strings (used in YAML configs) to their runner classes.
-# To add a built-in method: import its runner class and add an entry here.
-# External methods can be registered without touching this file — use
-# "module.path:ClassName" syntax in the YAML config's methods[].name field.
-METHOD_REGISTRY = {
-    "direct_mcq": DirectMCQRunner,
-    "cyclic_permutation": PermutationRunner,
-    "two_stage": TwoStageRunner,
-    "pride": PriDeRunner,
-}
-
-# TODO: add Anthropic and other provider clients
-CLIENT_REGISTRY = {
-    "openai": OpenAIClient,
-    "gemini": GeminiClient,
-    "groq": GroqClient,
-    "together": TogetherAIClient,
-}
+from mcq_eval.registry import CLIENT_REGISTRY, METHOD_REGISTRY
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -73,17 +57,30 @@ logger = logging.getLogger(__name__)
 # Setup helpers
 # ---------------------------------------------------------------------------
 
-def build_backend(config: ExperimentConfig, run_id: str) -> APIBackend | HuggingFaceBackend | DummyBackend:
-    """Construct the inference backend specified in the experiment config."""
-    backend_type = config.model.backend
+def build_backend(
+    model_config: ModelConfig,
+    run_id: str,
+) -> APIBackend | HuggingFaceBackend | DummyBackend:
+    """Construct the inference backend for a single model config."""
+    backend_type = model_config.backend
 
     if backend_type == "api":
-        client_cls = CLIENT_REGISTRY.get(config.model.provider)
-        client = client_cls(model_name=config.model.model_name_or_path)
+        client_cls = CLIENT_REGISTRY.get(model_config.provider)
+        if client_cls is None:
+            raise ValueError(f"Unknown provider {model_config.provider!r}. Available: {sorted(CLIENT_REGISTRY)}")
+        client = client_cls(model_name=model_config.model_name_or_path)
         cache_dir = RUNS_DIR / run_id / "cache"
-        return APIBackend(config.model.provider, config.model.model_name_or_path, client, cache_dir, config.model.generation_kwargs.temperature, config.model.generation_kwargs.max_new_tokens, config.run.seed)
+        return APIBackend(
+            model_config.provider,
+            model_config.model_name_or_path,
+            client,
+            cache_dir,
+            model_config.generation_kwargs.temperature,
+            model_config.generation_kwargs.max_new_tokens,
+            model_config.run.seed,
+        )
     elif backend_type == "huggingface":
-        return HuggingFaceBackend(config.model.model_name_or_path, config.model.device)
+        return HuggingFaceBackend(model_config.model_name_or_path, model_config.device)
     elif backend_type == "dummy":
         return DummyBackend()
     else:
@@ -112,6 +109,7 @@ def load_benchmark(config: ExperimentConfig) -> pd.DataFrame:
 
 def instantiate_runner(
     config: ExperimentConfig,
+    model_config: ModelConfig,
     method_name: str,
     backend: APIBackend | HuggingFaceBackend | DummyBackend,
     run_id: str,
@@ -138,6 +136,7 @@ def instantiate_runner(
             raise ValueError(
                 f"Could not load method class {method_name!r}: {exc}"
             ) from exc
+
     return runner_cls(
         backend=backend,
         method_name=method_name,
@@ -145,8 +144,8 @@ def instantiate_runner(
         prompt_version=config.run.prompt_version,
         prompts_dir=PROMPTS_DIR,
         run_id=run_id,
-        temperature=config.model.generation_kwargs.temperature,
-        max_tokens=config.model.generation_kwargs.max_new_tokens,
+        temperature=model_config.generation_kwargs.temperature,
+        max_tokens=model_config.generation_kwargs.max_new_tokens,
         seed=config.run.seed,
     )
 
@@ -162,6 +161,7 @@ def run_method(
     checkpoint_mgr: CheckpointManager,
     output_dir: Path,
     checkpoint_every_n: int,
+    model_name: str = "",
     benchmark: str = "",
 ) -> None:
     """Run a single evaluation method with checkpointing and write results to CSV.
@@ -208,7 +208,7 @@ def run_method(
         output_dir=output_dir,
         run_id=runner.run_id,
         method_name=method_name,
-        model_name=runner.backend.model_name,
+        model_name=model_name,
         benchmark=benchmark,
     )
     checkpoint_mgr.delete()
@@ -251,7 +251,7 @@ def main() -> None:
     # --- Dry run: print summary and exit ---
     if args.dry_run:
         logger.info("Experiment : %s", config.name)
-        logger.info("Model      : %s (%s)", config.model.model_name_or_path, config.model.backend)
+        logger.info("Models     : %s", [m.model_name_or_path for m in config.models])
         logger.info("Benchmark  : %s", config.benchmark.name)
         logger.info("Methods    : %s", [m.name for m in config.methods])
         logger.info("Dry run complete — exiting.")
@@ -273,31 +273,38 @@ def main() -> None:
     shutil.copy2(args.config, output_dir / "config.yaml")
     logger.info("Run ID: %s  |  Output: %s", run_id, output_dir)
 
-    backend = build_backend(config, run_id)
-    logger.info("Backend: %s", backend.__class__.__name__)
-
     questions = load_benchmark(config)
     logger.info("Loaded %d questions from %s", len(questions), config.benchmark.name)
 
-    # --- Run each method sequentially ---
-    for method in config.methods:
-        checkpoint_mgr = CheckpointManager(
-            checkpoint_dir=checkpoint_dir,
-            run_id=run_id,
-            condition=method.name,
-            model=config.model.model_name_or_path,
-            benchmark=config.benchmark.name,
+    # --- Run each model sequentially ---
+    for model_config in config.models:
+        logger.info(
+            "── Model: %s (%s) ───────────────────────────────",
+            model_config.model_name_or_path, model_config.backend,
         )
-        runner = instantiate_runner(config, method.name, backend, run_id)
-        run_method(
-            method_name=method.name,
-            runner=runner,
-            questions=questions,
-            checkpoint_mgr=checkpoint_mgr,
-            output_dir=output_dir,
-            checkpoint_every_n=config.run.checkpoint_every_n,
-            benchmark=config.benchmark.name,
-        )
+        backend = build_backend(model_config, run_id)
+        logger.info("Backend: %s", backend.__class__.__name__)
+
+        # --- Run each method for this model ---
+        for method in config.methods:
+            checkpoint_mgr = CheckpointManager(
+                checkpoint_dir=checkpoint_dir,
+                run_id=run_id,
+                condition=method.name,
+                model=model_config.model_name_or_path,
+                benchmark=config.benchmark.name,
+            )
+            runner = instantiate_runner(config, model_config, method.name, backend, run_id)
+            run_method(
+                method_name=method.name,
+                runner=runner,
+                questions=questions,
+                checkpoint_mgr=checkpoint_mgr,
+                output_dir=output_dir,
+                checkpoint_every_n=config.run.checkpoint_every_n,
+                model_name=model_config.model_name_or_path,
+                benchmark=config.benchmark.name,
+            )
 
     # --- Run summary ---
     logger.info("── Run complete ─────────────────────────────────")
