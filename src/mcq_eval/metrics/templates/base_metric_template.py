@@ -1,12 +1,40 @@
 # src/mcq_eval/metrics/templates/base_metric_template.py
 #
-# Template for implementing a new metric. Copy this file into
-# src/mcq_eval/metrics/<your_metric_name>.py and fill in the TODOs.
+# Template for implementing a new evaluation metric.
 #
-# NOTE: metrics must not import runners, methods, clients, or backends.
-# A metric only ever sees a results DataFrame — it never calls a model,
-# never knows what backend produced the results, and never touches
-# checkpoint/config plumbing.
+# NAMING CONVENTION
+#   File name:  my_metric_name.py  (snake_case)
+#   Class name: MyMetricNameMetric  (CamelCase + "Metric" suffix)
+#   YAML key:   "my_metric_name"  (must match the name property below)
+#
+# REGISTRATION
+#   Built-in (lives inside this repo):
+#     Add to BUILTIN_METRICS in src/mcq_eval/metrics/__init__.py.
+#
+#   External (lives in your own package):
+#     Use "module.path:ClassName" in the YAML config — no framework files needed.
+#     Example:  metrics:
+#                 - name: my_package.metrics.my_metric:MyMetricMetric
+#
+# WHAT A METRIC RECEIVES
+#   compute() receives a results DataFrame already filtered to ONE
+#   (method_name, model_name) pair — one row per question.
+#   Guaranteed columns (from _build_result_row in methods/base.py):
+#     question_id     — unique question hash
+#     correct_option  — ground-truth letter ("A"/"B"/"C"/"D")
+#     parsed_choice   — model's parsed answer letter, or None
+#     method_name     — name of the evaluation method
+#     model_name      — name of the model that produced these results
+#     is_correct      — True/False/None (None on backend failure)
+#     score_status    — "correct"/"incorrect"/"unparseable"/"backend_failure"
+#     subject         — MMLU subject string (or equivalent)
+#     provider        — provider name string
+#
+# WHAT A METRIC MUST NOT DO
+#   - Import runners, backends, or clients
+#   - Call any model or API
+#   - Read files or environment variables
+#   - Mutate the input DataFrame
 
 from __future__ import annotations
 
@@ -15,38 +43,43 @@ import pandas as pd
 from mcq_eval.metrics.base import BaseMetric
 
 
-class YourMetric(BaseMetric):
-    """TODO: rename this class and describe what it measures.
-
-    compute() receives a results DataFrame already filtered to one
-    (method_name, model_name) pair — one row per question. Available
-    columns include (at minimum): question_id, correct_option,
-    parsed_choice, method_name, model_name, is_correct, score_status.
-    See src/mcq_eval/runners/base.py's _build_result_row() for the full
-    column list any given run may have.
-    """
+class YourMetricMetric(BaseMetric):
+    # Rename this class: e.g. PositionalBiasMetric.
 
     @property
     def name(self) -> str:
-        # TODO: short identifier used in config.yaml's metrics: list and in
-        # output tables, e.g. "my_metric".
+        # Must match the key used in the YAML config's metrics: list.
+        # Appears in output tables and report filenames.
         return "your_metric"
 
     def compute(self, results_df: pd.DataFrame) -> dict[str, float]:
-        """TODO: implement your metric's computation here.
+        """Compute the metric over one (method, model) slice of results.
+
+        Args:
+            results_df: One row per question, pre-filtered to a single
+                (method_name, model_name) pair.
 
         Returns:
-            dict of {sub_metric_name: float}. Return more than one key if
-            your metric naturally produces several related numbers (e.g.
-            a point estimate plus a standard error), the way MAD returns
-            both "mad" and "mad_std".
-        """
-        # --- Example skeleton ---
-        # total = len(results_df)
-        # if total == 0:
-        #     return {self.name: 0.0}
-        # value = ...  # compute from results_df["correct_option"],
-        #               # results_df["parsed_choice"], etc.
-        # return {self.name: value}
+            dict of {metric_key: float}. Return a single key for simple
+            metrics, or multiple keys if your metric naturally produces
+            several related numbers. All keys appear in the output table.
 
-        raise NotImplementedError("TODO: implement compute().")
+        Examples of multi-key returns:
+            # Simple:
+            {"accuracy": 0.72}
+
+            # With uncertainty:
+            {"accuracy": 0.72, "accuracy_std": 0.03}
+
+            # Subject-level breakdown (one key per subject):
+            {f"accuracy_{s}": v for s, v in by_subject.items()}
+        """
+        total = len(results_df)
+        if total == 0:
+            return {self.name: 0.0}
+
+        # Example: count correct answers (is_correct may be None on failure)
+        n_correct = results_df["is_correct"].sum()
+        value = n_correct / total
+
+        return {self.name: float(value)}
