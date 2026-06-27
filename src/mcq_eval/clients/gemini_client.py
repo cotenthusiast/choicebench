@@ -4,6 +4,7 @@ from google import genai
 from google.genai import types, errors
 
 from mcq_eval.clients.base import BaseClient
+from mcq_eval.config.providers import MAX_RETRIES, TIMEOUT
 from mcq_eval.clients.types import (
     ModelRequest,
     ModelResponse,
@@ -23,10 +24,11 @@ class GeminiClient(BaseClient):
     def __init__(
         self,
         model_name: str,
-        timeout: int = 30,
+        timeout: int = TIMEOUT,
         concurrency_limit: int = 10,
-        max_retries: int = 3,
+        max_retries: int = MAX_RETRIES,
         min_delay_seconds: float = 0.0,
+        api_key: str | None = None,
     ) -> None:
         super().__init__(
             provider="gemini",
@@ -36,7 +38,7 @@ class GeminiClient(BaseClient):
             max_retries=max_retries,
             min_delay_seconds=min_delay_seconds,
         )
-        self.client = genai.Client()
+        self.client = genai.Client(api_key=api_key)
 
     async def _generate_provider_response(
         self,

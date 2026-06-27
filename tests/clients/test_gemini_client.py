@@ -17,7 +17,7 @@ from mcq_eval.clients.types import (
 
 @pytest.fixture
 def gemini_client() -> GeminiClient:
-    return GeminiClient(model_name="gemini-2.0-flash")
+    return GeminiClient(model_name="gemini-2.0-flash", api_key="test-key")
 
 
 @pytest.fixture
