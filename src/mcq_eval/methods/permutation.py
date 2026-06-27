@@ -46,21 +46,17 @@ class PermutationRunner(ExperimentRunner):
         canonical_options = self._build_options(question_row)
         permutations = self._generate_permutations(canonical_options)
 
-        # Build prompts and requests for each permutation
+        # Build prompts for each permutation
         prompts = [
             self._build_permuted_prompt(question_row, perm, self._prompts["direct_mcq"])
             for perm in permutations
-        ]
-        requests = [
-            self._build_model_request(question_row, prompt, sample_index)
-            for prompt in prompts
         ]
 
         # One backend call per permutation (sequential — backend calls are
         # compute-bound local forward passes or already-blocking API calls).
         responses = [
-            self._call_backend_generate(req, prompt)
-            for req, prompt in zip(requests, prompts)
+            self._call_backend_generate(prompt)
+            for prompt in prompts
         ]
 
         # Parse each response and un-permute back to canonical ordering
@@ -100,7 +96,7 @@ class PermutationRunner(ExperimentRunner):
         return self._build_result_row(
             question_row=question_row,
             prompt=prompts[0],
-            model_request=requests[0],
+            sample_index=sample_index,
             model_response=responses[0],
             parsed_result=voted_parse,
             score_result=score_result,

@@ -11,9 +11,7 @@ from mcq_eval.backends.base import BaseBackend
 from mcq_eval.clients.types import (
     ErrorInfo,
     FAILURE_STATUS,
-    ModelRequest,
     ModelResponse,
-    RequestMetadata,
     SUCCESS_STATUS,
 )
 from mcq_eval.config.models import MAX_TOKENS, SEED, TEMPERATURE
@@ -28,7 +26,7 @@ class ExperimentRunner(ABC):
     """Abstract base runner for all experimental conditions.
 
     This class owns the shared infrastructure used by every condition:
-    model request construction, result-row assembly, parsing, and scoring.
+    backend calls, result-row assembly, parsing, and scoring.
     Subclasses implement the condition-specific execution shape by defining
     ``run_one`` and ``run_many``.
     """
@@ -84,26 +82,10 @@ class ExperimentRunner(ABC):
         """
         return [self.run_one(row, i) for i, row in enumerate(question_rows)]
 
-    def _call_backend_generate(
-            self,
-            model_request: ModelRequest,
-            prompt: str,
-    ) -> ModelResponse:
+    def _call_backend_generate(self, prompt: str) -> ModelResponse:
         """Call backend.generate() and wrap the result in a ModelResponse.
 
-        BaseBackend.generate() takes a bare prompt string and returns a bare
-        string (or raises) — it carries no latency/usage/finish_reason
-        metadata, unlike the old client-level ModelResponse contract. This
-        wraps that minimal contract back into the existing ModelResponse
-        shape so _build_result_row keeps working unchanged. latency_seconds,
-        finish_reason, usage, and timestamp_utc are not available at this
-        layer and are left at their empty defaults.
-
         Args:
-            model_request: The request metadata object for this call (used
-                only for its .metadata field here — the prompt itself is
-                passed separately since BaseBackend.generate() takes a plain
-                string, not a ModelRequest).
             prompt: The prompt string to send to the backend.
 
         Returns:
@@ -118,7 +100,6 @@ class ExperimentRunner(ABC):
                 model_name=self.backend.model_name,
                 status=FAILURE_STATUS,
                 latency_seconds=0.0,
-                metadata=model_request.metadata,
                 error=ErrorInfo(type(exc).__name__, str(exc), False, "backend_generate"),
             )
         return ModelResponse(
@@ -126,56 +107,14 @@ class ExperimentRunner(ABC):
             model_name=self.backend.model_name,
             status=SUCCESS_STATUS,
             latency_seconds=0.0,
-            metadata=model_request.metadata,
             raw_text=raw_text,
         )
 
-    def _build_model_request(
+    def _build_result_row(
             self,
             question_row: Any,
             prompt: str,
             sample_index: int,
-            request_logprobs: bool = False,
-    ) -> ModelRequest:
-        """Construct a standardized model request from a question and prompt.
-
-        Args:
-            question_row: Normalized question record.
-            prompt: Fully formatted prompt string.
-            sample_index: Repetition index for this question within the run.
-            request_logprobs: Whether to ask the provider for token log-probabilities
-                (Together only in this codebase).
-
-        Returns:
-            A validated ModelRequest ready for backend execution.
-        """
-        metadata = RequestMetadata(
-            question_id=question_row["question_id"],
-            split_name=self.split_name,
-            method_name=self.method_name,
-            subject=question_row["subject"],
-            run_id=self.run_id,
-            prompt_version=self.prompt_version,
-            perturbation_name=self.perturbation_name,
-            sample_index=sample_index,
-        )
-
-        return ModelRequest(
-            provider=self.backend.provider,
-            model_name=self.backend.model_name,
-            payload=prompt,
-            metadata=metadata,
-            temperature=self.temperature,
-            max_tokens=self.max_tokens,
-            seed=self.seed,
-            request_logprobs=request_logprobs,
-        )
-
-    @staticmethod
-    def _build_result_row(
-            question_row: Any,
-            prompt: str,
-            model_request: ModelRequest,
             model_response: ModelResponse | None,
             parsed_result: ParseResult | None,
             score_result: ScoreResult | None,
@@ -186,7 +125,7 @@ class ExperimentRunner(ABC):
         Args:
             question_row: Normalized question record.
             prompt: Prompt string that was sent to the model.
-            model_request: The request object sent to the backend.
+            sample_index: Repetition index for this question within the run.
             model_response: The response object returned by the backend,
                 or None if the call was never made.
             parsed_result: Structured parse output, or None.
@@ -198,24 +137,22 @@ class ExperimentRunner(ABC):
             Flat dictionary containing all trace, model, parse, and
             score fields for one experimental observation.
         """
-        metadata = model_request.metadata
-
         return {
             # --- trace metadata ---
-            "run_id": metadata.run_id,
-            "question_id": metadata.question_id,
-            "split_name": metadata.split_name,
-            "subject": metadata.subject,
-            "method_name": metadata.method_name,
-            "prompt_version": metadata.prompt_version,
-            "perturbation_name": metadata.perturbation_name,
-            "sample_index": metadata.sample_index,
+            "run_id": self.run_id,
+            "question_id": question_row["question_id"],
+            "split_name": self.split_name,
+            "subject": question_row["subject"],
+            "method_name": self.method_name,
+            "prompt_version": self.prompt_version,
+            "perturbation_name": self.perturbation_name,
+            "sample_index": sample_index,
             # --- model config ---
-            "provider": model_request.provider,
-            "model_name": model_request.model_name,
-            "temperature": model_request.temperature,
-            "max_tokens": model_request.max_tokens,
-            "seed": model_request.seed,
+            "provider": self.backend.provider,
+            "model_name": self.backend.model_name,
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+            "seed": self.seed,
             # --- question content ---
             "question_text": question_row["question_text"],
             "choice_a": question_row["choice_a"],

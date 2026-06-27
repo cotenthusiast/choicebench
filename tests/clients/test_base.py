@@ -10,7 +10,6 @@ from mcq_eval.clients.types import (
     ModelResponse,
     ProviderConfigurationError,
     ProviderTimeoutError,
-    RequestMetadata,
     SUCCESS_STATUS,
     ValidationError,
 )
@@ -31,7 +30,7 @@ class DummyClient(BaseClient):
         if self.behavior == "success":
             return ModelResponse(
                 provider=request.provider, model_name=request.model_name,
-                status=SUCCESS_STATUS, latency_seconds=0.0, metadata=request.metadata,
+                status=SUCCESS_STATUS, latency_seconds=0.0,
                 raw_text="B", finish_reason="stop", usage=None, error=None, timestamp_utc=None,
             )
         if self.behavior == "timeout":
@@ -41,13 +40,13 @@ class DummyClient(BaseClient):
         if self.behavior == "invalid_response":
             return ModelResponse(
                 provider=request.provider, model_name=request.model_name,
-                status=SUCCESS_STATUS, latency_seconds=0.0, metadata=request.metadata,
+                status=SUCCESS_STATUS, latency_seconds=0.0,
                 raw_text="", finish_reason="stop", usage=None, error=None, timestamp_utc=None,
             )
         if self.behavior == "failure_response":
             return ModelResponse(
                 provider=request.provider, model_name=request.model_name,
-                status=FAILURE_STATUS, latency_seconds=0.0, metadata=request.metadata,
+                status=FAILURE_STATUS, latency_seconds=0.0,
                 raw_text=None, finish_reason=None, usage=None,
                 error=ErrorInfo(
                     error_type="ProviderCallError", message="Forced failure response.",
@@ -94,7 +93,6 @@ class TestGenerate:
         assert response.model_name == valid_request.model_name
         assert response.provider == valid_request.provider
         assert response.latency_seconds >= 0
-        response.metadata.validate()
 
     @pytest.mark.asyncio
     async def test_returns_failed_response_for_provider_model_mismatch(self, dummy_mismatch_client, valid_request):
@@ -106,7 +104,6 @@ class TestGenerate:
         assert response.error.stage == "request_validation"
         assert response.error.retryable is False
         assert response.latency_seconds >= 0
-        response.metadata.validate()
 
     @pytest.mark.asyncio
     async def test_returns_failed_response_for_provider_timeout(self, dummy_timeout_client, valid_request):
@@ -143,12 +140,7 @@ class TestGenerateBatch:
         requests = [
             ModelRequest(
                 provider=valid_request.provider, model_name=valid_request.model_name,
-                payload=f"Question {i}", metadata=RequestMetadata(
-                    question_id=f"q_{i:03d}", split_name=valid_request.metadata.split_name,
-                    method_name=valid_request.metadata.method_name, subject=valid_request.metadata.subject,
-                    run_id=valid_request.metadata.run_id, prompt_version=valid_request.metadata.prompt_version,
-                    perturbation_name=valid_request.metadata.perturbation_name, sample_index=i,
-                ),
+                payload=f"Question {i}",
                 temperature=valid_request.temperature, max_tokens=valid_request.max_tokens, seed=valid_request.seed,
             )
             for i in range(3)
@@ -157,26 +149,6 @@ class TestGenerateBatch:
         assert len(responses) == len(requests)
         for response in responses:
             assert response.is_success()
-
-    @pytest.mark.asyncio
-    async def test_preserves_input_order(self, dummy_success_client, valid_request):
-        requests = [
-            ModelRequest(
-                provider=valid_request.provider, model_name=valid_request.model_name,
-                payload=f"Question {i}", metadata=RequestMetadata(
-                    question_id=f"q_{i:03d}", split_name=valid_request.metadata.split_name,
-                    method_name=valid_request.metadata.method_name, subject=valid_request.metadata.subject,
-                    run_id=valid_request.metadata.run_id, prompt_version=valid_request.metadata.prompt_version,
-                    perturbation_name=valid_request.metadata.perturbation_name, sample_index=i,
-                ),
-                temperature=valid_request.temperature, max_tokens=valid_request.max_tokens, seed=valid_request.seed,
-            )
-            for i in range(3)
-        ]
-        responses = await dummy_success_client.generate_batch(requests)
-        input_ids = [r.metadata.question_id for r in requests]
-        output_ids = [r.metadata.question_id for r in responses]
-        assert output_ids == input_ids
 
 
 class TestBuildFailureResponse:

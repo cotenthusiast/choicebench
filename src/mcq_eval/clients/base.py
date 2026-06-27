@@ -233,7 +233,6 @@ class BaseClient(ABC):
             model_name=request.model_name,
             status=FAILURE_STATUS,
             latency_seconds=latency_seconds,
-            metadata=request.metadata,
             error=error,
             raw_text=None,
             finish_reason=None,

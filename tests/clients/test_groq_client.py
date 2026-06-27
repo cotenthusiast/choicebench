@@ -9,7 +9,6 @@ from unittest.mock import AsyncMock
 from mcq_eval.clients.groq_client import GroqClient
 from mcq_eval.clients.types import (
     ModelRequest,
-    RequestMetadata,
     ProviderResponseError,
     ProviderCallError,
     ProviderConfigurationError,
@@ -22,20 +21,10 @@ def groq_client() -> GroqClient:
 
 
 @pytest.fixture
-def request_metadata() -> RequestMetadata:
-    return RequestMetadata(
-        question_id="q1", split_name="robustness", method_name="direct",
-        subject="anatomy", run_id="run_001", prompt_version="v1",
-        perturbation_name=None, sample_index=0,
-    )
-
-
-@pytest.fixture
-def model_request(request_metadata: RequestMetadata) -> ModelRequest:
+def model_request() -> ModelRequest:
     return ModelRequest(
         provider="groq", model_name="llama-3.3-70b-versatile",
         payload="test prompt", temperature=0.2, max_tokens=128,
-        metadata=request_metadata,
     )
 
 

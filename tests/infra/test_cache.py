@@ -8,7 +8,6 @@ from mcq_eval.infra.cache import _cache_key, ResponseCache, CachingClientWrapper
 from mcq_eval.clients.types import (
     ModelRequest,
     ModelResponse,
-    RequestMetadata,
     UsageInfo,
     SUCCESS_STATUS,
     FAILURE_STATUS,
@@ -17,39 +16,23 @@ from mcq_eval.clients.types import (
 
 
 @pytest.fixture
-def cache_metadata() -> RequestMetadata:
-    return RequestMetadata(
-        question_id="q1",
-        split_name="robustness",
-        method_name="baseline",
-        subject="anatomy",
-        run_id="run_001",
-        prompt_version="v1",
-        perturbation_name=None,
-        sample_index=0,
-    )
-
-
-@pytest.fixture
-def base_request(cache_metadata: RequestMetadata) -> ModelRequest:
+def base_request() -> ModelRequest:
     return ModelRequest(
         provider="openai",
         model_name="gpt-4.1-mini",
         payload="What is the capital of France?",
         temperature=0.0,
         max_tokens=128,
-        metadata=cache_metadata,
     )
 
 
 @pytest.fixture
-def success_response(cache_metadata: RequestMetadata) -> ModelResponse:
+def success_response() -> ModelResponse:
     return ModelResponse(
         provider="openai",
         model_name="gpt-4.1-mini",
         status=SUCCESS_STATUS,
         latency_seconds=0.25,
-        metadata=cache_metadata,
         raw_text="Paris",
         finish_reason="stop",
         usage=UsageInfo(prompt_tokens=10, completion_tokens=2, total_tokens=12),
@@ -59,13 +42,12 @@ def success_response(cache_metadata: RequestMetadata) -> ModelResponse:
 
 
 @pytest.fixture
-def failure_response(cache_metadata: RequestMetadata) -> ModelResponse:
+def failure_response() -> ModelResponse:
     return ModelResponse(
         provider="openai",
         model_name="gpt-4.1-mini",
         status=FAILURE_STATUS,
         latency_seconds=0.1,
-        metadata=cache_metadata,
         raw_text=None,
         finish_reason=None,
         usage=None,
@@ -83,71 +65,45 @@ class TestCacheKey:
     def test_same_request_produces_same_key(self, base_request):
         assert _cache_key(base_request) == _cache_key(base_request)
 
-    def test_different_payload_produces_different_key(self, base_request, cache_metadata):
+    def test_different_payload_produces_different_key(self, base_request):
         other = ModelRequest(
             provider="openai",
             model_name="gpt-4.1-mini",
             payload="A completely different question?",
             temperature=0.0,
             max_tokens=128,
-            metadata=cache_metadata,
         )
         assert _cache_key(base_request) != _cache_key(other)
 
-    def test_different_model_produces_different_key(self, base_request, cache_metadata):
+    def test_different_model_produces_different_key(self, base_request):
         other = ModelRequest(
             provider="groq",
             model_name="llama-3.1-8b-instant",
             payload=base_request.payload,
             temperature=0.0,
             max_tokens=128,
-            metadata=cache_metadata,
         )
         assert _cache_key(base_request) != _cache_key(other)
 
-    def test_different_temperature_produces_different_key(self, base_request, cache_metadata):
+    def test_different_temperature_produces_different_key(self, base_request):
         other = ModelRequest(
             provider="openai",
             model_name="gpt-4.1-mini",
             payload=base_request.payload,
             temperature=0.7,
             max_tokens=128,
-            metadata=cache_metadata,
         )
         assert _cache_key(base_request) != _cache_key(other)
 
-    def test_different_max_tokens_produces_different_key(self, base_request, cache_metadata):
+    def test_different_max_tokens_produces_different_key(self, base_request):
         other = ModelRequest(
             provider="openai",
             model_name="gpt-4.1-mini",
             payload=base_request.payload,
             temperature=0.0,
             max_tokens=512,
-            metadata=cache_metadata,
         )
         assert _cache_key(base_request) != _cache_key(other)
-
-    def test_metadata_does_not_affect_key(self, base_request):
-        """Trace metadata fields (question_id, run_id, etc.) must not change the cache key."""
-        other_meta = RequestMetadata(
-            question_id="completely_different_qid",
-            split_name="review",
-            method_name="two_prompt",
-            subject="philosophy",
-            run_id="run_999",
-            prompt_version="v2",
-            perturbation_name=None,
-            sample_index=5,
-        )
-        other = ModelRequest(
-            provider="openai",
-            model_name="gpt-4.1-mini",
-            payload=base_request.payload,
-            temperature=0.0,
-            max_tokens=128,
-            metadata=other_meta,
-        )
-        assert _cache_key(base_request) == _cache_key(other)
 
     def test_key_is_64_char_hex_string(self, base_request):
         key = _cache_key(base_request)
@@ -163,7 +119,6 @@ class TestCacheKey:
             payload=base_request.payload,
             temperature=base_request.temperature,
             max_tokens=base_request.max_tokens,
-            metadata=base_request.metadata,
             seed=base_request.seed,
             request_logprobs=True,
         )
@@ -244,23 +199,12 @@ class TestCachingClientWrapper:
         lp = [{"token": "A", "logprob": -0.12, "top_logprobs": []}]
 
         async def _inner():
-            md = RequestMetadata(
-                question_id="q_lp",
-                split_name="robustness",
-                method_name="pride",
-                subject="computer_security",
-                run_id="run_lp",
-                prompt_version="v1",
-                perturbation_name=None,
-                sample_index=0,
-            )
             req = ModelRequest(
                 provider="together",
                 model_name="Qwen/Qwen2.5-7B-Instruct",
                 payload="Pick A B C or D.",
                 temperature=0.0,
                 max_tokens=8,
-                metadata=md,
                 request_logprobs=True,
             )
             resp_ok = ModelResponse(
@@ -268,7 +212,6 @@ class TestCachingClientWrapper:
                 model_name=req.model_name,
                 status=SUCCESS_STATUS,
                 latency_seconds=0.1,
-                metadata=md,
                 raw_text="A",
                 finish_reason="stop",
                 usage=UsageInfo(1, 1, 2),
@@ -413,7 +356,7 @@ class TestCachingClientWrapper:
         assert wrapper.model_name == "llama-3.1-8b-instant"
 
     def test_generate_batch_calls_generate_for_each_request(
-        self, tmp_path, base_request, cache_metadata, success_response
+        self, tmp_path, base_request, success_response
     ):
         async def _inner():
             mock_client = AsyncMock()
@@ -427,7 +370,6 @@ class TestCachingClientWrapper:
                 payload="A different question entirely?",
                 temperature=0.0,
                 max_tokens=128,
-                metadata=cache_metadata,
             )
 
             wrapper = CachingClientWrapper(mock_client, ResponseCache(tmp_path / "cache"))

@@ -8,44 +8,6 @@ from mcq_eval.clients.types import (
 )
 
 
-class TestRequestMetadataValidation:
-    """Tests for RequestMetadata.validate."""
-
-    def test_passes_for_valid_metadata(self, valid_metadata):
-        valid_metadata.validate()
-
-    @pytest.mark.parametrize(
-        "field_name,bad_value",
-        [
-            ("question_id", ""),
-            ("split_name", ""),
-            ("method_name", ""),
-            ("subject", ""),
-            ("run_id", ""),
-            ("prompt_version", ""),
-        ],
-    )
-    def test_fails_for_invalid_required_strings(self, valid_metadata, field_name, bad_value):
-        setattr(valid_metadata, field_name, bad_value)
-        with pytest.raises(RequestValidationError):
-            valid_metadata.validate()
-
-    @pytest.mark.parametrize(
-        "perturbation_name,sample_index",
-        [
-            ("", 0),
-            (123, 0),
-            ("original", -1),
-            ("original", "zero"),
-        ],
-    )
-    def test_fails_for_invalid_optional_or_index_fields(self, valid_metadata, perturbation_name, sample_index):
-        setattr(valid_metadata, "perturbation_name", perturbation_name)
-        setattr(valid_metadata, "sample_index", sample_index)
-        with pytest.raises(RequestValidationError):
-            valid_metadata.validate()
-
-
 class TestModelRequestValidation:
     """Tests for ModelRequest.validate."""
 
@@ -92,12 +54,6 @@ class TestModelRequestValidation:
         with pytest.raises(RequestValidationError):
             valid_request.validate()
 
-    def test_fails_for_invalid_metadata(self, valid_request):
-        valid_request.metadata = {}
-        with pytest.raises(RequestValidationError):
-            valid_request.validate()
-
-
 class TestModelResponseValidation:
     """Tests for ModelResponse.validate."""
 
@@ -108,23 +64,18 @@ class TestModelResponseValidation:
         failed_response.validate()
 
     @pytest.mark.parametrize(
-        "status,latency_seconds,metadata",
+        "status,latency_seconds",
         [
-            ("bad_status", 0.2, "valid"),
-            ("success", -1.0, "valid"),
-            ("success", "fast", "valid"),
-            ("success", 0.2, object()),
+            ("bad_status", 0.2),
+            ("success", -1.0),
+            ("success", "fast"),
         ],
     )
-    def test_fails_for_invalid_status_latency_or_metadata(
-        self, successful_response, valid_metadata, status, latency_seconds, metadata,
+    def test_fails_for_invalid_status_or_latency(
+        self, successful_response, status, latency_seconds,
     ):
         successful_response.status = status
         successful_response.latency_seconds = latency_seconds
-        if metadata != "valid":
-            successful_response.metadata = metadata
-        else:
-            successful_response.metadata = valid_metadata
         with pytest.raises(ResponseValidationError):
             successful_response.validate()
 

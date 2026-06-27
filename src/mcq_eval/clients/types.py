@@ -20,7 +20,7 @@ class ValidationError(Exception):
 
 
 class RequestValidationError(ValidationError):
-    """Raised when a ModelRequest or its attached metadata contains invalid, missing, or inconsistent values."""
+    """Raised when a ModelRequest contains invalid, missing, or inconsistent values."""
     pass
 
 
@@ -52,68 +52,6 @@ class ProviderRateLimitError(ProviderCallError):
 class ProviderResponseError(ProviderCallError):
     """Raised when a provider returns a malformed, incomplete, or otherwise unusable response."""
     pass
-
-
-# -----------------------------------------------------------------------------------------------
-
-
-class RequestMetadata:
-    """Trace metadata attached to one experiment request/response pair.
-
-    This object identifies a single benchmark item across async execution,
-    logging, saving, and evaluation.
-    """
-
-    def __init__(
-        self,
-        question_id: str,
-        split_name: str,
-        method_name: str,
-        subject: str,
-        run_id: str,
-        prompt_version: str,
-        perturbation_name: str | None,
-        sample_index: int,
-    ) -> None:
-        self.question_id = question_id
-        self.split_name = split_name
-        self.method_name = method_name
-        self.subject = subject
-        self.run_id = run_id
-        self.prompt_version = prompt_version
-        self.perturbation_name = perturbation_name
-        self.sample_index = sample_index
-
-    def validate(self) -> None:
-        """Validate that all required metadata fields are present and valid."""
-        required_str_fields = {
-            "question_id": self.question_id,
-            "split_name": self.split_name,
-            "method_name": self.method_name,
-            "subject": self.subject,
-            "run_id": self.run_id,
-            "prompt_version": self.prompt_version,
-        }
-
-        for field_name, value in required_str_fields.items():
-            if not isinstance(value, str) or not value.strip():
-                raise RequestValidationError(
-                    f"{field_name} must be a non-empty string."
-                )
-
-        if self.perturbation_name is not None:
-            if (
-                not isinstance(self.perturbation_name, str)
-                or not self.perturbation_name.strip()
-            ):
-                raise RequestValidationError(
-                    "perturbation_name must be None or a non-empty string."
-                )
-
-        if isinstance(self.sample_index, bool) or not isinstance(self.sample_index, int) or self.sample_index < 0:
-            raise RequestValidationError(
-                "sample_index must be a non-negative integer."
-            )
 
 
 class UsageInfo:
@@ -150,7 +88,7 @@ class ModelRequest:
     """Provider-agnostic request object for one model call.
 
     This object stores the target provider/model, the request payload,
-    generation settings, and trace metadata needed to track the call.
+    and generation settings.
     """
 
     def __init__(
@@ -158,7 +96,6 @@ class ModelRequest:
         provider: str,
         model_name: str,
         payload: str,
-        metadata: RequestMetadata,
         temperature: float = TEMPERATURE,
         max_tokens: int = MAX_TOKENS,
         seed: int | None = SEED,
@@ -167,7 +104,6 @@ class ModelRequest:
         self.provider = provider
         self.model_name = model_name
         self.payload = payload
-        self.metadata = metadata
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.seed = seed
@@ -206,20 +142,12 @@ class ModelRequest:
         if self.seed is not None and (isinstance(self.seed, bool) or not isinstance(self.seed, int)):
             raise RequestValidationError("seed must be an integer or None.")
 
-        if not isinstance(self.metadata, RequestMetadata):
-            raise RequestValidationError(
-                "metadata must be a RequestMetadata instance."
-            )
-
-        self.metadata.validate()
-
 
 class ModelResponse:
     """Standardized response object for one model call.
 
-    This object records the outcome of a request, including basic execution
-    status, timing, and the metadata needed to map the response back to the
-    original benchmark item.
+    This object records the outcome of a request, including execution
+    status, timing, and the raw model output.
     """
 
     def __init__(
@@ -228,7 +156,6 @@ class ModelResponse:
         model_name: str,
         status: str,
         latency_seconds: float,
-        metadata: RequestMetadata,
         raw_text: str | None = None,
         finish_reason: str | None = None,
         usage: UsageInfo | None = None,
@@ -240,7 +167,6 @@ class ModelResponse:
         self.model_name = model_name
         self.status = status
         self.latency_seconds = latency_seconds
-        self.metadata = metadata
         self.raw_text = raw_text
         self.finish_reason = finish_reason
         self.usage = usage
@@ -275,13 +201,6 @@ class ModelResponse:
             raise ResponseValidationError(
                 "latency_seconds must be a non-negative numeric value."
             )
-
-        if not isinstance(self.metadata, RequestMetadata):
-            raise ResponseValidationError(
-                "metadata must be a RequestMetadata instance."
-            )
-
-        self.metadata.validate()
 
         if self.is_success():
             if not isinstance(self.raw_text, str) or not self.raw_text.strip():

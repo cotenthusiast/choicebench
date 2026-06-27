@@ -59,17 +59,14 @@ class TwoStageRunner(ExperimentRunner):
             template=self._prompts["free_text"],
             question=question_row["question_text"],
         )
-        free_text_request = self._build_model_request(
-            question_row, free_text_prompt, sample_index,
-        )
-        free_text_response = self._call_backend_generate(free_text_request, free_text_prompt)
+        free_text_response = self._call_backend_generate(free_text_prompt)
 
         # If stage 1 fails, return early
         if not free_text_response.is_success():
             return self._build_result_row(
                 question_row=question_row,
                 prompt=free_text_prompt,
-                model_request=free_text_request,
+                sample_index=sample_index,
                 model_response=free_text_response,
                 parsed_result=None,
                 score_result=None,
@@ -87,10 +84,7 @@ class TwoStageRunner(ExperimentRunner):
             option_c=question_row["choice_c"],
             option_d=question_row["choice_d"],
         )
-        matching_request = self._build_model_request(
-            question_row, matching_prompt, sample_index,
-        )
-        matching_response = self._call_backend_generate(matching_request, matching_prompt)
+        matching_response = self._call_backend_generate(matching_prompt)
 
         # Parse and score the stage 2 response
         parsed_result = None
@@ -121,10 +115,7 @@ class TwoStageRunner(ExperimentRunner):
                 option_c=question_row["choice_c"],
                 option_d=question_row["choice_d"],
             )
-            fallback_request = self._build_model_request(
-                question_row, fallback_prompt, sample_index
-            )
-            fallback_response = self._call_backend_generate(fallback_request, fallback_prompt)
+            fallback_response = self._call_backend_generate(fallback_prompt)
             if fallback_response.is_success():
                 parsed_result, score_result = self._parse_and_score(
                     raw_text=fallback_response.raw_text,
@@ -136,7 +127,7 @@ class TwoStageRunner(ExperimentRunner):
         result = self._build_result_row(
             question_row=question_row,
             prompt=matching_prompt,
-            model_request=matching_request,
+            sample_index=sample_index,
             model_response=matching_response,
             parsed_result=parsed_result,
             score_result=score_result,

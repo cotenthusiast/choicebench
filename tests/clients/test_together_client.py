@@ -10,7 +10,6 @@ from unittest.mock import AsyncMock
 from mcq_eval.clients.together_client import TogetherAIClient
 from mcq_eval.clients.types import (
     ModelRequest,
-    RequestMetadata,
     ProviderCallError,
     ProviderConfigurationError,
     ProviderRateLimitError,
@@ -27,40 +26,24 @@ def together_client() -> TogetherAIClient:
 
 
 @pytest.fixture
-def request_metadata() -> RequestMetadata:
-    return RequestMetadata(
-        question_id="q1",
-        split_name="robustness",
-        method_name="baseline",
-        subject="anatomy",
-        run_id="run_001",
-        prompt_version="v1",
-        perturbation_name=None,
-        sample_index=0,
-    )
-
-
-@pytest.fixture
-def model_request(request_metadata: RequestMetadata) -> ModelRequest:
+def model_request() -> ModelRequest:
     return ModelRequest(
         provider="together",
         model_name="Qwen/Qwen2.5-7B-Instruct",
         payload="test prompt",
         temperature=0.0,
         max_tokens=128,
-        metadata=request_metadata,
     )
 
 
 @pytest.fixture
-def model_request_with_logprobs(request_metadata: RequestMetadata) -> ModelRequest:
+def model_request_with_logprobs() -> ModelRequest:
     return ModelRequest(
         provider="together",
         model_name="Qwen/Qwen2.5-7B-Instruct",
         payload="test prompt",
         temperature=0.0,
         max_tokens=128,
-        metadata=request_metadata,
         request_logprobs=True,
     )
 

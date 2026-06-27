@@ -41,8 +41,7 @@ class DirectMCQRunner(ExperimentRunner):
             parse, and score fields.
         """
         prompt = self._build_prompt(question_row)
-        model_request = self._build_model_request(question_row, prompt, sample_index)
-        model_response = self._call_backend_generate(model_request, prompt)
+        model_response = self._call_backend_generate(prompt)
 
         parsed_result = None
         score_result = None
@@ -57,7 +56,7 @@ class DirectMCQRunner(ExperimentRunner):
         return self._build_result_row(
             question_row=question_row,
             prompt=prompt,
-            model_request=model_request,
+            sample_index=sample_index,
             model_response=model_response,
             parsed_result=parsed_result,
             score_result=score_result,

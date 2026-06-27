@@ -177,7 +177,6 @@ class TogetherAIClient(BaseClient):
             model_name=request.model_name,
             status=SUCCESS_STATUS,
             latency_seconds=0.0,
-            metadata=request.metadata,
             raw_text=raw_text,
             finish_reason=finish_reason,
             usage=usage,

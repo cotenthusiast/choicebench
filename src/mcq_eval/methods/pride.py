@@ -282,12 +282,6 @@ class PriDeRunner(ExperimentRunner):
         letters = list(options.keys())
         prompt = self._build_prompt(question_row)
 
-        # PriDe never calls backend.generate() — score_options() is the only
-        # backend call this method makes. model_request is still built (no
-        # I/O — it's just a metadata object) so _build_result_row can
-        # populate provider/model_name/temperature/etc. as usual.
-        model_request = self._build_model_request(question_row, prompt, sample_index)
-
         adjusted_letter: str | None = None
         score_adjusted = None
         lp_map: dict[str, float] = {}
@@ -335,7 +329,7 @@ class PriDeRunner(ExperimentRunner):
         row = self._build_result_row(
             question_row=question_row,
             prompt=prompt,
-            model_request=model_request,
+            sample_index=sample_index,
             model_response=None,
             parsed_result=None,
             score_result=None,
