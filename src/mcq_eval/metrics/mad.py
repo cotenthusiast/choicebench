@@ -8,9 +8,10 @@
 import numpy as np
 import pandas as pd
 
+from mcq_eval.constants import MCQ_OPTIONS
 from mcq_eval.metrics.base import BaseMetric
 
-_OPTIONS = ["A", "B", "C", "D"]
+_OPTIONS = MCQ_OPTIONS
 _N_BOOTSTRAP = 10_000
 _BOOTSTRAP_SEED = 42
 _OPT_INDEX = {opt: i for i, opt in enumerate(_OPTIONS)}

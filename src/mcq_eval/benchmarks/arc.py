@@ -5,9 +5,10 @@ import hashlib
 import pandas as pd
 
 from mcq_eval.benchmarks.base import build_normalized_dataframe as _build_normalized_dataframe
+from mcq_eval.constants import MCQ_OPTIONS
 
 _ARC_SUBJECT = "arc_challenge"
-_VALID_LABELS = {"A", "B", "C", "D"}
+_VALID_LABELS = set(MCQ_OPTIONS)
 
 
 def normalize_row(row: dict[str, object]) -> dict[str, object]:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Collection, Mapping
 
+from mcq_eval.constants import MCQ_OPTIONS
 from mcq_eval.parsing.types import (
     PARSE_AMBIGUOUS,
     PARSE_MISSING,
@@ -12,7 +13,7 @@ from mcq_eval.parsing.types import (
 )
 
 
-DEFAULT_VALID_CHOICES = ("A", "B", "C", "D")
+DEFAULT_VALID_CHOICES: tuple[str, ...] = tuple(MCQ_OPTIONS)
 
 
 def normalize_output_text(raw_text: str | None) -> str:

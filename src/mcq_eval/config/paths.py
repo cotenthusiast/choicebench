@@ -15,17 +15,19 @@ REPORTS_DIR = ROOT_DIR / "reports"
 LOG_DIR = ROOT_DIR / "logs"
 PROMPTS_DIR = ROOT_DIR / "prompts"
 
-for directory in [
-    DATA_DIR,
-    RAW_DIR,
-    PROCESSED_DIR,
-    SPLITS_DIR,
-    REVIEWS_DIR,
-    RUNS_DIR,
-    REPORTS_DIR,
-    LOG_DIR,
-]:
-    directory.mkdir(parents=True, exist_ok=True)
+def ensure_dirs() -> None:
+    """Create all standard project directories. Call once at program startup."""
+    for directory in [
+        DATA_DIR,
+        RAW_DIR,
+        PROCESSED_DIR,
+        SPLITS_DIR,
+        REVIEWS_DIR,
+        RUNS_DIR,
+        REPORTS_DIR,
+        LOG_DIR,
+    ]:
+        directory.mkdir(parents=True, exist_ok=True)
 
 # Filenames ------------------------------------------
 MMLU_RAW_FILENAME = "mmlu_raw.csv"
@@ -44,3 +46,6 @@ ARC_SPLITS_DIR = SPLITS_DIR / "arc_challenge"
 ARC_SPLIT_NAME = "robustness"
 ARC_SAMPLE_SIZE = 1000
 ARC_SAMPLE_SEED = 42
+
+# TOY benchmark ---------------------------------------
+TOY_BENCHMARK_PATH = PROCESSED_DIR / "toy_normalized.csv"
