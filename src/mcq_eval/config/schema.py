@@ -6,12 +6,15 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
 
 import yaml
+
+from mcq_eval.metrics import BUILTIN_METRICS
+
+DEFAULT_MAX_NEW_TOKENS = 512
 
 _VALID_BACKENDS = {"huggingface", "api", "dummy"}
 # Backends known (in this codebase) to implement score_options() — i.e.
@@ -20,8 +23,11 @@ _VALID_BACKENDS = {"huggingface", "api", "dummy"}
 # backend in tests and onboarding configs (see config/toy_experiment.yaml).
 _LOGPROB_CAPABLE_BACKENDS = {"huggingface", "dummy"}
 _VALID_DEVICES = {"cuda", "cpu", "auto"}
-_VALID_BENCHMARKS = {"mmlu", "arc_challenge", "custom"}
-_VALID_METRICS = {"accuracy", "mad"}
+
+BENCHMARK_MMLU = "mmlu"
+BENCHMARK_ARC_CHALLENGE = "arc_challenge"
+BENCHMARK_TOY = "toy"
+VALID_BENCHMARKS = {BENCHMARK_MMLU, BENCHMARK_ARC_CHALLENGE, BENCHMARK_TOY}
 
 
 class ConfigError(Exception):
@@ -41,6 +47,7 @@ class GenerationKwargsConfig:
 class ModelConfig:
     backend: str
     model_name_or_path: str
+    provider: str | None = None  # Only required for API backends
     device: str = "cuda"
     generation_kwargs: GenerationKwargsConfig = field(default_factory=GenerationKwargsConfig)
 
@@ -64,6 +71,8 @@ class RunConfig:
     seed: int = 42
     resume: bool = True
     dry_run: bool = False
+    checkpoint_every_n: int = 50
+    prompt_version: str = "v1"
 
 
 @dataclass
@@ -71,12 +80,11 @@ class ExperimentConfig:
     """Top-level validated experiment config.
 
     Construct via load_config(path), not directly — load_config() is what
-    enforces the cross-field rules (logprob/backend compatibility, writable
-    output_dir) that a bare dataclass constructor can't.
+    enforces the cross-field rules (e.g. logprob/backend compatibility)
+    that a bare dataclass constructor can't.
     """
 
     name: str
-    output_dir: str
     model: ModelConfig
     benchmark: BenchmarkConfig
     methods: list[MethodConfig]
@@ -110,9 +118,12 @@ def _build_model(raw: dict) -> ModelConfig:
         raise ConfigError(
             f"model.device must be one of {sorted(_VALID_DEVICES)}; got {device!r}."
         )
+    if backend == "api" and "provider" not in raw:
+        raise ConfigError("model.provider is required for API backends.")
     return ModelConfig(
         backend=backend,
         model_name_or_path=_require(raw, "model_name_or_path", "model"),
+        provider=raw.get("provider"),
         device=device,
         generation_kwargs=_build_generation_kwargs(raw.get("generation_kwargs")),
     )
@@ -120,9 +131,9 @@ def _build_model(raw: dict) -> ModelConfig:
 
 def _build_benchmark(raw: dict) -> BenchmarkConfig:
     name = _require(raw, "name", "benchmark")
-    if name not in _VALID_BENCHMARKS:
+    if name not in VALID_BENCHMARKS:
         raise ConfigError(
-            f"benchmark.name must be one of {sorted(_VALID_BENCHMARKS)}; got {name!r}."
+            f"benchmark.name must be one of {sorted(VALID_BENCHMARKS)}; got {name!r}."
         )
     n_samples = raw.get("n_samples")
     if n_samples is not None and (not isinstance(n_samples, int) or n_samples <= 0):
@@ -155,6 +166,12 @@ def _build_metrics(raw: list | None) -> list[str]:
     for m in raw:
         if not isinstance(m, str):
             raise ConfigError(f"Each metrics entry must be a string; got {m!r}.")
+        # Dotted importlib paths ("module.path:ClassName") are loaded at runtime.
+        if ":" not in m and m not in BUILTIN_METRICS:
+            raise ConfigError(
+                f"Unknown metric {m!r}. Built-ins: {sorted(BUILTIN_METRICS)}. "
+                f"For external metrics use 'module.path:ClassName'."
+            )
     return list(raw)
 
 
@@ -164,6 +181,8 @@ def _build_run(raw: dict | None) -> RunConfig:
         seed=int(raw.get("seed", 42)),
         resume=bool(raw.get("resume", True)),
         dry_run=bool(raw.get("dry_run", False)),
+        checkpoint_every_n=int(raw.get("checkpoint_every_n", 50)),
+        prompt_version=str(raw.get("prompt_version", "v1")),
     )
 
 
@@ -179,14 +198,6 @@ def _validate_cross_field(config: ExperimentConfig) -> None:
             f"score_options(). Either drop these methods or switch backends."
         )
 
-    output_dir = Path(config.output_dir)
-    try:
-        output_dir.mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
-        raise ConfigError(f"output_dir {config.output_dir!r} could not be created: {exc}") from exc
-    if not os.access(output_dir, os.W_OK):
-        raise ConfigError(f"output_dir {config.output_dir!r} is not writable.")
-
 
 def load_config(path: str) -> ExperimentConfig:
     """Load and validate an experiment config from a YAML path.
@@ -195,8 +206,7 @@ def load_config(path: str) -> ExperimentConfig:
         ConfigError: with a human-readable message if the file is missing
             required fields, has individually-invalid field values, or has
             fields that are valid alone but mutually inconsistent (e.g. a
-            logprob-requiring method paired with an API backend, or a
-            non-writable output_dir).
+            logprob-requiring method paired with an API backend).
     """
     p = Path(path)
     if not p.exists():
@@ -213,7 +223,6 @@ def load_config(path: str) -> ExperimentConfig:
     experiment = raw.get("experiment") or {}
     config = ExperimentConfig(
         name=_require(experiment, "name", "experiment"),
-        output_dir=_require(experiment, "output_dir", "experiment"),
         model=_build_model(_require(raw, "model", "top level")),
         benchmark=_build_benchmark(_require(raw, "benchmark", "top level")),
         methods=_build_methods(raw.get("methods")),

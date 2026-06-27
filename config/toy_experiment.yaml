@@ -7,9 +7,9 @@
 #
 # Real ARC-Challenge data is NOT present in this repo (data/processed/ and
 # data/splits/ only contain a .gitkeep — see scripts/prepare_data.py for how
-# real benchmark data gets generated). benchmark.name is "custom" here,
-# pointing at the bundled toy CSV instead, so this config can actually run
-# without first downloading and preprocessing a real dataset.
+# real benchmark data gets generated). benchmark.name is "toy" here,
+# pointing at the bundled toy CSV, so this config can run without first
+# downloading and preprocessing a real dataset.
 #
 # Verified: this file loads and validates via
 # mcq_eval.config.schema.load_config() — see Session 3 Task 4 report for
@@ -17,7 +17,6 @@
 
 experiment:
   name: toy_experiment
-  output_dir: runs/toy_experiment
 
 model:
   backend: dummy
@@ -29,7 +28,7 @@ model:
     do_sample: false
 
 benchmark:
-  name: custom
+  name: toy
   split: test
   n_samples: 10
   subject_filter: null
@@ -44,3 +43,5 @@ run:
   seed: 42
   resume: false
   dry_run: false
+  checkpoint_every_n: 50
+  prompt_version: "v1"

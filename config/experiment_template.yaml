@@ -14,11 +14,6 @@ experiment:
   # Free-form label for this experiment — used in output paths/logs only.
   name: my_experiment
 
-  # Where results, logs, and any sidecars (e.g. PriDe calibration) get
-  # written. Created automatically if it doesn't exist; load_config() fails
-  # loudly if it can't be created or isn't writable.
-  output_dir: runs/my_experiment
-
 # ---------------------------------------------------------------------------
 # Model
 # ---------------------------------------------------------------------------
@@ -53,9 +48,7 @@ model:
 # Benchmark
 # ---------------------------------------------------------------------------
 benchmark:
-  # "mmlu" | "arc_challenge" | "custom". "custom" expects your own normalized
-  # CSV — see data/processed/ for the expected column shape
-  # (question_id, subject, question_text, choice_a..d, correct_option).
+  # "mmlu" | "arc_challenge" | "toy"
   name: arc_challenge
 
   # Which named split to draw from (benchmark-specific; see
@@ -109,3 +102,9 @@ run:
   # Validate this config and print a preflight estimate without making any
   # backend calls.
   dry_run: false
+
+  # Number of questions to process between checkpoint saves.
+  checkpoint_every_n: 50
+
+  # Prompt template version to use (must match a subdirectory in prompts/).
+  prompt_version: "v1"
