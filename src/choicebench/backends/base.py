@@ -3,7 +3,6 @@
 # Abstract interface that all inference backends must implement.
 
 from abc import ABC, abstractmethod
-from typing import Any
 
 class BaseBackend(ABC):
 

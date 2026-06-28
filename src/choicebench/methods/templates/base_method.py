@@ -41,6 +41,7 @@ from __future__ import annotations
 from typing import Any
 
 from choicebench.methods.base import ExperimentRunner
+from choicebench.pipeline.prompt_builder import build_direct_mcq_prompt
 
 """
 Method: <Your Method Name>
@@ -58,8 +59,9 @@ class YourMethodRunner(ExperimentRunner):
 
     def __init__(self, num_rollouts: int = 4, **kwargs) -> None:
         # All framework args (backend, method_name, split_name, prompt_version,
-        # prompts_dir, run_id, temperature, max_tokens, seed, perturbation_name)
-        # are forwarded automatically by instantiate_runner() via **kwargs.
+        # prompts_dir, run_id, temperature, max_tokens, seed,
+        # perturbation_name, model_label) are forwarded automatically by
+        # instantiate_runner() via **kwargs.
         # YAML params are forwarded as constructor kwargs too:
         #   methods:
         #     - name: my_method_name
@@ -81,9 +83,13 @@ class YourMethodRunner(ExperimentRunner):
         Args:
             question_row: Normalized question record. Guaranteed keys:
                 question_id, subject, question_text,
-                choice_a, choice_b, choice_c, choice_d, correct_option.
+                choice_a, choice_b, choice_c, choice_d, correct_option,
+                correct_answer_text.
+                v0.1 uses legacy A-D columns. Use self._build_options(row)
+                instead of hardcoding A-D if your method can support rows with
+                missing trailing choices.
             sample_index: Repetition index for this question within the run.
-                Always 0 for single-pass methods; >0 for repeated sampling.
+                The default run_many() passes a zero-based row index.
 
         Returns:
             Flat result dictionary. ALWAYS build this via _build_result_row() —
@@ -94,7 +100,11 @@ class YourMethodRunner(ExperimentRunner):
         # self._prompts is a dict loaded from the prompts/{prompt_version}/
         # directory. Keys match template file names (without .txt).
         # Example:  template = self._prompts["direct_mcq"]
-        #           prompt = template.format(question=..., choice_a=..., ...)
+        #           prompt = build_direct_mcq_prompt(
+        #               template=template,
+        #               question=question_row["question_text"],
+        #               options=self._build_options(question_row),
+        #           )
         prompt = self._build_prompt(question_row)
 
         # ── Step 2: call the backend ────────────────────────────────────────
@@ -107,13 +117,15 @@ class YourMethodRunner(ExperimentRunner):
 
         if model_response.is_success():
             # ── Step 3: parse + score ────────────────────────────────────────
-            # _parse_and_score extracts the final letter choice from raw_text
-            # and checks it against correct_option.
+            # _parse_and_score extracts the final letter choice from raw_text,
+            # restricted to the letters present in options, then checks it
+            # against correct_option.
             # Returns (ParseResult, ScoreResult) — both are dataclasses.
+            options = self._build_options(question_row)
             parsed_result, score_result = self._parse_and_score(
                 raw_text=model_response.raw_text,
                 correct_option=question_row["correct_option"],
-                options=self._build_options(question_row),
+                options=options,
             )
 
         # ── (Optional) logprob-based scoring ───────────────────────────────
@@ -126,8 +138,11 @@ class YourMethodRunner(ExperimentRunner):
         #         "Use HuggingFaceBackend or another logprob-capable backend."
         #     )
         # options = self._build_options(question_row)
-        # logprobs = self.backend.score_options(prompt, list(options.keys()))
-        # best_letter = list(options.keys())[logprobs.index(max(logprobs))]
+        # letters = list(options.keys())
+        # logprobs = self.backend.score_options(prompt, letters)
+        # best_letter = letters[logprobs.index(max(logprobs))]
+        # Then create a ParseResult/ScoreResult or attach method-specific
+        # columns before returning _build_result_row().
 
         # ── Step 4: assemble result row ─────────────────────────────────────
         # _build_result_row fills in all trace/model/parse/score fields.
@@ -145,16 +160,15 @@ class YourMethodRunner(ExperimentRunner):
         """Construct the prompt string for one question.
 
         self._prompts["<template_name>"] is a string template loaded from
-        prompts/{prompt_version}/<template_name>.txt. Use .format(**kwargs)
-        to fill in placeholders. If your method has no prompt template, build
-        the string directly here.
+        prompts/{prompt_version}/<template_name>.txt. Built-in MCQ templates
+        use {question} and {options}; build_direct_mcq_prompt() renders the
+        dynamic option block from the row's available choices. If your method
+        has no prompt template, build the string directly here.
         """
         # Example using a template:
-        # return self._prompts["direct_mcq"].format(
+        # return build_direct_mcq_prompt(
+        #     template=self._prompts["direct_mcq"],
         #     question=question_row["question_text"],
-        #     choice_a=question_row["choice_a"],
-        #     choice_b=question_row["choice_b"],
-        #     choice_c=question_row["choice_c"],
-        #     choice_d=question_row["choice_d"],
+        #     options=self._build_options(question_row),
         # )
         raise NotImplementedError("TODO: implement _build_prompt()")

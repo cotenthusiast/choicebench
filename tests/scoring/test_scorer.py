@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-import pytest
-
 from choicebench.parsing.types import (
-    PARSE_INVALID,
+    PARSE_AMBIGUOUS,
     PARSE_MISSING,
     PARSE_OK,
     ParseResult,
 )
-from choicebench.scoring.scorer import is_choice_correct, score_prediction
+from choicebench.scoring.scorer import score_prediction
 from choicebench.scoring.types import (
     SCORE_CORRECT,
     SCORE_INCORRECT,
@@ -40,12 +38,12 @@ class TestScorePrediction:
         )
         assert score_prediction(parse_result, gold_choice=sample_gold_choice).status == SCORE_INCORRECT
 
-    def test_invalid_parse_scores_unscorable(self, sample_gold_choice: str) -> None:
-        """Marks an invalid parse as unscorable."""
+    def test_ambiguous_parse_scores_unscorable(self, sample_gold_choice: str) -> None:
+        """Marks a non-OK parse as unscorable."""
         parse_result = ParseResult(
-            final_choice=None, status=PARSE_INVALID,
-            raw_text="I am not sure", normalized_text="I am not sure",
-            reason="Text present but no valid answer could be parsed",
+            final_choice=None, status=PARSE_AMBIGUOUS,
+            raw_text="A or B", normalized_text="A or B",
+            reason="Multiple conflicting candidates found",
         )
         assert score_prediction(parse_result, gold_choice=sample_gold_choice).status == SCORE_UNSCORABLE
 

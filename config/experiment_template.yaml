@@ -88,18 +88,18 @@ benchmarks:
 methods:
   - name: direct_mcq
   - name: cyclic_permutation
-    # Optional method-specific constructor kwargs:
+    # This built-in method has no params in v0.1.
+
+  - name: two_stage
+    # Optional: re-issue a direct MCQ prompt if stage 2 parsing is ambiguous (adds a 3rd call).
     # params:
-    #   aggregation: majority_vote
-  - name: pride
-    # requires_logprobs methods can only be paired with backend: huggingface
-    # — load_config() raises ConfigError at load time otherwise, before any
-    # backend call is made.
-    requires_logprobs: true
-    # params are passed to the runner's __init__(...) as keyword arguments.
-    # params:
-    #   calibration_n: 100
-    #   calibration_seed: 42
+    #   fallback_on_parse_failure: true
+
+  # PriDe is available for logprob-capable backends, but v0.1 requires exactly
+  # four valid A-D options. YAML-driven runs currently use a uniform prior
+  # unless calibration rows are supplied by custom construction/manual usage.
+  # - name: pride
+  #   requires_logprobs: true
 
 # ---------------------------------------------------------------------------
 # Metrics
@@ -133,5 +133,6 @@ run:
   # Prompt template version to use (must match a subdirectory in prompts/).
   prompt_version: "v1"
 
-  # Max concurrent in-flight API requests (API backend only).
+  # API client concurrency guard. v0.1 orchestration still runs each
+  # benchmark/model/method job synchronously.
   concurrency_limit: 10

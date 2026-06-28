@@ -88,7 +88,13 @@ def build_backend(
             concurrency_limit,
         )
     elif backend_type == "huggingface":
-        backend = HuggingFaceBackend(model_config.model_name_or_path, model_config.device)
+        backend = HuggingFaceBackend(
+            model_config.model_name_or_path,
+            model_config.device,
+            max_new_tokens=model_config.generation_kwargs.max_new_tokens,
+            temperature=model_config.generation_kwargs.temperature,
+            do_sample=model_config.generation_kwargs.do_sample,
+        )
         backend.load()  # load tokenizer + weights before any generate()/score_options() call
         return backend
     elif backend_type == "dummy":

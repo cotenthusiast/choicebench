@@ -95,7 +95,8 @@ class YourProviderClient(BaseClient):
             ProviderRateLimitError    → retryable; wraps 429 / quota errors
             ProviderCallError         → retryable; wraps generic API errors
             ProviderConfigurationError → NOT retried; wraps 400/401/404/422
-            ProviderResponseError     → NOT retried; empty/malformed response
+            ProviderResponseError     → retryable in v0.1; empty/malformed response
+                                      (it subclasses ProviderCallError)
 
         Args:
             request: Validated ModelRequest for this provider/model pair.

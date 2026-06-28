@@ -1,7 +1,5 @@
 # tests/parsing/test_parser.py
 
-import pytest
-
 from choicebench.parsing.parser import (
     extract_choice_letter,
     extract_choice_text_match,

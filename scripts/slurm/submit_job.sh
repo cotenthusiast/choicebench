@@ -3,7 +3,8 @@
 #
 # Runs one config file on one GPU node. Suitable for API-backed models (no GPU
 # needed) and for local models up to ~30B parameters on a single A100 (80 GB).
-# For 70B+ models use submit_array.sh or increase --gres to 2x A100.
+# For 70B+ models increase --gres / memory as needed. Use submit_array.sh for
+# multiple independent configs, not for sharding one model across tasks.
 #
 # Prerequisites:
 #   - Repo cloned to a scratch or project directory on the HPC cluster

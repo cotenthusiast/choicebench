@@ -18,6 +18,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+hf = [
+    "torch",
+    "transformers",
+    "accelerate",
+]
 dev = [
     "pytest",
     "pytest-asyncio",

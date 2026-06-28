@@ -6,17 +6,21 @@ from choicebench.backends.base import BaseBackend
 
 
 class MockBackend(BaseBackend):
-    """Test double: queues a sequence of fixed text responses for backend.generate().
+    """Test double: queues fixed responses for backend.generate() and score_options().
 
-    Each queued entry is either a str (returned as the generated text) or an
-    Exception instance (raised — ExperimentRunner._call_backend_generate
-    catches it and turns it into a failure ModelResponse, so
-    result["error_type"] becomes the exception's class name).
+    Each queued entry is either a value (returned) or an Exception instance
+    (raised). For generate(), entries are str | Exception. For score_options(),
+    entries are list[float] | Exception.
+
+    ExperimentRunner._call_backend_generate catches exceptions from generate()
+    and turns them into a failure ModelResponse (result["error_type"] becomes
+    the exception's class name). score_options() exceptions propagate as-is.
     """
 
     def __init__(
             self,
             responses: list[str | Exception] | None = None,
+            score_responses: list[list[float] | Exception] | None = None,
             provider: str = "openai",
             model_name: str = "gpt-4.1-mini",
             supports_logprobs: bool = False,
@@ -26,6 +30,8 @@ class MockBackend(BaseBackend):
         self._supports_logprobs = supports_logprobs
         self._responses = list(responses) if responses else []
         self._call_count = 0
+        self._score_responses = list(score_responses) if score_responses else []
+        self._score_call_count = 0
         self.requests_received: list[str] = []
 
     @property
@@ -49,6 +55,18 @@ class MockBackend(BaseBackend):
                 raise response
             return response
         raise RuntimeError("MockBackend has no more queued responses.")
+
+    def score_options(self, prompt: str, options: list[str], **kwargs) -> list[float]:
+        if self._score_call_count < len(self._score_responses):
+            entry = self._score_responses[self._score_call_count]
+            self._score_call_count += 1
+            if isinstance(entry, Exception):
+                raise entry
+            return entry
+        raise NotImplementedError(
+            f"MockBackend: no queued score_responses for call "
+            f"{self._score_call_count + 1}."
+        )
 
 
 @pytest.fixture

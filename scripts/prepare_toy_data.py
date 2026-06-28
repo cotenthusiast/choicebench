@@ -2,8 +2,8 @@
 
 Deterministically (re)produces 10 synthetic MCQ rows in the same normalized
 schema as the real benchmarks (question_id, subject, question_text,
-choice_a..d, correct_option), so the onboarding toy config has reproducible
-data instead of a hand-committed CSV.
+choice_a..d, correct_option, correct_answer_text), so the onboarding toy
+config has reproducible data instead of a hand-committed CSV.
 
 3 of the 10 rows are set up so the correct answer lands in option A — this
 matches DummyBackend's default fixed_text ("The answer is A."), which the
@@ -70,6 +70,7 @@ def _build_row(index: int, question_text: str, correct_text: str, distractors: l
         "choice_c": slot_for["C"],
         "choice_d": slot_for["D"],
         "correct_option": correct_letter,
+        "correct_answer_text": correct_text,
     }
 
 

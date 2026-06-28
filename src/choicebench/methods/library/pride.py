@@ -254,14 +254,27 @@ class PriDeRunner(ExperimentRunner):
 
         uni = np.ones(len(letters), dtype=np.float64) / len(letters)
         rows: list[np.ndarray] = []
+        n_success = 0
+        last_exc: Exception | None = None
         for prompt in prompts:
             try:
                 scores = self.backend.score_options(prompt, letters)
                 lp_map = dict(zip(letters, scores))
                 rows.append(logprob_map_to_label_distribution(lp_map, letters=letters))
+                n_success += 1
             except Exception as exc:
                 logger.warning("PriDe calibration: score_options failed — %s", exc)
                 rows.append(uni.copy())
+                last_exc = exc
+
+        if n_success == 0:
+            qid = question_row.get("question_id", "<unknown>")
+            raise RuntimeError(
+                f"PriDe calibration: score_options() failed for all {len(prompts)} "
+                f"permutations of calibration question {qid!r}. "
+                "Ensure the backend implements score_options() when providing "
+                "calibration_questions."
+            ) from last_exc
 
         return np.stack(rows, axis=0).astype(np.float64)
 

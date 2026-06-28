@@ -5,7 +5,7 @@ from pathlib import Path
 from choicebench.clients.types import ProviderTimeoutError
 from choicebench.methods.library.direct_mcq import DirectMCQRunner
 from choicebench.scoring.types import SCORE_CORRECT, SCORE_INCORRECT, SCORE_UNSCORABLE
-from choicebench.parsing.types import PARSE_OK, PARSE_MISSING
+from choicebench.parsing.types import PARSE_OK
 
 from tests.runners.conftest import MockBackend
 

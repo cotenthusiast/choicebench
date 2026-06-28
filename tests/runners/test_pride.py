@@ -1,6 +1,5 @@
 # tests/runners/test_pride.py
 
-import logging
 from pathlib import Path
 
 import pytest
@@ -57,114 +56,14 @@ class TestPriDeRunnerIntegration:
         with pytest.raises(ValueError, match="PriDe requires four valid A-D options"):
             runner.run_one(row, sample_index=0)
 
-    @pytest.mark.skip(
-        reason=(
-            "MockBackend (tests/runners/conftest.py) has no score_options() "
-            "override — it inherits BaseBackend's default, which raises "
-            "NotImplementedError regardless of the supports_logprobs flag "
-            "passed to the constructor. methods.pride.PriDeRunner catches "
-            "that and falls back to a uniform prior per permutation rather "
-            "than crashing, so this test's call-count/value assertions fail, "
-            "not the runner itself. Needs MockBackend.score_options() "
-            "implemented (queued per-call score lists, mirroring its "
-            "generate() queue) before this can run for real."
-        )
-    )
-    def test_call_counts_separate_calibration_then_eq8_inference(
+    def test_no_calibration_questions_uses_uniform_prior(
             self, runner_question_row, tmp_path: Path,
     ):
-        """K=1 calibration question (separate from eval): 4 cyclic + 1 direct = 5 calls.
-
-        All eval rows must use eq8_transfer mode.
-        """
-        cal_question = {
-            **runner_question_row,
-            "question_id": "cal_qid",
-            "correct_option": "B",
-        }
-        eval_question = {
-            **runner_question_row,
-            "question_id": "eval_qid",
-            "correct_option": "A",
-        }
-        n_calls = 4 + 1  # 4 cyclic rollouts for calibration + 1 direct for eval
+        """Empty calibration pool → uniform prior (all letters = 0.25)."""
+        import json
+        # 1 score_options call for the single eval question; no calibration calls.
         backend = MockBackend(
-            responses=["B"] * n_calls,
-            provider="together",
-            model_name="Qwen/Qwen2.5-7B-Instruct-Turbo",
-            supports_logprobs=True,
-        )
-
-        runner = PriDeRunner(
-            backend=backend,
-            method_name="pride",
-            split_name="robustness",
-            prompt_version="v1",
-            prompts_dir=_PROMPTS_DIR,
-            run_id="pride_integration",
-            calibration_n=1,
-            calibration_seed=0,
-            calibration_benchmark="mmlu",
-            calibration_runs_dir=tmp_path,
-            calibration_questions=[cal_question],
-        )
-
-        rows = runner.run_many([eval_question])
-        assert len(rows) == 1
-        assert rows[0]["pride_inference_mode"] == "eq8_transfer"
-        assert rows[0]["model_status"] == "success"
-        assert len(backend.requests_received) == n_calls
-
-    @pytest.mark.skip(
-        reason=(
-            "MockBackend has no score_options() override — see "
-            "test_call_counts_separate_calibration_then_eq8_inference above."
-        )
-    )
-    def test_empty_logprobs_skips_debiasing(
-            self, runner_question_row, tmp_path: Path, caplog,
-    ):
-        """Empty logprobs: debiasing is skipped, warning logged, adjusted_choice is None."""
-        backend = MockBackend(
-            responses=["A"],
-            provider="together",
-            model_name="Qwen/Qwen2.5-7B-Instruct-Turbo",
-            supports_logprobs=True,
-        )
-        runner = PriDeRunner(
-            backend=backend,
-            method_name="pride",
-            split_name="robustness",
-            prompt_version="v1",
-            prompts_dir=_PROMPTS_DIR,
-            run_id="pride_empty_lp",
-            calibration_n=0,
-            calibration_seed=0,
-            calibration_benchmark="mmlu",
-            calibration_runs_dir=tmp_path,
-            calibration_questions=[],
-        )
-
-        with caplog.at_level(logging.WARNING, logger="choicebench.methods.pride"):
-            rows = runner.run_many([runner_question_row])
-
-        assert rows[0]["pride_adjusted_choice"] is None
-        assert "empty logprobs" in caplog.text
-
-    @pytest.mark.skip(
-        reason=(
-            "MockBackend has no score_options() override — see "
-            "test_call_counts_separate_calibration_then_eq8_inference above."
-        )
-    )
-    def test_no_calibration_questions_uses_uniform_prior_one_call_per_eval(
-            self, runner_question_row, tmp_path: Path,
-    ):
-        """Empty calibration pool → uniform prior, only 1 direct call per eval question."""
-        backend = MockBackend(
-            responses=["C"],
-            provider="together",
-            model_name="Qwen/Qwen2.5-7B-Instruct-Turbo",
+            score_responses=[[-1.0, -2.0, -3.0, -4.0]],
             supports_logprobs=True,
         )
         runner = PriDeRunner(
@@ -178,14 +77,84 @@ class TestPriDeRunnerIntegration:
             calibration_seed=0,
             calibration_benchmark="mmlu",
             calibration_runs_dir=tmp_path,
-            calibration_questions=[],  # no calibration data → uniform prior
+            calibration_questions=[],
         )
 
         rows = runner.run_many([runner_question_row])
         assert len(rows) == 1
         assert rows[0]["pride_inference_mode"] == "eq8_transfer"
-        assert len(backend.requests_received) == 1  # no calibration calls
-        import json
         prior = json.loads(rows[0]["peprior_json"])
         for v in prior.values():
-            assert abs(v - 0.25) < 1e-6, "Prior should be uniform when no calibration data"
+            assert abs(v - 0.25) < 1e-6, f"Prior should be uniform; got {prior}"
+
+    def test_calibration_questions_produce_learned_prior(
+            self, runner_question_row, tmp_path: Path,
+    ):
+        """K=1 calibration question with working score_options → prior deviates from uniform.
+
+        4 calibration score_options calls (one per cyclic permutation) then
+        1 eval call. PriDe uses score_options only — generate() is never called.
+        """
+        import json
+        # Strongly prefer position A on every permutation → positional bias toward A.
+        biased = [-0.1, -5.0, -5.0, -5.0]
+        backend = MockBackend(
+            score_responses=[biased, biased, biased, biased,  # 4 calibration permutations
+                             [-1.0, -2.0, -3.0, -4.0]],      # 1 eval question
+            supports_logprobs=True,
+        )
+        cal_row = {**runner_question_row, "question_id": "cal_001"}
+        runner = PriDeRunner(
+            backend=backend,
+            method_name="pride",
+            split_name="robustness",
+            prompt_version="v1",
+            prompts_dir=_PROMPTS_DIR,
+            run_id="pride_learned",
+            calibration_n=1,
+            calibration_seed=0,
+            calibration_benchmark="mmlu",
+            calibration_runs_dir=tmp_path,
+            calibration_questions=[cal_row],
+        )
+
+        rows = runner.run_many([runner_question_row])
+        assert len(rows) == 1
+        assert rows[0]["pride_inference_mode"] == "eq8_transfer"
+        prior = json.loads(rows[0]["peprior_json"])
+        # A prior estimated from strongly position-biased logprobs must deviate from uniform.
+        assert any(abs(v - 0.25) > 0.01 for v in prior.values()), (
+            f"Prior should deviate from uniform when calibration data is provided; got {prior}"
+        )
+        # generate() is never called by PriDe.
+        assert len(backend.requests_received) == 0
+
+    def test_calibration_fails_clearly_when_score_options_always_raises(
+            self, runner_question_row, tmp_path: Path,
+    ):
+        """Calibration questions + score_options always raises → RuntimeError, not silent uniform.
+
+        If calibration_questions are provided but every score_options call fails
+        (e.g. backend claims supports_logprobs=True but raises NotImplementedError),
+        PriDe must raise rather than silently fall back to a uniform prior that is
+        indistinguishable from the no-calibration case.
+        """
+        # No score_responses queued → every score_options call raises NotImplementedError.
+        backend = MockBackend(supports_logprobs=True)
+        cal_row = {**runner_question_row, "question_id": "cal_001"}
+        runner = PriDeRunner(
+            backend=backend,
+            method_name="pride",
+            split_name="robustness",
+            prompt_version="v1",
+            prompts_dir=_PROMPTS_DIR,
+            run_id="pride_broken_cal",
+            calibration_n=1,
+            calibration_seed=0,
+            calibration_benchmark="mmlu",
+            calibration_runs_dir=tmp_path,
+            calibration_questions=[cal_row],
+        )
+
+        with pytest.raises(RuntimeError, match="score_options"):
+            runner.run_many([runner_question_row])

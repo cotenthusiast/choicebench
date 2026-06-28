@@ -6,30 +6,14 @@ from dataclasses import dataclass
 
 
 PARSE_OK = "parse_ok"
-PARSE_INVALID = "parse_invalid"
 PARSE_MISSING = "parse_missing"
 PARSE_AMBIGUOUS = "parse_ambiguous"
 
 PARSE_STATUSES = {
     PARSE_OK,
-    PARSE_INVALID,
     PARSE_MISSING,
     PARSE_AMBIGUOUS,
 }
-
-
-@dataclass(frozen=True, slots=True)
-class ParsedChoice:
-    """
-    Represents a single parsed answer candidate.
-
-    Attributes:
-        letter: Canonical answer letter such as "A", "B", "C", or "D".
-        matched_text: Optional option text that matched the model output.
-    """
-
-    letter: str
-    matched_text: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

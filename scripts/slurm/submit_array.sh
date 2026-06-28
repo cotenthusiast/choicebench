@@ -6,8 +6,10 @@
 # without submitting each job manually.
 #
 # Array task i runs CONFIGS[i-1] (1-indexed because SLURM arrays start at 1).
-# The number of tasks is set automatically from the length of the CONFIGS array
-# below — edit that list to change what runs.
+# Slurm does not expand Bash variables inside #SBATCH directives. The default
+# directive below runs the first config only; for multiple configs, pass an
+# explicit range matching the CONFIGS list length:
+#   sbatch --array=1-3 scripts/slurm/submit_array.sh
 #
 # Prerequisites: same as submit_job.sh.
 #
@@ -17,16 +19,6 @@
 # Monitor progress:
 #   squeue -u $USER
 #   tail -f logs/array_<JOB_ID>_<TASK_ID>.out
-
-# ── Edit this list — one config per line ─────────────────────────────────────
-CONFIGS=(
-    "config/toy_experiment.yaml"
-    # "config/my_experiment_model_a.yaml"
-    # "config/my_experiment_model_b.yaml"
-)
-# ─────────────────────────────────────────────────────────────────────────────
-
-NUM_CONFIGS=${#CONFIGS[@]}
 
 #SBATCH --job-name=mcq_array
 #SBATCH --output=logs/array_%A_%a.out    # %A = job array ID, %a = task index
@@ -38,9 +30,19 @@ NUM_CONFIGS=${#CONFIGS[@]}
 #SBATCH --mem=80G
 #SBATCH --partition=gpu                  # CHANGE to your cluster's GPU partition name
 #SBATCH --gres=gpu:1                     # one GPU per task
-#SBATCH --array=1-${NUM_CONFIGS}         # one task per config (1-indexed)
+#SBATCH --array=1-1                      # override with sbatch --array=1-N
 
 set -euo pipefail
+
+# ── Edit this list — one config per line ─────────────────────────────────────
+CONFIGS=(
+    "config/toy_experiment.yaml"
+    # "config/my_experiment_model_a.yaml"
+    # "config/my_experiment_model_b.yaml"
+)
+# ─────────────────────────────────────────────────────────────────────────────
+
+NUM_CONFIGS=${#CONFIGS[@]}
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -58,7 +60,13 @@ source "$VENV_DIR/bin/activate"
 
 # ── Select config for this array task ────────────────────────────────────────
 # SLURM_ARRAY_TASK_ID is 1-indexed; bash arrays are 0-indexed.
-TASK_INDEX=$(( SLURM_ARRAY_TASK_ID - 1 ))
+TASK_ID="${SLURM_ARRAY_TASK_ID:-1}"
+TASK_INDEX=$(( TASK_ID - 1 ))
+if (( TASK_INDEX < 0 || TASK_INDEX >= NUM_CONFIGS )); then
+    echo "ERROR: Task ${TASK_ID} is outside CONFIGS range 1-${NUM_CONFIGS}." >&2
+    echo "Submit with: sbatch --array=1-${NUM_CONFIGS} scripts/slurm/submit_array.sh" >&2
+    exit 1
+fi
 CONFIG="${CONFIGS[$TASK_INDEX]}"
 
 if [[ ! -f "$CONFIG" ]]; then
@@ -68,7 +76,7 @@ fi
 
 # ── Diagnostics ───────────────────────────────────────────────────────────────
 echo "Array job:   ${SLURM_ARRAY_JOB_ID:-local}"
-echo "Task index:  ${SLURM_ARRAY_TASK_ID:-1}"
+echo "Task index:  ${TASK_ID}"
 echo "Node:        ${SLURMD_NODENAME:-$(hostname)}"
 echo "GPU:         ${CUDA_VISIBLE_DEVICES:-none}"
 echo "Python:      $(python --version)"
@@ -77,7 +85,7 @@ echo "Config:      $CONFIG"
 
 # ── Run ───────────────────────────────────────────────────────────────────────
 # RUN_ID encodes both the job array ID and task index for traceability.
-RUN_ID="${SLURM_ARRAY_JOB_ID:-local}_task${SLURM_ARRAY_TASK_ID:-1}"
+RUN_ID="${SLURM_ARRAY_JOB_ID:-local}_task${TASK_ID}"
 
 python scripts/run_experiment.py --config "$CONFIG" --run-id "$RUN_ID" --yes
 

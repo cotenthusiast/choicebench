@@ -5,27 +5,6 @@ from typing import Any
 
 import pandas as pd
 
-from choicebench.benchmarks.mmlu import build_normalized_dataframe
-from choicebench.config.paths import MMLU_NORMALIZED_PATH, MMLU_RAW_PATH
-
-
-def write_normalized_questions(
-    raw_questions_path: Path = MMLU_RAW_PATH,
-    normalized_questions_path: Path = MMLU_NORMALIZED_PATH,
-) -> None:
-    """
-    Reads the raw MMLU CSV, converts it into the project's normalized
-    schema, and saves the normalized result as a CSV file.
-
-    Args:
-        raw_questions_path: Full file path of the raw questions CSV.
-        normalized_questions_path: Full file path where the normalized
-            questions CSV should be written.
-    """
-    df = pd.read_csv(raw_questions_path)
-    df_normalized = build_normalized_dataframe(df)
-    df_normalized.to_csv(normalized_questions_path, index=False)
-
 
 def write_run_results(
     results: list[dict[str, Any]],

@@ -42,7 +42,7 @@ def _model(backend: str, **kwargs) -> ModelConfig:
         model_name_or_path=kwargs.pop("model_name_or_path", "m"),
         provider=kwargs.pop("provider", None),
         device=kwargs.pop("device", "cpu"),
-        generation_kwargs=GenerationKwargsConfig(),
+        generation_kwargs=kwargs.pop("generation_kwargs", GenerationKwargsConfig()),
         **kwargs,
     )
 
@@ -112,9 +112,10 @@ def test_huggingface_backend_is_loaded_before_return(monkeypatch):
     run_exp = _load_run_experiment()
 
     class _FakeHF:
-        def __init__(self, model_name_or_path, device):
+        def __init__(self, model_name_or_path, device, **generation_kwargs):
             self.model_name_or_path = model_name_or_path
             self.device = device
+            self.generation_kwargs = generation_kwargs
             self.loaded = False
 
         def load(self):
@@ -126,6 +127,41 @@ def test_huggingface_backend_is_loaded_before_return(monkeypatch):
         _model("huggingface", device="cpu"), "rid", run_seed=1
     )
     assert backend.loaded is True
+
+
+def test_huggingface_backend_receives_generation_kwargs(monkeypatch):
+    run_exp = _load_run_experiment()
+
+    class _FakeHF:
+        def __init__(self, model_name_or_path, device, **generation_kwargs):
+            self.model_name_or_path = model_name_or_path
+            self.device = device
+            self.generation_kwargs = generation_kwargs
+
+        def load(self):
+            pass
+
+    monkeypatch.setattr(run_exp, "HuggingFaceBackend", _FakeHF)
+
+    backend = run_exp.build_backend(
+        _model(
+            "huggingface",
+            device="cpu",
+            generation_kwargs=GenerationKwargsConfig(
+                max_new_tokens=17,
+                temperature=0.25,
+                do_sample=True,
+            ),
+        ),
+        "rid",
+        run_seed=1,
+    )
+
+    assert backend.generation_kwargs == {
+        "max_new_tokens": 17,
+        "temperature": 0.25,
+        "do_sample": True,
+    }
 
 
 def test_instantiate_runner_passes_params_to_registry_method(monkeypatch):

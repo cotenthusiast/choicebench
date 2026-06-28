@@ -79,7 +79,7 @@ class HuggingFaceBackend(BaseBackend):
         except ImportError as exc:
             raise ImportError(
                 "torch and transformers are required for HuggingFaceBackend. "
-                "Install the local-inference extras for this project."
+                "Install them with: pip install -e '.[hf]'"
             ) from exc
 
         self._torch = torch

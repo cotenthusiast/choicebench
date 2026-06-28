@@ -32,12 +32,6 @@
       "expected_choice": null
     },
     {
-      "name": "nonsense_text",
-      "raw_text": "I am not sure what the answer is here.",
-      "expected_status": "parse_invalid",
-      "expected_choice": null
-    },
-    {
       "name": "conflicting_letters",
       "raw_text": "A or C",
       "expected_status": "parse_ok",

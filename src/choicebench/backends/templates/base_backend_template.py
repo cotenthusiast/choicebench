@@ -16,6 +16,8 @@
 #     elif backend_type == "my_backend":
 #         return MyBackend(model_config.model_name_or_path, ...)
 #   Add "backend: my_backend" to the model entry in your YAML config.
+#   Add "my_backend" to _VALID_BACKENDS in src/choicebench/config/schema.py.
+#   If score_options() works, also add it to _LOGPROB_CAPABLE_BACKENDS.
 #
 # WHAT THE FRAMEWORK EXPECTS
 #   - generate(prompt) → str: plain text output. Must be synchronous.
@@ -65,7 +67,9 @@ class YourBackend(BaseBackend):
 
         Args:
             prompt: The full prompt string to send to the model.
-            **kwargs: Passed through from the runner; usually unused.
+            **kwargs: Optional per-call generation overrides. The v0.1
+                experiment runner configures built-in backends at construction
+                time; external callers may still pass overrides directly.
 
         Returns:
             Raw generated text as a single string.

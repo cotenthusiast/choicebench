@@ -14,7 +14,7 @@
 #   External (lives in your own package):
 #     Use "module.path:ClassName" in the YAML config — no framework files needed.
 #     Example:  metrics:
-#                 - name: my_package.metrics.my_metric:MyMetricMetric
+#                 - my_package.metrics.my_metric:MyMetricMetric
 #
 # WHAT A METRIC RECEIVES
 #   compute() receives a results DataFrame already filtered to ONE
@@ -22,7 +22,7 @@
 #   Guaranteed columns (from _build_result_row in methods/base.py):
 #     question_id     — unique question hash
 #     correct_option  — ground-truth letter ("A"/"B"/"C"/"D")
-#     parsed_choice   — model's parsed answer letter, or None
+#     parsed_choice   — model's parsed answer letter, or missing/NaN
 #     method_name     — name of the evaluation method
 #     model_name      — name of the model that produced these results
 #     is_correct      — True/False/None (None when unscored, e.g. parse/backend failure)
@@ -50,7 +50,7 @@ class YourMetricMetric(BaseMetric):
     @property
     def name(self) -> str:
         # Must match the key used in the YAML config's metrics: list.
-        # Appears in output tables and report filenames.
+        # Returned metric keys appear in the JSON report and logged summary.
         return "your_metric"
 
     def compute(self, results_df: pd.DataFrame) -> dict[str, float]:
@@ -63,7 +63,8 @@ class YourMetricMetric(BaseMetric):
         Returns:
             dict of {metric_key: float}. Return a single key for simple
             metrics, or multiple keys if your metric naturally produces
-            several related numbers. All keys appear in the output table.
+            several related numbers. All keys appear in the JSON report and
+            logged summary.
 
         Examples of multi-key returns:
             # Simple:

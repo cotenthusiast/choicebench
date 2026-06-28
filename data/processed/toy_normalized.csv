@@ -1,11 +1,11 @@
-question_id,subject,question_text,choice_a,choice_b,choice_c,choice_d,correct_option
-toy_001,toy,What is 2 + 2?,4,5,3,6,A
-toy_002,toy,What color is the sky on a clear day?,Green,Blue,Red,Purple,B
-toy_003,toy,How many days are in a week?,6,7,8,5,B
-toy_004,toy,What is the capital of France?,Madrid,Rome,Berlin,Paris,D
-toy_005,toy,Which animal says 'moo'?,Horse,Dog,Cat,Cow,D
-toy_006,toy,What is the freezing point of water in Celsius?,-10,0,100,10,B
-toy_007,toy,How many legs does a spider have?,6,8,4,10,B
-toy_008,toy,What is the opposite of 'hot'?,Cold,Mild,Warm,Humid,A
-toy_009,toy,Which planet is known as the Red Planet?,Mars,Venus,Jupiter,Saturn,A
-toy_010,toy,What is the chemical symbol for water?,CO2,H2O,NaCl,O2,B
+question_id,subject,question_text,choice_a,choice_b,choice_c,choice_d,correct_option,correct_answer_text
+toy_001,toy,What is 2 + 2?,4,5,3,6,A,4
+toy_002,toy,What color is the sky on a clear day?,Green,Blue,Red,Purple,B,Blue
+toy_003,toy,How many days are in a week?,6,7,8,5,B,7
+toy_004,toy,What is the capital of France?,Madrid,Rome,Berlin,Paris,D,Paris
+toy_005,toy,Which animal says 'moo'?,Horse,Dog,Cat,Cow,D,Cow
+toy_006,toy,What is the freezing point of water in Celsius?,-10,0,100,10,B,0
+toy_007,toy,How many legs does a spider have?,6,8,4,10,B,8
+toy_008,toy,What is the opposite of 'hot'?,Cold,Mild,Warm,Humid,A,Cold
+toy_009,toy,Which planet is known as the Red Planet?,Mars,Venus,Jupiter,Saturn,A,Mars
+toy_010,toy,What is the chemical symbol for water?,CO2,H2O,NaCl,O2,B,H2O

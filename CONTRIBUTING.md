@@ -61,9 +61,9 @@ python scripts/run_experiment.py --config config/toy_experiment.yaml --yes
 ## Code style
 
 - All public functions and classes must have type hints on all parameters and return values
-- No hardcoded file paths, model names, or magic numbers in `src/` — put them in `config/` or pass them as arguments
+- Avoid new hardcoded file paths, model names, or magic numbers in `src/` — put them in `config/` or pass them as arguments
 - No print statements in library code — use `logging.getLogger(__name__)`
-- Tests for new methods go in `tests/runners/`; tests for new metrics go in `tests/metrics/` (create the directory if it does not exist yet)
+- Tests for new methods go in `tests/runners/`; tests for new metrics go in `tests/metrics/`
 
 ## Adding a new benchmark (4 steps)
 
@@ -81,6 +81,10 @@ python scripts/run_experiment.py --config config/toy_experiment.yaml --yes
    ```
 
 4. Add the name string to `VALID_BENCHMARKS` in `src/choicebench/config/schema.py`.
+
+If the benchmark should be prepared from HuggingFace, also add a normalizer
+branch to `scripts/prepare_data.py` and document the exact command needed to
+create its `data/processed/*_normalized.csv` file.
 
 ## Submitting a PR
 

@@ -2,7 +2,7 @@
 
 A reusable framework for running multiple-choice question (MCQ) evaluation experiments on LLMs.
 
-![Python](https://img.shields.io/badge/python-3.10%2B-blue) ![Tests](https://img.shields.io/badge/tests-294%20passed-brightgreen)
+![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 
 MCQ evaluation is a well-studied LLM benchmark task, but the scaffolding is always the same: load a benchmark, call a model repeatedly, parse its response, score against the gold answer, save results, and compute metrics. This framework handles all of that so you can focus on the experimental condition — what varies between your runs. In five minutes you can run the toy experiment end-to-end. In an afternoon you can add a new debiasing method or metric and run it against MMLU.
 
@@ -16,6 +16,11 @@ MCQ evaluation is a well-studied LLM benchmark task, but the scaffolding is alwa
 git clone <repo-url> && cd choicebench
 python -m venv .venv && source .venv/bin/activate
 pip install -e .
+```
+
+For local HuggingFace inference, install the optional dependencies instead:
+```bash
+pip install -e ".[hf]"
 ```
 
 For API backends, copy `.env.example` to `.env` and add your keys:
@@ -42,7 +47,7 @@ Without `--run-id`, the run is written to a timestamped directory (e.g. `runs/20
 python scripts/evaluate_run.py --run-id toy_experiment
 ```
 
-Outputs a metrics table to stdout and writes a report to `reports/`.
+Logs a metrics summary and writes a JSON report to `reports/`.
 
 ### What the output looks like
 
@@ -55,6 +60,16 @@ runs/toy_experiment/
 ```
 
 The CSV filename encodes `<run_id>_<method>_<model>_<benchmark>`. Each result CSV has one row per question with columns for the prompt, raw model output, parsed choice, gold answer, and whether the answer was correct.
+
+### Prepare MMLU or ARC-Challenge
+
+The bundled toy CSV needs no setup. For the built-in HuggingFace benchmarks,
+normalize them once before running experiments:
+
+```bash
+python scripts/prepare_data.py --hf-path cais/mmlu --hf-subset all --output-name mmlu
+python scripts/prepare_data.py --hf-path allenai/ai2_arc --hf-subset ARC-Challenge --output-name arc_challenge
+```
 
 ---
 
@@ -92,6 +107,9 @@ methods:
   - name: direct_mcq            # built-in; or "module.path:ClassName" for external
   - name: cyclic_permutation
   - name: two_stage
+    # Optional: adds a 3rd call if stage 2 is unparseable.
+    # params:
+    #   fallback_on_parse_failure: true
   # A logprob method like pride can only be listed if EVERY model above is
   # logprob-capable (huggingface/dummy). With the api model present, including
   # it would fail config validation — so it's commented out here:
@@ -104,12 +122,12 @@ metrics:
   # - my_package.metrics.my_metric:MyMetricMetric  # external metric
 
 run:
-  seed: 42                      # global seed (subsampling, generation, calibration)
+  seed: 42                      # global seed (subsampling and generation)
   resume: true                  # resume from checkpoint if one exists
   dry_run: false                # print plan and exit without running
   checkpoint_every_n: 50        # save progress to disk every N questions
   prompt_version: "v1"          # subdirectory under prompts/
-  concurrency_limit: 10         # max concurrent in-flight API requests (api backend)
+  concurrency_limit: 10         # API client guard; orchestration is synchronous in v0.1
 ```
 
 ---
@@ -125,7 +143,7 @@ run:
    from choicebench.methods.library.my_method import MyMethodRunner
    METHOD_REGISTRY["my_method"] = MyMethodRunner
    ```
-   Then use `name: my_method` in your YAML config.
+   Re-export built-in methods from `src/choicebench/methods/library/__init__.py` if you want them available from `choicebench.methods`. Then use `name: my_method` in your YAML config.
 
 For external methods (not in this repo), skip step 3 and use `name: my_package.methods:MyMethodRunner` directly in YAML.
 
@@ -134,7 +152,8 @@ For external methods (not in this repo), skip step 3 and use `name: my_package.m
 1. Copy `src/choicebench/metrics/templates/base_metric_template.py` to `src/choicebench/metrics/my_metric.py`
 2. Implement `compute(results_df)` and add to `BUILTIN_METRICS` in `src/choicebench/metrics/__init__.py`
 
-External: use `name: my_package.metrics:MyMetricMetric` in YAML — no framework files needed.
+External: list the import path directly in YAML, e.g.
+`metrics: ["my_package.metrics:MyMetricMetric"]` — no framework files needed.
 
 ### Add a new API client (3 steps)
 
@@ -142,13 +161,14 @@ External: use `name: my_package.metrics:MyMetricMetric` in YAML — no framework
 2. Implement `_generate_provider_response()` — call the provider SDK, extract `raw_text`, return a `ModelResponse`
 3. Register in `src/choicebench/registry.py` and add the API key to `.env`
 
-The retry loop, backoff, semaphore, and request/response validation are all handled by `BaseClient`. You only implement the single raw API call.
+The retry loop, backoff, semaphore, and request/response validation are all handled by `BaseClient`. You only implement the single raw API call. In v0.1, experiment orchestration still iterates benchmark/model/method jobs synchronously; the client concurrency guard is infrastructure for provider calls, not parallel job scheduling.
 
-### Add a new backend (3 steps)
+### Add a new backend (4 steps)
 
 1. Copy `src/choicebench/backends/templates/base_backend_template.py` to `src/choicebench/backends/my_backend.py`
 2. Implement `generate()` (required) and optionally `score_options()` + `supports_logprobs = True`
 3. Add a branch to `build_backend()` in `scripts/run_experiment.py`
+4. Add the backend key to `_VALID_BACKENDS` in `src/choicebench/config/schema.py`; if it implements `score_options()`, also add it to `_LOGPROB_CAPABLE_BACKENDS`
 
 ### External registration via `"module.path:ClassName"` syntax
 
@@ -160,7 +180,7 @@ Any method or metric can be loaded from an external package — just install it 
 
 ```
 config/              — YAML experiment configs
-scripts/             — entry points (run_experiment.py, evaluate_run.py, prepare_data.py)
+scripts/             — entry points (run_experiment.py, evaluate_run.py, prepare_data.py, prepare_toy_data.py)
 src/choicebench/
   config/            — schema validation, paths, provider defaults
   registry.py        — METHOD_REGISTRY and CLIENT_REGISTRY (single registration point)
@@ -194,9 +214,9 @@ src/choicebench/
 | Name | Description | Calls per question |
 |---|---|---|
 | `direct_mcq` | Single-pass: prompt → parse → score | 1 |
-| `cyclic_permutation` | Runs 4 option permutations, takes majority vote | 4 |
-| `two_stage` | Stage 1: free-form answer; Stage 2: map to option letter | 2 |
-| `pride` | PriDe debiasing via logprob calibration on a held-out set | N (calibration) + 1 |
+| `cyclic_permutation` | Runs one cyclic permutation per available option, takes majority vote | N options, normally 4 |
+| `two_stage` | Stage 1: free-form answer; Stage 2: map to option letter | 2, or 3 if fallback is enabled |
+| `pride` | PriDe Eq. 8 logprob debiasing for four-option A-D rows. YAML-driven runs use a uniform prior in v0.1 unless calibration rows are supplied by custom construction/manual usage. | 1 score_options call per eval row; +4K calibration calls per run if K calibration rows are supplied |
 
 ### Metrics
 
@@ -221,6 +241,16 @@ src/choicebench/
 | `mmlu` | HuggingFace `cais/mmlu` | 57-subject, 14k questions; run `prepare_data.py` first |
 | `arc_challenge` | HuggingFace `allenai/ai2_arc` | 1172-question subset; run `prepare_data.py` first |
 | `toy` | Bundled synthetic CSV | 10 questions; no setup needed |
+| `huggingface` | User-specified HuggingFace dataset | Requires a normalizer branch in `scripts/prepare_data.py` |
+
+### Option Schema
+
+v0.1 uses a legacy normalized CSV schema with `choice_a` through `choice_d`
+columns. Generate-based methods build an option map from non-empty trailing
+choice columns, so they can tolerate rows with fewer than four options. PriDe
+is currently stricter: it requires exactly four valid A-D options. A full
+list-based variable-option schema, mixed-option-count PriDe calibration, and
+mixed-N subject metrics are v0.2 work.
 
 ---
 
@@ -229,10 +259,23 @@ src/choicebench/
 Two scripts in `scripts/slurm/`:
 
 - **`submit_job.sh`** — single job, one config, one GPU node. Suitable for all API runs and local models up to ~30B parameters.
-- **`submit_array.sh`** — job array, one task per config. Edit the `CONFIGS` array at the top of the file to run multiple experiments in parallel.
+- **`submit_array.sh`** — job array, one task per config. Edit the `CONFIGS` array in the file, then submit with an explicit array range such as `sbatch --array=1-3 scripts/slurm/submit_array.sh`.
 
-Both scripts require setting `REPO_ROOT` and `VENV_DIR` to match your cluster layout and are designed to be committed alongside your experiment configs for reproducibility.
+Both scripts compute `REPO_ROOT` from their location. Set `VENV_DIR` and adjust the `#SBATCH` partition/GPU resources to match your cluster layout.
 
 ```bash
 CONFIG=config/my_experiment.yaml sbatch scripts/slurm/submit_job.sh
 ```
+
+---
+
+## Roadmap
+
+Planned v0.2 work:
+
+- **Variable-option schema** — first-class `choices` / `correct_index` columns replacing the legacy `choice_a`–`choice_d` layout, enabling benchmarks with 2, 3, or 5+ options per row.
+- **Mixed-option PriDe and MAD** — calibration and subject-level metrics that handle questions with different option counts in the same run.
+- **Config-driven PriDe calibration splits** — specify calibration rows directly in YAML rather than passing them via Python construction.
+- **Parallel orchestration** — concurrent execution across independent model/provider jobs (v0.1 iterates synchronously).
+- **Inspect AI adapter** — run ChoiceBench methods inside [Inspect](https://inspect.ai) workflows.
+- **Broader benchmark adapters and stronger script-level integration tests.**

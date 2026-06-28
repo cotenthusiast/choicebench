@@ -9,8 +9,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 _PROMPTS_DIR = REPO_ROOT / "prompts"
 _TEMPLATES = load_prompt_templates("v1", _PROMPTS_DIR)
 from choicebench.clients.types import ProviderTimeoutError
-from choicebench.scoring.types import SCORE_CORRECT, SCORE_INCORRECT, SCORE_UNSCORABLE
-from choicebench.parsing.types import PARSE_OK, PARSE_MISSING
+from choicebench.scoring.types import SCORE_CORRECT
 
 from tests.runners.conftest import MockBackend
 
