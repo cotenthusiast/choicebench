@@ -1,9 +1,9 @@
-# Contributing to mcq-framework
+# Contributing to choicebench
 
 ## Dev environment setup
 
 ```bash
-git clone <repo-url> && cd mcq-framework
+git clone <repo-url> && cd choicebench
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"          # installs the package + test dependencies
 cp .env.example .env             # then add your API keys
@@ -50,9 +50,9 @@ python scripts/run_experiment.py --config config/toy_experiment.yaml --yes
 ## Registration: built-in vs external
 
 **Built-in** (lives in this repo, will be used by others):
-- Methods: add to `METHOD_REGISTRY` in `src/mcq_eval/registry.py` and re-export from `methods/library/__init__.py`
-- Metrics: add to `BUILTIN_METRICS` in `src/mcq_eval/metrics/__init__.py`
-- Clients: add to `CLIENT_REGISTRY` in `src/mcq_eval/registry.py`
+- Methods: add to `METHOD_REGISTRY` in `src/choicebench/registry.py` and re-export from `methods/library/__init__.py`
+- Metrics: add to `BUILTIN_METRICS` in `src/choicebench/metrics/__init__.py`
+- Clients: add to `CLIENT_REGISTRY` in `src/choicebench/registry.py`
 
 **External** (lives in your own package, project-specific):
 - Use `"module.path:ClassName"` syntax in the YAML `methods:` or `metrics:` list
@@ -67,9 +67,9 @@ python scripts/run_experiment.py --config config/toy_experiment.yaml --yes
 
 ## Adding a new benchmark (4 steps)
 
-1. Create `src/mcq_eval/benchmarks/my_benchmark.py` with a `build_normalized_dataframe()` function. Output schema must match the canonical normalized columns: `question_id`, `subject`, `question_text`, `choice_a`, `choice_b`, `choice_c`, `choice_d`, `correct_option`, `correct_answer_text`.
+1. Create `src/choicebench/benchmarks/my_benchmark.py` with a `build_normalized_dataframe()` function. Output schema must match the canonical normalized columns: `question_id`, `subject`, `question_text`, `choice_a`, `choice_b`, `choice_c`, `choice_d`, `correct_option`, `correct_answer_text`.
 
-2. Add the benchmark path to `src/mcq_eval/config/paths.py`:
+2. Add the benchmark path to `src/choicebench/config/paths.py`:
    ```python
    MY_BENCHMARK_NORMALIZED_PATH = PROCESSED_DIR / "my_benchmark_normalized.csv"
    ```
@@ -80,15 +80,15 @@ python scripts/run_experiment.py --config config/toy_experiment.yaml --yes
        questions = read_benchmark(MY_BENCHMARK_NORMALIZED_PATH)
    ```
 
-4. Add the name string to `VALID_BENCHMARKS` in `src/mcq_eval/config/schema.py`.
+4. Add the name string to `VALID_BENCHMARKS` in `src/choicebench/config/schema.py`.
 
 ## Submitting a PR
 
-1. Fork the repo and create a feature branch from `mcq-framework`
+1. Fork the repo and create a feature branch from `choicebench`
 2. Run `pytest tests/` — all tests must pass
 3. Run the toy experiment end-to-end to verify the pipeline is intact:
    ```bash
    python scripts/run_experiment.py --config config/toy_experiment.yaml --yes
    ```
-4. Open a PR against `mcq-framework` with a description of what changed and why
+4. Open a PR against `choicebench` with a description of what changed and why
 5. For new methods or metrics, include a brief description of the algorithm and a reference if applicable

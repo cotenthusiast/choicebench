@@ -2,8 +2,8 @@
 
 import pytest
 
-from mcq_eval.clients.base import BaseClient
-from mcq_eval.clients.types import (
+from choicebench.clients.base import BaseClient
+from choicebench.clients.types import (
     ErrorInfo,
     FAILURE_STATUS,
     ModelRequest,

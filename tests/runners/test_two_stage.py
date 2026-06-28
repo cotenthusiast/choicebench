@@ -2,10 +2,10 @@
 
 from pathlib import Path
 
-from mcq_eval.methods.library.two_stage import TwoStageRunner
-from mcq_eval.clients.types import ProviderTimeoutError
-from mcq_eval.scoring.types import SCORE_CORRECT, SCORE_INCORRECT, SCORE_UNSCORABLE
-from mcq_eval.parsing.types import PARSE_OK, PARSE_MISSING
+from choicebench.methods.library.two_stage import TwoStageRunner
+from choicebench.clients.types import ProviderTimeoutError
+from choicebench.scoring.types import SCORE_CORRECT, SCORE_INCORRECT, SCORE_UNSCORABLE
+from choicebench.parsing.types import PARSE_OK, PARSE_MISSING
 
 from tests.runners.conftest import MockBackend
 

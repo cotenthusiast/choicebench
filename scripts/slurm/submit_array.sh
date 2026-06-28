@@ -1,5 +1,5 @@
 #!/bin/bash
-# Array job submission for mcq-framework.
+# Array job submission for choicebench.
 #
 # Runs multiple config files in parallel as a SLURM job array — one array
 # task per config. Useful for sweeping over models, benchmarks, or methods
@@ -44,7 +44,7 @@ set -euo pipefail
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-VENV_DIR="$HOME/venvs/mcq-framework"
+VENV_DIR="$HOME/venvs/choicebench"
 
 export HF_HOME="${HF_HOME:-$HOME/hf}"
 export HF_HUB_CACHE="$HF_HOME/hub"

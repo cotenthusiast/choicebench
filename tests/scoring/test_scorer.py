@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from mcq_eval.parsing.types import (
+from choicebench.parsing.types import (
     PARSE_INVALID,
     PARSE_MISSING,
     PARSE_OK,
     ParseResult,
 )
-from mcq_eval.scoring.scorer import is_choice_correct, score_prediction
-from mcq_eval.scoring.types import (
+from choicebench.scoring.scorer import is_choice_correct, score_prediction
+from choicebench.scoring.types import (
     SCORE_CORRECT,
     SCORE_INCORRECT,
     SCORE_UNSCORABLE,

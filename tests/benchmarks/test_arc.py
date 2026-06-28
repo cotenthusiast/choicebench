@@ -3,7 +3,7 @@
 import pytest
 import pandas as pd
 
-from mcq_eval.benchmarks.arc import normalize_row, build_normalized_dataframe
+from choicebench.benchmarks.arc import normalize_row, build_normalized_dataframe
 
 # ---------------------------------------------------------------------------
 # Representative raw rows

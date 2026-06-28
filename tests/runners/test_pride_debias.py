@@ -1,6 +1,6 @@
 import numpy as np
 
-from mcq_eval.methods.library.pride_math import (
+from choicebench.methods.library.pride_math import (
     equation1_cyclic_debiased_content_probs,
     equation7_prior_from_rollouts,
     equation8_debiased_content_probs,

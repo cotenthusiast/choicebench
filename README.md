@@ -1,4 +1,4 @@
-# mcq-framework
+# choicebench
 
 A reusable framework for running multiple-choice question (MCQ) evaluation experiments on LLMs.
 
@@ -13,7 +13,7 @@ MCQ evaluation is a well-studied LLM benchmark task, but the scaffolding is alwa
 ### Installation
 
 ```bash
-git clone <repo-url> && cd mcq-framework
+git clone <repo-url> && cd choicebench
 python -m venv .venv && source .venv/bin/activate
 pip install -e .
 ```
@@ -113,11 +113,11 @@ run:
 
 ### Add a new method (3 steps)
 
-1. Copy `src/mcq_eval/methods/templates/base_method.py` to `src/mcq_eval/methods/library/my_method.py`
+1. Copy `src/choicebench/methods/templates/base_method.py` to `src/choicebench/methods/library/my_method.py`
 2. Implement `run_one()` — build prompt → call backend → parse and score → return `_build_result_row(...)`
-3. Add to `src/mcq_eval/registry.py`:
+3. Add to `src/choicebench/registry.py`:
    ```python
-   from mcq_eval.methods.library.my_method import MyMethodRunner
+   from choicebench.methods.library.my_method import MyMethodRunner
    METHOD_REGISTRY["my_method"] = MyMethodRunner
    ```
    Then use `name: my_method` in your YAML config.
@@ -126,22 +126,22 @@ For external methods (not in this repo), skip step 3 and use `name: my_package.m
 
 ### Add a new metric (2 steps)
 
-1. Copy `src/mcq_eval/metrics/templates/base_metric_template.py` to `src/mcq_eval/metrics/my_metric.py`
-2. Implement `compute(results_df)` and add to `BUILTIN_METRICS` in `src/mcq_eval/metrics/__init__.py`
+1. Copy `src/choicebench/metrics/templates/base_metric_template.py` to `src/choicebench/metrics/my_metric.py`
+2. Implement `compute(results_df)` and add to `BUILTIN_METRICS` in `src/choicebench/metrics/__init__.py`
 
 External: use `name: my_package.metrics:MyMetricMetric` in YAML — no framework files needed.
 
 ### Add a new API client (3 steps)
 
-1. Copy `src/mcq_eval/clients/templates/base_client_template.py` to `src/mcq_eval/clients/my_provider_client.py`
+1. Copy `src/choicebench/clients/templates/base_client_template.py` to `src/choicebench/clients/my_provider_client.py`
 2. Implement `_generate_provider_response()` — call the provider SDK, extract `raw_text`, return a `ModelResponse`
-3. Register in `src/mcq_eval/registry.py` and add the API key to `.env`
+3. Register in `src/choicebench/registry.py` and add the API key to `.env`
 
 The retry loop, backoff, semaphore, and request/response validation are all handled by `BaseClient`. You only implement the single raw API call.
 
 ### Add a new backend (3 steps)
 
-1. Copy `src/mcq_eval/backends/templates/base_backend_template.py` to `src/mcq_eval/backends/my_backend.py`
+1. Copy `src/choicebench/backends/templates/base_backend_template.py` to `src/choicebench/backends/my_backend.py`
 2. Implement `generate()` (required) and optionally `score_options()` + `supports_logprobs = True`
 3. Add a branch to `build_backend()` in `scripts/run_experiment.py`
 
@@ -156,7 +156,7 @@ Any method or metric can be loaded from an external package — just install it 
 ```
 config/              — YAML experiment configs
 scripts/             — entry points (run_experiment.py, evaluate_run.py, prepare_data.py)
-src/mcq_eval/
+src/choicebench/
   config/            — schema validation, paths, provider defaults
   registry.py        — METHOD_REGISTRY and CLIENT_REGISTRY (single registration point)
   benchmarks/        — benchmark loaders (MMLU, ARC-Challenge, toy)

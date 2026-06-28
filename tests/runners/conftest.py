@@ -2,7 +2,7 @@
 
 import pytest
 
-from mcq_eval.backends.base import BaseBackend
+from choicebench.backends.base import BaseBackend
 
 
 class MockBackend(BaseBackend):

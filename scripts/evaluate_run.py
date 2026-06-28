@@ -13,11 +13,11 @@ import json
 import logging
 import yaml
 
-from mcq_eval.config.paths import REPORTS_DIR, RUNS_DIR
-from mcq_eval.io.readers import read_all_run_results
-from mcq_eval.metrics import BUILTIN_METRICS
-from mcq_eval.parsing.parser import parse_model_answer
-from mcq_eval.scoring.scorer import score_prediction
+from choicebench.config.paths import REPORTS_DIR, RUNS_DIR
+from choicebench.io.readers import read_all_run_results
+from choicebench.metrics import BUILTIN_METRICS
+from choicebench.parsing.parser import parse_model_answer
+from choicebench.scoring.scorer import score_prediction
 
 # ---------------------------------------------------------------------------
 # Logging

@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-from mcq_eval.benchmarks.mmlu import build_normalized_dataframe, normalize_row
+from choicebench.benchmarks.mmlu import build_normalized_dataframe, normalize_row
 
 
 class TestNormalizeRow:

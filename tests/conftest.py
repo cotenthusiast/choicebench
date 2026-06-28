@@ -7,7 +7,7 @@ from typing import Any
 import pandas as pd
 import pytest
 
-from mcq_eval.clients.types import (
+from choicebench.clients.types import (
     SUCCESS_STATUS,
     FAILURE_STATUS,
     ErrorInfo,
@@ -15,7 +15,7 @@ from mcq_eval.clients.types import (
     ModelResponse,
     UsageInfo,
 )
-from mcq_eval.benchmarks.split import REVIEW_SUBJECTS, ROBUSTNESS_SUBJECTS
+from choicebench.benchmarks.split import REVIEW_SUBJECTS, ROBUSTNESS_SUBJECTS
 
 MMLU_QUESTIONS_PER_SUBJECT = 50
 

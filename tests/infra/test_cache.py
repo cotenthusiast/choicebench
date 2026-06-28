@@ -4,8 +4,8 @@ import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from mcq_eval.infra.cache import _cache_key, ResponseCache, CachingClientWrapper
-from mcq_eval.clients.types import (
+from choicebench.infra.cache import _cache_key, ResponseCache, CachingClientWrapper
+from choicebench.clients.types import (
     ModelRequest,
     ModelResponse,
     UsageInfo,

@@ -8,8 +8,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 
-from mcq_eval.clients.together_client import TogetherAIClient
-from mcq_eval.clients.types import (
+from choicebench.clients.together_client import TogetherAIClient
+from choicebench.clients.types import (
     ModelRequest,
     ProviderCallError,
     ProviderConfigurationError,

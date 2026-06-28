@@ -17,10 +17,10 @@ from pathlib import Path
 
 import pandas as pd
 
-from mcq_eval.backends.api_backend import APIBackend
-from mcq_eval.backends.dummy_backend import DummyBackend
-from mcq_eval.backends.hf_backend import HuggingFaceBackend
-from mcq_eval.config.paths import (
+from choicebench.backends.api_backend import APIBackend
+from choicebench.backends.dummy_backend import DummyBackend
+from choicebench.backends.hf_backend import HuggingFaceBackend
+from choicebench.config.paths import (
     ARC_NORMALIZED_PATH,
     MMLU_NORMALIZED_PATH,
     PROCESSED_DIR,
@@ -29,7 +29,7 @@ from mcq_eval.config.paths import (
     TOY_BENCHMARK_PATH,
     ensure_dirs,
 )
-from mcq_eval.config.schema import (
+from choicebench.config.schema import (
     BENCHMARK_ARC_CHALLENGE,
     BENCHMARK_HUGGINGFACE,
     BENCHMARK_MMLU,
@@ -40,10 +40,10 @@ from mcq_eval.config.schema import (
     benchmark_normalized_stem,
     load_config,
 )
-from mcq_eval.infra.checkpoint import CheckpointManager
-from mcq_eval.io.readers import read_benchmark
-from mcq_eval.io.writers import write_run_results
-from mcq_eval.registry import CLIENT_REGISTRY, METHOD_REGISTRY
+from choicebench.infra.checkpoint import CheckpointManager
+from choicebench.io.readers import read_benchmark
+from choicebench.io.writers import write_run_results
+from choicebench.registry import CLIENT_REGISTRY, METHOD_REGISTRY
 
 # ---------------------------------------------------------------------------
 # Logging

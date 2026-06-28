@@ -13,9 +13,9 @@ import logging
 
 import pandas as pd
 
-from mcq_eval.benchmarks.arc import build_normalized_dataframe as normalize_arc
-from mcq_eval.benchmarks.mmlu import build_normalized_dataframe as normalize_mmlu
-from mcq_eval.config.paths import PROCESSED_DIR, ensure_dirs
+from choicebench.benchmarks.arc import build_normalized_dataframe as normalize_arc
+from choicebench.benchmarks.mmlu import build_normalized_dataframe as normalize_mmlu
+from choicebench.config.paths import PROCESSED_DIR, ensure_dirs
 
 logging.basicConfig(
     level=logging.INFO,
@@ -45,7 +45,7 @@ def normalize_to_schema(df: pd.DataFrame, hf_path: str) -> pd.DataFrame:
     build_normalized_dataframe() from the benchmark module.
 
     To add support for a new dataset:
-      1. Implement normalize_row() in src/mcq_eval/benchmarks/<name>.py
+      1. Implement normalize_row() in src/choicebench/benchmarks/<name>.py
       2. Add a branch here that pre-processes the raw DataFrame if needed
          and calls build_normalized_dataframe() from that module.
     """
@@ -64,7 +64,7 @@ def normalize_to_schema(df: pd.DataFrame, hf_path: str) -> pd.DataFrame:
     raise NotImplementedError(
         f"No normalizer registered for dataset {hf_path!r}. "
         f"To add one: implement normalize_row() in "
-        f"src/mcq_eval/benchmarks/<your_name>.py and add a branch in "
+        f"src/choicebench/benchmarks/<your_name>.py and add a branch in "
         f"normalize_to_schema() in scripts/prepare_data.py."
     )
 

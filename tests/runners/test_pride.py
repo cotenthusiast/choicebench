@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from mcq_eval.methods.library.pride import PriDeRunner
+from choicebench.methods.library.pride import PriDeRunner
 
 from tests.runners.conftest import MockBackend
 
@@ -123,7 +123,7 @@ class TestPriDeRunnerIntegration:
             calibration_questions=[],
         )
 
-        with caplog.at_level(logging.WARNING, logger="mcq_eval.methods.pride"):
+        with caplog.at_level(logging.WARNING, logger="choicebench.methods.pride"):
             rows = runner.run_many([runner_question_row])
 
         assert rows[0]["pride_adjusted_choice"] is None

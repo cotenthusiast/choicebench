@@ -1,5 +1,5 @@
 #!/bin/bash
-# Single job submission for mcq-framework.
+# Single job submission for choicebench.
 #
 # Runs one config file on one GPU node. Suitable for API-backed models (no GPU
 # needed) and for local models up to ~30B parameters on a single A100 (80 GB).
@@ -35,7 +35,7 @@ set -euo pipefail
 # ── Paths ─────────────────────────────────────────────────────────────────────
 # CHANGE these to match your cluster layout.
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-VENV_DIR="$HOME/venvs/mcq-framework"        # path to virtualenv
+VENV_DIR="$HOME/venvs/choicebench"        # path to virtualenv
 
 # ── HuggingFace cache (only needed for local HF models) ─────────────────────
 # Point HF_HOME at a fast filesystem (scratch) rather than $HOME to avoid

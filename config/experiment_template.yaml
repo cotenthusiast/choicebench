@@ -4,7 +4,7 @@
 # Copy this file, fill in the fields below, and run:
 #   python scripts/run_experiment.py --config path/to/your_config.yaml
 #
-# Validated by src/mcq_eval/config/schema.py — load_config() raises a
+# Validated by src/choicebench/config/schema.py — load_config() raises a
 # ConfigError with a clear message if anything here is missing or
 # inconsistent (e.g. a logprob method paired with an API backend).
 #
@@ -21,7 +21,7 @@ model:
   # "huggingface" — local inference via HuggingFaceBackend. Supports any
   #   method with requires_logprobs: true (e.g. pride).
   # "api"         — API-backed inference via APIBackend (currently a stub —
-  #   see src/mcq_eval/backends/api_backend.py). generate() only; any
+  #   see src/choicebench/backends/api_backend.py). generate() only; any
   #   method with requires_logprobs: true will be rejected at config-load
   #   time, not at runtime.
   # "dummy"       — DummyBackend: fixed responses, no model/API calls at
@@ -80,7 +80,7 @@ benchmarks:
 # Methods
 # ---------------------------------------------------------------------------
 # One entry per method to run against this model/benchmark. See
-# src/mcq_eval/methods/ for the full list and what each does.
+# src/choicebench/methods/ for the full list and what each does.
 methods:
   - name: direct_mcq
   - name: cyclic_permutation
@@ -94,12 +94,12 @@ methods:
 # Metrics
 # ---------------------------------------------------------------------------
 # Computed over this run's results. See
-# src/mcq_eval/metrics/__init__.py's BUILTIN_METRICS for what's available.
+# src/choicebench/metrics/__init__.py's BUILTIN_METRICS for what's available.
 metrics:
   - accuracy
   - mad
   # Add your own metric: subclass BaseMetric in
-  # src/mcq_eval/metrics/<your_metric>.py (see
+  # src/choicebench/metrics/<your_metric>.py (see
   # metrics/templates/base_metric_template.py) and list its name here.
 
 # ---------------------------------------------------------------------------

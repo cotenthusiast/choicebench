@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock
 
 from google.genai import errors
 
-from mcq_eval.clients.gemini_client import GeminiClient
-from mcq_eval.clients.types import (
+from choicebench.clients.gemini_client import GeminiClient
+from choicebench.clients.types import (
     ModelRequest,
     ProviderResponseError,
     ProviderCallError,

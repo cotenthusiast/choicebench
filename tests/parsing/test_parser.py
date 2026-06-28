@@ -2,13 +2,13 @@
 
 import pytest
 
-from mcq_eval.parsing.parser import (
+from choicebench.parsing.parser import (
     extract_choice_letter,
     extract_choice_text_match,
     normalize_output_text,
     parse_model_answer,
 )
-from mcq_eval.parsing.types import (
+from choicebench.parsing.types import (
     PARSE_AMBIGUOUS,
     PARSE_MISSING,
     PARSE_OK,
@@ -201,8 +201,8 @@ class TestParseModelAnswer:
                 reason="Answer successfully parsed from option text match",
             )
 
-        monkeypatch.setattr("mcq_eval.parsing.parser.extract_choice_letter", fake_extract_choice_letter)
-        monkeypatch.setattr("mcq_eval.parsing.parser.extract_choice_text_match", fake_extract_choice_text_match)
+        monkeypatch.setattr("choicebench.parsing.parser.extract_choice_letter", fake_extract_choice_letter)
+        monkeypatch.setattr("choicebench.parsing.parser.extract_choice_text_match", fake_extract_choice_text_match)
 
         result = parse_model_answer("Type 2 diabetes mellitus", sample_options)
 

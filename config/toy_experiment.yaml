@@ -12,7 +12,7 @@
 # downloading and preprocessing a real dataset.
 #
 # Verified: this file loads and validates via
-# mcq_eval.config.schema.load_config() — see Session 3 Task 4 report for
+# choicebench.config.schema.load_config() — see Session 3 Task 4 report for
 # what end-to-end execution wiring is and isn't done yet.
 
 experiment:

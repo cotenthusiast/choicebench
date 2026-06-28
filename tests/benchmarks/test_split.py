@@ -2,8 +2,8 @@
 
 import pytest
 
-import mcq_eval.benchmarks.split as split
-from mcq_eval.benchmarks.split import (
+import choicebench.benchmarks.split as split
+from choicebench.benchmarks.split import (
     DuplicateSplitIdsError,
     InsufficientQuestionsError,
     ROBUSTNESS_SPLIT_SEED,

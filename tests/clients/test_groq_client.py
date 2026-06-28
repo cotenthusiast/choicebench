@@ -6,8 +6,8 @@ import groq
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-from mcq_eval.clients.groq_client import GroqClient
-from mcq_eval.clients.types import (
+from choicebench.clients.groq_client import GroqClient
+from choicebench.clients.types import (
     ModelRequest,
     ProviderResponseError,
     ProviderCallError,

@@ -2,7 +2,7 @@
 
 import pytest
 
-from mcq_eval.clients.types import (
+from choicebench.clients.types import (
     RequestValidationError,
     ResponseValidationError,
 )
