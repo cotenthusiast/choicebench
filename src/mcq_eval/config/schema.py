@@ -90,7 +90,7 @@ class ExperimentConfig:
 
     name: str
     models: list[ModelConfig]
-    benchmark: BenchmarkConfig
+    benchmarks: list[BenchmarkConfig]
     methods: list[MethodConfig]
     metrics: list[str]
     run: RunConfig
@@ -138,19 +138,20 @@ def _build_models(raw: dict) -> list[ModelConfig]:
     return models
 
 
-def _build_benchmark(raw: dict) -> BenchmarkConfig:
-    name = _require(raw, "name", "benchmark")
+def _build_benchmark_entry(raw: dict, index: int) -> BenchmarkConfig:
+    where = f"benchmarks[{index}]"
+    name = _require(raw, "name", where)
     if name not in VALID_BENCHMARKS:
         raise ConfigError(
-            f"benchmark.name must be one of {sorted(VALID_BENCHMARKS)}; got {name!r}."
+            f"{where}.name must be one of {sorted(VALID_BENCHMARKS)}; got {name!r}."
         )
     n_samples = raw.get("n_samples")
     if n_samples is not None and (not isinstance(n_samples, int) or n_samples <= 0):
         raise ConfigError(
-            f"benchmark.n_samples must be a positive integer or null; got {n_samples!r}."
+            f"{where}.n_samples must be a positive integer or null; got {n_samples!r}."
         )
     if name == BENCHMARK_HUGGINGFACE and not raw.get("hf_path"):
-        raise ConfigError("benchmark.hf_path is required when benchmark.name is 'huggingface'.")
+        raise ConfigError(f"{where}.hf_path is required when name is 'huggingface'.")
     return BenchmarkConfig(
         name=name,
         split=raw.get("split", "test"),
@@ -160,6 +161,13 @@ def _build_benchmark(raw: dict) -> BenchmarkConfig:
         hf_subset=raw.get("hf_subset"),
         output_name=raw.get("output_name"),
     )
+
+
+def _build_benchmarks(raw: dict) -> list[BenchmarkConfig]:
+    entries = raw.get("benchmarks", [])
+    if not entries:
+        raise ConfigError("benchmarks must be a non-empty list.")
+    return [_build_benchmark_entry(entry, i) for i, entry in enumerate(entries)]
 
 
 def benchmark_normalized_stem(config: BenchmarkConfig) -> str:
@@ -229,6 +237,16 @@ def _validate_cross_field(config: ExperimentConfig) -> None:
                     f"{sorted(_LOGPROB_CAPABLE_BACKENDS)} currently support "
                     f"score_options(). Either drop this method or switch backends."
                 )
+    seen_benchmark_keys: set[str] = set()
+    for bench in config.benchmarks:
+        key = bench.output_name or bench.name
+        if key in seen_benchmark_keys:
+            raise ConfigError(
+                f"Duplicate benchmark key {key!r} in benchmarks list — "
+                f"two entries would write to the same output CSV. "
+                f"Set output_name on one of them to disambiguate."
+            )
+        seen_benchmark_keys.add(key)
 
 
 def load_config(path: str) -> ExperimentConfig:
@@ -253,7 +271,7 @@ def load_config(path: str) -> ExperimentConfig:
     config = ExperimentConfig(
         name=_require(experiment, "name", "experiment"),
         models=models,
-        benchmark=_build_benchmark(_require(raw, "benchmark", "top level")),
+        benchmarks=_build_benchmarks(raw),
         methods=_build_methods(raw.get("methods")),
         metrics=_build_metrics(raw.get("metrics")),
         run=_build_run(raw.get("run")),

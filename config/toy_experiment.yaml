@@ -34,11 +34,11 @@ models:
       temperature: 0.0
       do_sample: false
 
-benchmark:
-  name: toy
-  split: test
-  n_samples: 10
-  subject_filter: null
+benchmarks:
+  - name: toy
+    split: test
+    n_samples: 10
+    subject_filter: null
 
 methods:
   - name: direct_mcq

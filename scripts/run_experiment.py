@@ -34,6 +34,7 @@ from mcq_eval.config.schema import (
     BENCHMARK_HUGGINGFACE,
     BENCHMARK_MMLU,
     BENCHMARK_TOY,
+    BenchmarkConfig,
     ExperimentConfig,
     ModelConfig,
     benchmark_normalized_stem,
@@ -90,9 +91,9 @@ def build_backend(
         raise ValueError(f"Unsupported backend type: {backend_type!r}")
 
 
-def load_benchmark(config: ExperimentConfig) -> pd.DataFrame:
+def load_benchmark(benchmark: BenchmarkConfig, run_seed: int) -> pd.DataFrame:
     """Load benchmark questions as a DataFrame, applying n_samples cap if set."""
-    name = config.benchmark.name
+    name = benchmark.name
     if name == BENCHMARK_MMLU:
         questions = read_benchmark(MMLU_NORMALIZED_PATH)
     elif name == BENCHMARK_ARC_CHALLENGE:
@@ -100,13 +101,13 @@ def load_benchmark(config: ExperimentConfig) -> pd.DataFrame:
     elif name == BENCHMARK_TOY:
         questions = read_benchmark(TOY_BENCHMARK_PATH)
     elif name == BENCHMARK_HUGGINGFACE:
-        stem = benchmark_normalized_stem(config.benchmark)
+        stem = benchmark_normalized_stem(benchmark)
         csv_path = PROCESSED_DIR / f"{stem}_normalized.csv"
         if csv_path.exists():
             questions = read_benchmark(csv_path)
         else:
-            hf_path = config.benchmark.hf_path
-            hf_subset = config.benchmark.hf_subset
+            hf_path = benchmark.hf_path
+            hf_subset = benchmark.hf_subset
             cmd = f"python scripts/prepare_data.py --hf-path {hf_path}"
             if hf_subset:
                 cmd += f" --hf-subset {hf_subset}"
@@ -118,10 +119,10 @@ def load_benchmark(config: ExperimentConfig) -> pd.DataFrame:
     else:
         raise ValueError(f"Unknown benchmark: {name!r}")
 
-    if config.benchmark.n_samples is not None:
+    if benchmark.n_samples is not None:
         questions = questions.sample(
-            n=config.benchmark.n_samples,
-            random_state=config.run.seed,
+            n=benchmark.n_samples,
+            random_state=run_seed,
         )
     return questions
 
@@ -132,6 +133,7 @@ def instantiate_runner(
     method_name: str,
     backend: APIBackend | HuggingFaceBackend | DummyBackend,
     run_id: str,
+    benchmark_cfg: BenchmarkConfig,
 ):
     """Look up and instantiate the runner for a given method name.
 
@@ -159,7 +161,7 @@ def instantiate_runner(
     return runner_cls(
         backend=backend,
         method_name=method_name,
-        split_name=config.benchmark.split,
+        split_name=benchmark_cfg.split,
         prompt_version=config.run.prompt_version,
         prompts_dir=PROMPTS_DIR,
         run_id=run_id,
@@ -271,7 +273,7 @@ def main() -> None:
     if args.dry_run:
         logger.info("Experiment : %s", config.name)
         logger.info("Models     : %s", [m.model_name_or_path for m in config.models])
-        logger.info("Benchmark  : %s", config.benchmark.name)
+        logger.info("Benchmarks : %s", [b.name for b in config.benchmarks])
         logger.info("Methods    : %s", [m.name for m in config.methods])
         logger.info("Dry run complete — exiting.")
         return
@@ -292,38 +294,40 @@ def main() -> None:
     shutil.copy2(args.config, output_dir / "config.yaml")
     logger.info("Run ID: %s  |  Output: %s", run_id, output_dir)
 
-    questions = load_benchmark(config)
-    logger.info("Loaded %d questions from %s", len(questions), config.benchmark.name)
+    # --- Run each benchmark sequentially ---
+    for benchmark_cfg in config.benchmarks:
+        questions = load_benchmark(benchmark_cfg, config.run.seed)
+        logger.info("Loaded %d questions from %s", len(questions), benchmark_cfg.name)
 
-    # --- Run each model sequentially ---
-    for model_config in config.models:
-        logger.info(
-            "── Model: %s (%s) ───────────────────────────────",
-            model_config.model_name_or_path, model_config.backend,
-        )
-        backend = build_backend(model_config, run_id)
-        logger.info("Backend: %s", backend.__class__.__name__)
+        for model_config in config.models:
+            logger.info(
+                "── Benchmark: %s  Model: %s (%s) ───────────────────────────────",
+                benchmark_cfg.name, model_config.model_name_or_path, model_config.backend,
+            )
+            backend = build_backend(model_config, run_id)
+            logger.info("Backend: %s", backend.__class__.__name__)
 
-        # --- Run each method for this model ---
-        for method in config.methods:
-            checkpoint_mgr = CheckpointManager(
-                checkpoint_dir=checkpoint_dir,
-                run_id=run_id,
-                condition=method.name,
-                model=model_config.model_name_or_path,
-                benchmark=config.benchmark.name,
-            )
-            runner = instantiate_runner(config, model_config, method.name, backend, run_id)
-            run_method(
-                method_name=method.name,
-                runner=runner,
-                questions=questions,
-                checkpoint_mgr=checkpoint_mgr,
-                output_dir=output_dir,
-                checkpoint_every_n=config.run.checkpoint_every_n,
-                model_name=model_config.model_name_or_path,
-                benchmark=config.benchmark.name,
-            )
+            for method in config.methods:
+                checkpoint_mgr = CheckpointManager(
+                    checkpoint_dir=checkpoint_dir,
+                    run_id=run_id,
+                    condition=method.name,
+                    model=model_config.model_name_or_path,
+                    benchmark=benchmark_cfg.name,
+                )
+                runner = instantiate_runner(
+                    config, model_config, method.name, backend, run_id, benchmark_cfg
+                )
+                run_method(
+                    method_name=method.name,
+                    runner=runner,
+                    questions=questions,
+                    checkpoint_mgr=checkpoint_mgr,
+                    output_dir=output_dir,
+                    checkpoint_every_n=config.run.checkpoint_every_n,
+                    model_name=model_config.model_name_or_path,
+                    benchmark=benchmark_cfg.name,
+                )
 
     # --- Run summary ---
     logger.info("── Run complete ─────────────────────────────────")

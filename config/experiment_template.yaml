@@ -45,30 +45,36 @@ model:
     do_sample: false
 
 # ---------------------------------------------------------------------------
-# Benchmark
+# Benchmarks
 # ---------------------------------------------------------------------------
-benchmark:
-  # "mmlu" | "arc_challenge" | "toy" | "huggingface"
-  name: arc_challenge
+benchmarks:
+  - # "mmlu" | "arc_challenge" | "toy" | "huggingface"
+    name: arc_challenge
 
-  # Which split to draw from.
-  split: test
+    # Which split to draw from.
+    split: test
 
-  # Cap the number of questions for a quick/cheap run. null = use the full
-  # split.
-  n_samples: null
+    # Cap the number of questions for a quick/cheap run. null = use the full
+    # split.
+    n_samples: null
 
-  # Restrict to specific subjects/categories (mainly meaningful for mmlu).
-  # null = no filter.
-  subject_filter: null
+    # Restrict to specific subjects/categories (mainly meaningful for mmlu).
+    # null = no filter.
+    subject_filter: null
+
+  # To run multiple benchmarks in one experiment, add more entries:
+  # - name: mmlu
+  #   split: test
+  #   n_samples: null
+  #   subject_filter: null
 
 # HuggingFace benchmark example — run prepare_data.py first, then set name:
-# benchmark:
-#   name: huggingface
-#   hf_path: cais/mmlu
-#   hf_subset: all
-#   split: test
-#   output_name: mmlu  # optional; derived from hf_path if omitted
+# benchmarks:
+#   - name: huggingface
+#     hf_path: cais/mmlu
+#     hf_subset: all
+#     split: test
+#     output_name: mmlu  # optional; derived from hf_path if omitted
 
 # ---------------------------------------------------------------------------
 # Methods
