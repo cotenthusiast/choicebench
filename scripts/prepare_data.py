@@ -1,197 +1,116 @@
-"""Download MMLU and ARC-Challenge, normalize them, and generate experiment splits."""
+"""Generic HuggingFace benchmark downloader and normalizer.
 
-import json
-from pathlib import Path
+Usage:
+    python scripts/prepare_data.py --hf-path cais/mmlu --hf-subset all
+    python scripts/prepare_data.py --hf-path allenai/ai2_arc --hf-subset ARC-Challenge
+    python scripts/prepare_data.py --hf-path cais/mmlu --output-name my_mmlu
+"""
 
-import numpy as np
+from __future__ import annotations
+
+import argparse
+import logging
+
 import pandas as pd
 
-from mcq_eval.benchmarks.split import build_all_splits, ROBUSTNESS_TRACK_NAME, REVIEW_TRACK_NAME
-from mcq_eval.config.paths import (
-    ARC_NORMALIZED_PATH,
-    ARC_RAW_PATH,
-    ARC_SAMPLE_SEED,
-    ARC_SAMPLE_SIZE,
-    ARC_SPLIT_NAME,
-    ARC_SPLITS_DIR,
-    MMLU_NORMALIZED_FILENAME,
-    MMLU_NORMALIZED_PATH,
-    MMLU_RAW_PATH,
-    PROCESSED_DIR,
-    SPLITS_DIR,
-)
-from mcq_eval.io.readers import read_normalized_questions
-from mcq_eval.io.writers import (
-    write_group_splits,
-    write_normalized_questions,
-    write_raw_questions,
-)
+from mcq_eval.benchmarks.arc import build_normalized_dataframe as normalize_arc
+from mcq_eval.benchmarks.mmlu import build_normalized_dataframe as normalize_mmlu
+from mcq_eval.config.paths import PROCESSED_DIR, ensure_dirs
 
-# ---------------------------------------------------------------------------
-# ARC helpers
-# ---------------------------------------------------------------------------
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(levelname)-8s  %(message)s",
+    datefmt="%H:%M:%S",
+)
+logger = logging.getLogger(__name__)
 
-def _download_arc_raw(output_path: Path) -> None:
-    import json
+
+def download_from_huggingface(hf_path: str, hf_subset: str | None, split: str) -> pd.DataFrame:
+    """Load a dataset split from HuggingFace and return it as a raw DataFrame."""
     from datasets import load_dataset
-    dataset = load_dataset("allenai/ai2_arc", "ARC-Challenge", split="test")
-    df = dataset.to_pandas()
-    # Serialize choices as JSON so it round-trips cleanly through CSV.
-    df["choices"] = df["choices"].apply(
-        lambda c: json.dumps({"text": list(c["text"]), "label": list(c["label"])})
-    )
-    df.to_csv(output_path, index=False)
 
-
-def _normalize_arc(raw_path: Path, normalized_path: Path) -> None:
-    import json
-    from mcq_eval.benchmarks.arc import build_normalized_dataframe
-    df_raw = pd.read_csv(raw_path)
-    df_raw["choices"] = df_raw["choices"].apply(json.loads)
-    df_normalized = build_normalized_dataframe(df_raw)
-    df_normalized.to_csv(normalized_path, index=False)
-
-
-def _build_arc_split(normalized_path: Path, splits_dir: Path) -> None:
-    """Sample ARC_SAMPLE_SIZE questions and write robustness split artifacts."""
-    df = pd.read_csv(normalized_path).drop_duplicates(subset="question_id")
-    n_available = len(df)
-
-    sample_size = min(ARC_SAMPLE_SIZE, n_available)
-    rng = np.random.default_rng(ARC_SAMPLE_SEED)
-    df_sorted = df.sort_values("question_id")
-    sampled_ids = df_sorted.sample(
-        n=sample_size,
-        random_state=rng,
-        replace=False,
-    )["question_id"].tolist()
-
-    splits_dir.mkdir(parents=True, exist_ok=True)
-
-    ids_path = splits_dir / f"{ARC_SPLIT_NAME}_ids.json"
-    with ids_path.open("w", encoding="utf-8") as f:
-        json.dump(sampled_ids, f, indent=2)
-
-    metadata = {
-        "split_name": ARC_SPLIT_NAME,
-        "benchmark": "arc_challenge",
-        "subjects": ["arc_challenge"],
-        "seed": ARC_SAMPLE_SEED,
-        "strategy": "random_sample",
-        "requested_size": ARC_SAMPLE_SIZE,
-        "actual_size": len(sampled_ids),
-        "available_pool_size": n_available,
-    }
-    meta_path = splits_dir / f"{ARC_SPLIT_NAME}_metadata.json"
-    with meta_path.open("w", encoding="utf-8") as f:
-        json.dump(metadata, f, indent=2)
-
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
-
-def main():
-    """Download MMLU and ARC-Challenge, produce normalized CSVs, and generate splits."""
-
-    # ── MMLU ──────────────────────────────────────────────────────────────
-    if MMLU_RAW_PATH.exists():
-        print(f"[skip] MMLU raw questions already exist at {MMLU_RAW_PATH}")
+    logger.info("Downloading %s (subset=%s, split=%s)...", hf_path, hf_subset or "default", split)
+    if hf_subset:
+        dataset = load_dataset(hf_path, hf_subset, split=split)
     else:
-        print("[1/8] Downloading MMLU test split from HuggingFace...")
-        write_raw_questions(MMLU_RAW_PATH)
-        print(f"[done] Saved raw MMLU questions to {MMLU_RAW_PATH}")
+        dataset = load_dataset(hf_path, split=split)
+    return dataset.to_pandas()
 
-    if MMLU_NORMALIZED_PATH.exists():
-        print(f"[skip] MMLU normalized questions already exist at {MMLU_NORMALIZED_PATH}")
-    else:
-        print("[2/8] Normalizing MMLU raw questions...")
-        write_normalized_questions(MMLU_RAW_PATH, MMLU_NORMALIZED_PATH)
-        print(f"[done] Saved normalized MMLU questions to {MMLU_NORMALIZED_PATH}")
 
-    print("[3/8] Reading MMLU normalized questions and deduplicating...")
-    df_mmlu = read_normalized_questions(MMLU_NORMALIZED_FILENAME, PROCESSED_DIR)
-    original_count = len(df_mmlu)
-    df_mmlu = df_mmlu.drop_duplicates(subset="question_id")
-    deduped_count = len(df_mmlu)
-    print(
-        f"[done] {original_count} rows -> {deduped_count} unique questions "
-        f"({original_count - deduped_count} duplicates removed)"
+def normalize_to_schema(df: pd.DataFrame, hf_path: str) -> pd.DataFrame:
+    """Dispatch to the right normalizer based on hf_path.
+
+    HuggingFace delivers data in its native format; each normalizer branch
+    converts it to the project's canonical schema before calling the shared
+    build_normalized_dataframe() from the benchmark module.
+
+    To add support for a new dataset:
+      1. Implement normalize_row() in src/mcq_eval/benchmarks/<name>.py
+      2. Add a branch here that pre-processes the raw DataFrame if needed
+         and calls build_normalized_dataframe() from that module.
+    """
+    if hf_path == "cais/mmlu":
+        # HuggingFace delivers choices as a Python list; the MMLU normalizer
+        # expects the string-serialized form (it calls ast.literal_eval).
+        df = df.copy()
+        df["choices"] = df["choices"].apply(str)
+        return normalize_mmlu(df)
+
+    if hf_path == "allenai/ai2_arc":
+        # HuggingFace delivers choices as a dict {"text": [...], "label": [...]},
+        # which the ARC normalizer consumes directly.
+        return normalize_arc(df)
+
+    raise NotImplementedError(
+        f"No normalizer registered for dataset {hf_path!r}. "
+        f"To add one: implement normalize_row() in "
+        f"src/mcq_eval/benchmarks/<your_name>.py and add a branch in "
+        f"normalize_to_schema() in scripts/prepare_data.py."
     )
 
-    print("[4/8] Building and writing MMLU experiment splits...")
-    all_splits = build_all_splits(df_mmlu)
 
-    write_group_splits(
-        {ROBUSTNESS_TRACK_NAME: all_splits[ROBUSTNESS_TRACK_NAME]},
-        SPLITS_DIR,
-        "benchmark",
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Download and normalize a HuggingFace MCQ dataset."
     )
-    write_group_splits(
-        {REVIEW_TRACK_NAME: all_splits[REVIEW_TRACK_NAME]},
-        SPLITS_DIR,
-        "faithfulness",
+    parser.add_argument(
+        "--hf-path", required=True,
+        help="HuggingFace dataset path, e.g. cais/mmlu",
     )
-    write_group_splits(
-        {REVIEW_TRACK_NAME: all_splits[REVIEW_TRACK_NAME]},
-        SPLITS_DIR,
-        "stronger_model",
+    parser.add_argument(
+        "--hf-subset", default=None,
+        help="Dataset subset/config name, e.g. all or ARC-Challenge",
     )
-
-    robustness_count = len(all_splits[ROBUSTNESS_TRACK_NAME]["ids"])
-    review_count = len(all_splits[REVIEW_TRACK_NAME]["ids"])
-    print(f"[done] MMLU robustness split: {robustness_count} questions")
-    print(
-        f"[done] MMLU review split: {review_count} questions "
-        "(written to faithfulness + stronger_model)"
+    parser.add_argument(
+        "--split", default="test",
+        help="Dataset split to use (default: test)",
     )
+    parser.add_argument(
+        "--output-name", default=None,
+        help="CSV filename stem; derived from --hf-path if omitted",
+    )
+    return parser.parse_args()
 
-    # ── ARC-Challenge ──────────────────────────────────────────────────────
-    if ARC_RAW_PATH.exists():
-        print(f"[skip] ARC-Challenge raw data already exists at {ARC_RAW_PATH}")
-    else:
-        print("[5/8] Downloading ARC-Challenge test split from HuggingFace...")
-        _download_arc_raw(ARC_RAW_PATH)
-        print(f"[done] Saved raw ARC-Challenge data to {ARC_RAW_PATH}")
 
-    if ARC_NORMALIZED_PATH.exists():
-        print(f"[skip] ARC-Challenge normalized data already exists at {ARC_NORMALIZED_PATH}")
-    else:
-        print("[6/8] Normalizing ARC-Challenge raw data...")
-        _normalize_arc(ARC_RAW_PATH, ARC_NORMALIZED_PATH)
-        print(f"[done] Saved normalized ARC-Challenge data to {ARC_NORMALIZED_PATH}")
+def main() -> None:
+    ensure_dirs()
+    args = parse_args()
 
-    arc_split_ids_path = ARC_SPLITS_DIR / f"{ARC_SPLIT_NAME}_ids.json"
-    if arc_split_ids_path.exists():
-        print(f"[skip] ARC-Challenge split already exists at {ARC_SPLITS_DIR}")
-    else:
-        print("[7/8] Building ARC-Challenge robustness split...")
-        _build_arc_split(ARC_NORMALIZED_PATH, ARC_SPLITS_DIR)
-        with arc_split_ids_path.open() as f:
-            arc_ids = json.load(f)
-        print(f"[done] ARC-Challenge robustness split: {len(arc_ids)} questions")
+    stem = args.output_name or args.hf_path.rsplit("/", 1)[-1].lower().replace("-", "_")
+    output_path = PROCESSED_DIR / f"{stem}_normalized.csv"
 
-    print("[8/8] Verifying output files...")
-    artifacts = [
-        MMLU_RAW_PATH,
-        MMLU_NORMALIZED_PATH,
-        SPLITS_DIR / "benchmark" / "robustness_ids.json",
-        ARC_RAW_PATH,
-        ARC_NORMALIZED_PATH,
-        ARC_SPLITS_DIR / f"{ARC_SPLIT_NAME}_ids.json",
-    ]
-    all_ok = True
-    for p in artifacts:
-        if p.exists():
-            print(f"  OK  {p}")
-        else:
-            print(f"  MISSING  {p}")
-            all_ok = False
+    if output_path.exists():
+        logger.info("Normalized file already exists: %s — skipping.", output_path)
+        return
 
-    if all_ok:
-        print("[complete] Data preparation finished successfully.")
-    else:
-        print("[complete] Data preparation finished with missing artifacts (see above).")
+    df_raw = download_from_huggingface(args.hf_path, args.hf_subset, args.split)
+    logger.info("Downloaded %d rows.", len(df_raw))
+
+    df_normalized = normalize_to_schema(df_raw, args.hf_path)
+    logger.info("Normalized to %d rows.", len(df_normalized))
+
+    df_normalized.to_csv(output_path, index=False)
+    logger.info("Saved → %s", output_path)
 
 
 if __name__ == "__main__":

@@ -23,6 +23,7 @@ from mcq_eval.backends.hf_backend import HuggingFaceBackend
 from mcq_eval.config.paths import (
     ARC_NORMALIZED_PATH,
     MMLU_NORMALIZED_PATH,
+    PROCESSED_DIR,
     PROMPTS_DIR,
     RUNS_DIR,
     TOY_BENCHMARK_PATH,
@@ -30,10 +31,12 @@ from mcq_eval.config.paths import (
 )
 from mcq_eval.config.schema import (
     BENCHMARK_ARC_CHALLENGE,
+    BENCHMARK_HUGGINGFACE,
     BENCHMARK_MMLU,
     BENCHMARK_TOY,
     ExperimentConfig,
     ModelConfig,
+    benchmark_normalized_stem,
     load_config,
 )
 from mcq_eval.infra.checkpoint import CheckpointManager
@@ -96,6 +99,22 @@ def load_benchmark(config: ExperimentConfig) -> pd.DataFrame:
         questions = read_benchmark(ARC_NORMALIZED_PATH)
     elif name == BENCHMARK_TOY:
         questions = read_benchmark(TOY_BENCHMARK_PATH)
+    elif name == BENCHMARK_HUGGINGFACE:
+        stem = benchmark_normalized_stem(config.benchmark)
+        csv_path = PROCESSED_DIR / f"{stem}_normalized.csv"
+        if csv_path.exists():
+            questions = read_benchmark(csv_path)
+        else:
+            hf_path = config.benchmark.hf_path
+            hf_subset = config.benchmark.hf_subset
+            cmd = f"python scripts/prepare_data.py --hf-path {hf_path}"
+            if hf_subset:
+                cmd += f" --hf-subset {hf_subset}"
+            cmd += f" --output-name {stem}"
+            raise FileNotFoundError(
+                f"Normalized benchmark not found: {csv_path}\n"
+                f"Run: {cmd}"
+            )
     else:
         raise ValueError(f"Unknown benchmark: {name!r}")
 

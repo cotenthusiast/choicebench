@@ -48,20 +48,27 @@ model:
 # Benchmark
 # ---------------------------------------------------------------------------
 benchmark:
-  # "mmlu" | "arc_challenge" | "toy"
+  # "mmlu" | "arc_challenge" | "toy" | "huggingface"
   name: arc_challenge
 
-  # Which named split to draw from (benchmark-specific; see
-  # src/mcq_eval/benchmarks/split.py for how splits are produced).
+  # Which split to draw from.
   split: test
 
   # Cap the number of questions for a quick/cheap run. null = use the full
   # split.
   n_samples: null
 
-  # Restrict to specific subjects/categories (benchmark-specific; mainly
-  # meaningful for mmlu). null = no filter.
+  # Restrict to specific subjects/categories (mainly meaningful for mmlu).
+  # null = no filter.
   subject_filter: null
+
+# HuggingFace benchmark example — run prepare_data.py first, then set name:
+# benchmark:
+#   name: huggingface
+#   hf_path: cais/mmlu
+#   hf_subset: all
+#   split: test
+#   output_name: mmlu  # optional; derived from hf_path if omitted
 
 # ---------------------------------------------------------------------------
 # Methods

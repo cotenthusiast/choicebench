@@ -8,7 +8,6 @@ DATA_DIR = ROOT_DIR / "data"
 RAW_DIR = DATA_DIR / "raw"
 PROCESSED_DIR = DATA_DIR / "processed"
 SPLITS_DIR = DATA_DIR / "splits"
-REVIEWS_DIR = DATA_DIR / "reviews"
 
 RUNS_DIR = ROOT_DIR / "runs"
 REPORTS_DIR = ROOT_DIR / "reports"
@@ -22,7 +21,6 @@ def ensure_dirs() -> None:
         RAW_DIR,
         PROCESSED_DIR,
         SPLITS_DIR,
-        REVIEWS_DIR,
         RUNS_DIR,
         REPORTS_DIR,
         LOG_DIR,
@@ -32,23 +30,13 @@ def ensure_dirs() -> None:
 # Filenames ------------------------------------------
 MMLU_RAW_FILENAME = "mmlu_raw.csv"
 MMLU_NORMALIZED_FILENAME = "mmlu_normalized.csv"
-HUMAN_REVIEW_FILENAME = "faithfulness_human_review.csv"
 
 # Full file paths ------------------------------------
 MMLU_RAW_PATH = RAW_DIR / MMLU_RAW_FILENAME
 MMLU_NORMALIZED_PATH = PROCESSED_DIR / MMLU_NORMALIZED_FILENAME
-MMLU_HUMAN_REVIEW_PATH = REVIEWS_DIR / HUMAN_REVIEW_FILENAME
-
-# Benchmark-specific paths below.
-# TODO: move these to a benchmark registry when HuggingFace integration is added.
 
 # ARC-Challenge ---------------------------------------
-ARC_RAW_PATH = RAW_DIR / "arc_challenge_raw.csv"
 ARC_NORMALIZED_PATH = PROCESSED_DIR / "arc_challenge_normalized.csv"
-ARC_SPLITS_DIR = SPLITS_DIR / "arc_challenge"
-ARC_SPLIT_NAME = "robustness"
-ARC_SAMPLE_SIZE = 1000
-ARC_SAMPLE_SEED = 42
 
 # TOY benchmark ---------------------------------------
 TOY_BENCHMARK_PATH = PROCESSED_DIR / "toy_normalized.csv"

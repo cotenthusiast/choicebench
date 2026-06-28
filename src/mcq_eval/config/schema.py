@@ -27,7 +27,8 @@ _VALID_DEVICES = {"cuda", "cpu", "auto"}
 BENCHMARK_MMLU = "mmlu"
 BENCHMARK_ARC_CHALLENGE = "arc_challenge"
 BENCHMARK_TOY = "toy"
-VALID_BENCHMARKS = {BENCHMARK_MMLU, BENCHMARK_ARC_CHALLENGE, BENCHMARK_TOY}
+BENCHMARK_HUGGINGFACE = "huggingface"
+VALID_BENCHMARKS = {BENCHMARK_MMLU, BENCHMARK_ARC_CHALLENGE, BENCHMARK_TOY, BENCHMARK_HUGGINGFACE}
 
 
 class ConfigError(Exception):
@@ -58,6 +59,9 @@ class BenchmarkConfig:
     split: str = "test"
     n_samples: int | None = None
     subject_filter: list[str] | None = None
+    hf_path: str | None = None       # e.g. "cais/mmlu"
+    hf_subset: str | None = None     # e.g. "all" or "ARC-Challenge"
+    output_name: str | None = None   # override for normalized CSV filename stem
 
 
 @dataclass
@@ -145,12 +149,34 @@ def _build_benchmark(raw: dict) -> BenchmarkConfig:
         raise ConfigError(
             f"benchmark.n_samples must be a positive integer or null; got {n_samples!r}."
         )
+    if name == BENCHMARK_HUGGINGFACE and not raw.get("hf_path"):
+        raise ConfigError("benchmark.hf_path is required when benchmark.name is 'huggingface'.")
     return BenchmarkConfig(
         name=name,
         split=raw.get("split", "test"),
         n_samples=n_samples,
         subject_filter=raw.get("subject_filter"),
+        hf_path=raw.get("hf_path"),
+        hf_subset=raw.get("hf_subset"),
+        output_name=raw.get("output_name"),
     )
+
+
+def benchmark_normalized_stem(config: BenchmarkConfig) -> str:
+    """Return the normalized CSV filename stem for a benchmark config.
+
+    Uses output_name if set; otherwise derives from hf_path by taking the
+    portion after the last '/', lowercasing, and replacing hyphens with
+    underscores (e.g. "cais/mmlu" → "mmlu", "org/my-bench" → "my_bench").
+    """
+    if config.output_name:
+        return config.output_name
+    if not config.hf_path:
+        raise ConfigError(
+            "benchmark_normalized_stem() requires either output_name or hf_path to be set."
+        )
+    stem = config.hf_path.rsplit("/", 1)[-1]
+    return stem.lower().replace("-", "_")
 
 
 def _build_methods(raw: list | None) -> list[MethodConfig]:
