@@ -1,6 +1,6 @@
 # choicebench
 
-A reusable framework for running multiple-choice question (MCQ) evaluation experiments on LLMs.
+ChoiceBench is a lightweight research workbench for running MCQ evaluation-method experiments on LLMs, with built-in support for answer-order bias analysis and mitigation methods.
 
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 
@@ -223,7 +223,7 @@ src/choicebench/
 | Name | Description |
 |---|---|
 | `accuracy` | Fraction of questions answered correctly |
-| `mad` | Mean Absolute Deviation of accuracy across subjects |
+| `mad` | Mean absolute deviation between the model's letter-selection distribution and the gold answer distribution — measures answer-order bias |
 
 ### Clients (API backends)
 
