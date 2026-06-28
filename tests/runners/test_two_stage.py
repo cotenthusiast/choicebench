@@ -104,3 +104,13 @@ class TestTwoStageRunnerRunOne:
         assert result["parsed_choice"] is None
         assert result["score_status"] == SCORE_UNSCORABLE
         assert result["free_text_response"] == "HTTPS"
+
+    def test_missing_trailing_option_is_not_rendered_or_parsed(self, runner_question_row):
+        row = dict(runner_question_row, choice_d="", correct_option="C")
+        backend = MockBackend(responses=["HTTPS", "D"])
+
+        result = _make_runner(backend).run_one(row, sample_index=0)
+
+        assert "D." not in result["prompt"]
+        assert result["parsed_choice"] is None
+        assert result["score_status"] == SCORE_UNSCORABLE

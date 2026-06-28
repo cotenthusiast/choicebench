@@ -36,6 +36,7 @@ from choicebench.config.schema import (
     BENCHMARK_TOY,
     BenchmarkConfig,
     ExperimentConfig,
+    MethodConfig,
     ModelConfig,
     benchmark_normalized_stem,
     load_config,
@@ -97,7 +98,7 @@ def build_backend(
 
 
 def load_benchmark(benchmark: BenchmarkConfig, run_seed: int) -> pd.DataFrame:
-    """Load benchmark questions as a DataFrame, applying n_samples cap if set."""
+    """Load benchmark questions as a DataFrame, applying filters and sample cap."""
     name = benchmark.name
     if name == BENCHMARK_MMLU:
         questions = read_benchmark(MMLU_NORMALIZED_PATH)
@@ -124,6 +125,21 @@ def load_benchmark(benchmark: BenchmarkConfig, run_seed: int) -> pd.DataFrame:
     else:
         raise ValueError(f"Unknown benchmark: {name!r}")
 
+    if benchmark.subject_filter:
+        if "subject" in questions.columns:
+            questions = questions[questions["subject"].isin(benchmark.subject_filter)]
+            if questions.empty:
+                raise ValueError(
+                    f"benchmark.subject_filter {benchmark.subject_filter!r} "
+                    f"removed all rows for benchmark {benchmark.name!r}."
+                )
+        else:
+            logger.warning(
+                "Ignoring subject_filter for benchmark %s because loaded data "
+                "has no 'subject' column.",
+                benchmark.name,
+            )
+
     if benchmark.n_samples is not None:
         questions = questions.sample(
             n=benchmark.n_samples,
@@ -135,7 +151,7 @@ def load_benchmark(benchmark: BenchmarkConfig, run_seed: int) -> pd.DataFrame:
 def instantiate_runner(
     config: ExperimentConfig,
     model_config: ModelConfig,
-    method_name: str,
+    method_config: MethodConfig,
     backend: APIBackend | HuggingFaceBackend | DummyBackend,
     run_id: str,
     benchmark_cfg: BenchmarkConfig,
@@ -146,6 +162,8 @@ def instantiate_runner(
     External classes are loaded via importlib using "module.path:ClassName"
     syntax — e.g. "my_package.methods:MyRunner".
     """
+    method_name = method_config.name
+    method_params = method_config.params
     runner_cls = METHOD_REGISTRY.get(method_name)
     if runner_cls is None:
         if ":" not in method_name:
@@ -163,18 +181,26 @@ def instantiate_runner(
                 f"Could not load method class {method_name!r}: {exc}"
             ) from exc
 
-    return runner_cls(
-        backend=backend,
-        method_name=method_name,
-        split_name=benchmark_cfg.split,
-        prompt_version=config.run.prompt_version,
-        prompts_dir=PROMPTS_DIR,
-        run_id=run_id,
-        temperature=model_config.generation_kwargs.temperature,
-        max_tokens=model_config.generation_kwargs.max_new_tokens,
-        seed=config.run.seed,
-        model_label=model_config.model_name_or_path,
-    )
+    try:
+        return runner_cls(
+            backend=backend,
+            method_name=method_name,
+            split_name=benchmark_cfg.split,
+            prompt_version=config.run.prompt_version,
+            prompts_dir=PROMPTS_DIR,
+            run_id=run_id,
+            temperature=model_config.generation_kwargs.temperature,
+            max_tokens=model_config.generation_kwargs.max_new_tokens,
+            seed=config.run.seed,
+            model_label=model_config.model_name_or_path,
+            **method_params,
+        )
+    except TypeError as exc:
+        raise TypeError(
+            f"Could not instantiate method {method_name!r} with params "
+            f"{method_params!r}. The method constructor must accept these "
+            f"params, or the YAML should remove them."
+        ) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -188,6 +214,7 @@ def run_method(
     checkpoint_mgr: CheckpointManager,
     output_dir: Path,
     checkpoint_every_n: int,
+    resume: bool = True,
     model_name: str = "",
     benchmark: str = "",
 ) -> None:
@@ -198,7 +225,12 @@ def run_method(
     can be recovered without restarting from scratch.
     """
     # --- Resume or start fresh ---
-    checkpoint = checkpoint_mgr.load()
+    if resume:
+        checkpoint = checkpoint_mgr.load()
+    else:
+        checkpoint_mgr.delete()
+        checkpoint = None
+
     if checkpoint is not None:
         completed_ids: list[str] = checkpoint["completed_ids"]
         accumulated_results: list[dict] = checkpoint["results"]
@@ -276,7 +308,7 @@ def main() -> None:
     logger.info("Loaded config: %s", args.config)
 
     # --- Dry run: print summary and exit ---
-    if args.dry_run:
+    if args.dry_run or config.run.dry_run:
         logger.info("Experiment : %s", config.name)
         logger.info("Models     : %s", [m.model_name_or_path for m in config.models])
         logger.info("Benchmarks : %s", [b.name for b in config.benchmarks])
@@ -324,7 +356,7 @@ def main() -> None:
                     benchmark=benchmark_cfg.name,
                 )
                 runner = instantiate_runner(
-                    config, model_config, method.name, backend, run_id, benchmark_cfg
+                    config, model_config, method, backend, run_id, benchmark_cfg
                 )
                 run_method(
                     method_name=method.name,
@@ -333,6 +365,7 @@ def main() -> None:
                     checkpoint_mgr=checkpoint_mgr,
                     output_dir=output_dir,
                     checkpoint_every_n=config.run.checkpoint_every_n,
+                    resume=config.run.resume,
                     model_name=model_config.model_name_or_path,
                     benchmark=benchmark_cfg.name,
                 )

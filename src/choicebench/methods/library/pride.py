@@ -189,6 +189,8 @@ class PriDeRunner(ExperimentRunner):
             )
             self._calibration_state = calibration_state_uniform()
         else:
+            for row in cal_rows:
+                self._require_four_options(row)
             prior_vectors: list[np.ndarray] = []
             for row in cal_rows:
                 roll_mat = self._cyclic_rollout_prob_matrix(row)
@@ -267,6 +269,7 @@ class PriDeRunner(ExperimentRunner):
         self._ensure_calibration()
 
         options = self._build_options(question_row)
+        self._require_four_options(question_row)
         letters = list(options.keys())
         prompt = self._build_prompt(question_row)
 
@@ -333,8 +336,14 @@ class PriDeRunner(ExperimentRunner):
         return build_direct_mcq_prompt(
             template=self._prompts["direct_mcq"],
             question=question_row["question_text"],
-            option_a=question_row["choice_a"],
-            option_b=question_row["choice_b"],
-            option_c=question_row["choice_c"],
-            option_d=question_row["choice_d"],
+            options=self._build_options(question_row),
         )
+
+    def _require_four_options(self, question_row: Any) -> None:
+        options = self._build_options(question_row)
+        if list(options.keys()) != list(OPTION_LETTERS):
+            raise ValueError(
+                "PriDe requires four valid A-D options in v0.1; "
+                f"question {question_row.get('question_id', '<unknown>')!r} "
+                f"has valid options {list(options)}."
+            )

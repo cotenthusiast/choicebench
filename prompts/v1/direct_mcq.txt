@@ -3,9 +3,6 @@ Answer the following multiple-choice question.
 Question: {question}
 
 Options:
-A. {option_a}
-B. {option_b}
-C. {option_c}
-D. {option_d}
+{options}
 
 Respond with only the letter.

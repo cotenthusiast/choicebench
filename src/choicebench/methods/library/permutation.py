@@ -141,14 +141,10 @@ class PermutationRunner(ExperimentRunner):
         Returns:
             Fully formatted prompt string with permuted options.
         """
-        vals = list(permuted_options.values())
         return build_direct_mcq_prompt(
             template=template,
             question=question_row["question_text"],
-            option_a=vals[0],
-            option_b=vals[1],
-            option_c=vals[2],
-            option_d=vals[3],
+            options=permuted_options,
         )
 
     @staticmethod

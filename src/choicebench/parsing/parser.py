@@ -31,7 +31,7 @@ def normalize_output_text(raw_text: str | None) -> str:
     Returns:
         Normalized text string suitable for downstream parsing.
     """
-    if raw_text is None:
+    if raw_text is None or not isinstance(raw_text, str):
         return ""
     raw_text = raw_text.strip()
     if raw_text == "":
@@ -246,7 +246,7 @@ def parse_model_answer(
         Final ParseResult for downstream scoring.
     """
     normalized_text = normalize_output_text(raw_text)
-    temp_result = extract_choice_letter(normalized_text)
+    temp_result = extract_choice_letter(normalized_text, valid_choices=tuple(options.keys()))
     if temp_result.status == PARSE_MISSING:
         temp_result = extract_choice_text_match(normalized_text, options)
     return ParseResult(

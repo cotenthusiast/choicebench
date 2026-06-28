@@ -182,10 +182,18 @@ class TestParseModelAnswer:
         result = parse_model_answer(str(case["raw_text"]), sample_options)
         assert result.raw_text == case["raw_text"]
 
+    def test_rejects_label_not_present_in_current_options(self) -> None:
+        options = {"A": "one", "B": "two", "C": "three"}
+
+        result = parse_model_answer("D", options)
+
+        assert result.final_choice is None
+        assert result.status == PARSE_MISSING
+
     def test_uses_text_match_only_after_missing_direct_letter(self, sample_options, monkeypatch) -> None:
         text_match_called = False
 
-        def fake_extract_choice_letter(normalized_text):
+        def fake_extract_choice_letter(normalized_text, valid_choices=None):
             return ParseResult(
                 final_choice=None, status=PARSE_MISSING,
                 raw_text=None, normalized_text=normalized_text,

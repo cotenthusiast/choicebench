@@ -55,6 +55,15 @@ class TestGeneratePermutations:
         assert perms[1]["C"] == canonical_options["D"]
         assert perms[1]["D"] == canonical_options["A"]
 
+    def test_returns_three_permutations_for_three_options(self):
+        canonical = {"A": "FTP", "B": "HTTP", "C": "HTTPS"}
+
+        perms = PermutationRunner._generate_permutations(canonical)
+
+        assert len(perms) == 3
+        assert list(perms[0]) == ["A", "B", "C"]
+        assert perms[1] == {"A": "HTTP", "B": "HTTPS", "C": "FTP"}
+
 
 class TestBuildPermutedPrompt:
     """Tests for PermutationRunner._build_permuted_prompt."""
@@ -76,6 +85,18 @@ class TestBuildPermutedPrompt:
             runner_question_row, canonical_options, _TEMPLATES["direct_mcq"]
         )
         assert "securely browse websites" in prompt
+
+    def test_prompt_omits_missing_option_label(self, runner_question_row):
+        prompt = PermutationRunner._build_permuted_prompt(
+            runner_question_row,
+            {"A": "FTP", "B": "HTTP", "C": "HTTPS"},
+            _TEMPLATES["direct_mcq"],
+        )
+
+        assert "A. FTP" in prompt
+        assert "B. HTTP" in prompt
+        assert "C. HTTPS" in prompt
+        assert "D." not in prompt
 
 
 class TestUnpermuteChoice:
@@ -248,6 +269,25 @@ class TestPermutationRunnerRunOne:
         runner.run_one(runner_question_row, sample_index=0)
 
         assert len(backend.requests_received) == 4
+
+    def test_missing_trailing_option_makes_three_api_calls(self, runner_question_row):
+        row = dict(runner_question_row, choice_d="", correct_option="C")
+        backend = MockBackend(responses=["C"] * 3)
+        runner = PermutationRunner(
+            backend=backend,
+            method_name="cyclic_permutation",
+            split_name="robustness",
+            prompt_version="v1",
+            prompts_dir=_PROMPTS_DIR,
+            run_id="test_run_001",
+        )
+
+        result = runner.run_one(row, sample_index=0)
+
+        assert len(backend.requests_received) == 3
+        assert "D." not in result["prompt"]
+        assert result["parsed_choice"] == "C"
+        assert result["score_status"] == SCORE_CORRECT
 
     def test_result_row_has_metadata(self, runner_question_row):
         """Result row should carry trace metadata."""

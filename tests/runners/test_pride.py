@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from choicebench.backends.dummy_backend import DummyBackend
 from choicebench.methods.library.pride import PriDeRunner
 
 from tests.runners.conftest import MockBackend
@@ -34,6 +35,27 @@ class TestPriDeRunnerIntegration:
                 calibration_runs_dir=tmp_path,
                 calibration_questions=[],
             )
+
+    def test_missing_trailing_option_fails_clearly_in_v01(
+            self, runner_question_row, tmp_path: Path,
+    ):
+        row = dict(runner_question_row, choice_d="", correct_option="C")
+        runner = PriDeRunner(
+            backend=DummyBackend(),
+            method_name="pride",
+            split_name="robustness",
+            prompt_version="v1",
+            prompts_dir=_PROMPTS_DIR,
+            run_id="pride_missing_option",
+            calibration_n=0,
+            calibration_seed=0,
+            calibration_benchmark="mmlu",
+            calibration_runs_dir=tmp_path,
+            calibration_questions=[],
+        )
+
+        with pytest.raises(ValueError, match="PriDe requires four valid A-D options"):
+            runner.run_one(row, sample_index=0)
 
     @pytest.mark.skip(
         reason=(

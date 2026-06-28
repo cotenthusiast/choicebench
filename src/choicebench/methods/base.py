@@ -17,6 +17,7 @@ from choicebench.clients.types import (
 from choicebench.config.providers import MAX_TOKENS, SEED, TEMPERATURE
 from choicebench.parsing.parser import parse_model_answer
 from choicebench.parsing.types import ParseResult
+from choicebench.pipeline.options import build_option_map
 from choicebench.pipeline.prompt_builder import load_prompt_templates
 from choicebench.scoring.scorer import score_prediction
 from choicebench.scoring.types import ScoreResult
@@ -249,9 +250,4 @@ class ExperimentRunner(ABC):
         Returns:
             Mapping from canonical answer letters to their text.
         """
-        return {
-            "A": question_row["choice_a"],
-            "B": question_row["choice_b"],
-            "C": question_row["choice_c"],
-            "D": question_row["choice_d"],
-        }
+        return build_option_map(question_row)

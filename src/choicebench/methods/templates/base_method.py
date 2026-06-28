@@ -17,6 +17,15 @@
 #     Use "module.path:ClassName" in the YAML config — no framework files needed.
 #     Example:  methods:
 #                 - name: my_package.methods.my_method:MyMethodRunner
+#                   params:
+#                     num_rollouts: 4
+#
+# METHOD-SPECIFIC PARAMETERS
+#   YAML params are passed to your runner constructor as keyword arguments.
+#   Example:
+#     def __init__(self, num_rollouts: int = 4, **kwargs) -> None:
+#         super().__init__(**kwargs)
+#         self.num_rollouts = num_rollouts
 #
 # BACKEND METHODS AVAILABLE
 #   self.backend.generate(prompt) -> str
@@ -47,17 +56,20 @@ Calls per question: <how many backend calls does run_one() make per question?>
 class YourMethodRunner(ExperimentRunner):
     # Rename this class: e.g. TwoPassDebiasingRunner.
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(self, num_rollouts: int = 4, **kwargs) -> None:
         # All framework args (backend, method_name, split_name, prompt_version,
         # prompts_dir, run_id, temperature, max_tokens, seed, perturbation_name)
         # are forwarded automatically by instantiate_runner() via **kwargs.
-        # Add your own args BEFORE calling super().__init__(**kwargs) if needed,
-        # or pull them out of kwargs first.
+        # YAML params are forwarded as constructor kwargs too:
+        #   methods:
+        #     - name: my_method_name
+        #       params:
+        #         num_rollouts: 8
         super().__init__(**kwargs)
 
         # Add any per-run state your method needs here.
         # Examples:
-        #   self.num_rollouts = 4         # fixed hyperparameter
+        self.num_rollouts = num_rollouts
         #   self._calibration = None      # populated lazily in run_one()
 
     def run_one(self, question_row: Any, sample_index: int) -> dict:

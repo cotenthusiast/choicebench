@@ -6,6 +6,11 @@ from pathlib import Path
 _TEMPLATE_NAMES = ("direct_mcq", "free_text", "option_matching")
 
 
+def _build_options_block(options: dict[str, str]) -> str:
+    """Render real options in label order without inventing missing choices."""
+    return "\n".join(f"{letter}. {text}" for letter, text in options.items())
+
+
 def load_prompt_templates(version: str, prompts_dir: Path) -> dict[str, str]:
     """Load all prompt templates for a given version from disk.
 
@@ -50,31 +55,19 @@ def load_prompt_templates(version: str, prompts_dir: Path) -> dict[str, str]:
 def build_direct_mcq_prompt(
     template: str,
     question: str,
-    option_a: str,
-    option_b: str,
-    option_c: str,
-    option_d: str,
+    options: dict[str, str],
 ) -> str:
     """Format the direct MCQ template with question and option text.
 
     Args:
         template: Raw template string from load_prompt_templates.
         question: Question stem to present to the model.
-        option_a: Text of answer option A.
-        option_b: Text of answer option B.
-        option_c: Text of answer option C.
-        option_d: Text of answer option D.
+        options: Mapping from answer label to option text.
 
     Returns:
         Fully formatted prompt string.
     """
-    return template.format(
-        question=question,
-        option_a=option_a,
-        option_b=option_b,
-        option_c=option_c,
-        option_d=option_d,
-    )
+    return template.format(question=question, options=_build_options_block(options))
 
 
 def build_free_text_prompt(template: str, question: str) -> str:
@@ -94,10 +87,7 @@ def build_option_matching_prompt(
     template: str,
     question: str,
     free_text: str,
-    option_a: str,
-    option_b: str,
-    option_c: str,
-    option_d: str,
+    options: dict[str, str],
 ) -> str:
     """Format the option-matching template for stage two of two-stage methods.
 
@@ -105,10 +95,7 @@ def build_option_matching_prompt(
         template: Raw template string from load_prompt_templates.
         question: Original question stem.
         free_text: Free-text answer produced in stage one.
-        option_a: Text of answer option A.
-        option_b: Text of answer option B.
-        option_c: Text of answer option C.
-        option_d: Text of answer option D.
+        options: Mapping from answer label to option text.
 
     Returns:
         Fully formatted prompt string.
@@ -116,8 +103,5 @@ def build_option_matching_prompt(
     return template.format(
         question=question,
         free_text=free_text,
-        option_a=option_a,
-        option_b=option_b,
-        option_c=option_c,
-        option_d=option_d,
+        options=_build_options_block(options),
     )

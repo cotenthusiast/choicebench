@@ -19,13 +19,10 @@ class TestBuildDirectMcqPrompt:
 
     def test_includes_question_options_and_letter_instruction(self):
         question = "Which number has one factor?"
-        option_a = "one"
-        option_b = "two"
-        option_c = "three"
-        option_d = "four"
+        options = {"A": "one", "B": "two", "C": "three", "D": "four"}
 
         prompt = build_direct_mcq_prompt(
-            _TEMPLATES["direct_mcq"], question, option_a, option_b, option_c, option_d
+            _TEMPLATES["direct_mcq"], question, options
         )
 
         assert question in prompt
@@ -33,6 +30,17 @@ class TestBuildDirectMcqPrompt:
         assert prompt.index("A. one") < prompt.index("B. two")
         assert prompt.index("B. two") < prompt.index("C. three")
         assert prompt.index("C. three") < prompt.index("D. four")
+
+    def test_omits_missing_option_labels_from_options_block(self):
+        question = "Which number has one factor?"
+        options = {"A": "one", "B": "two", "C": "three"}
+
+        prompt = build_direct_mcq_prompt(_TEMPLATES["direct_mcq"], question, options)
+
+        assert "A. one" in prompt
+        assert "B. two" in prompt
+        assert "C. three" in prompt
+        assert "D." not in prompt
 
 
 class TestBuildFreeTextPrompt:
@@ -56,20 +64,14 @@ class TestBuildOptionMatchingPrompt:
 
     def test_includes_question_free_text_options_and_letter_instruction(self):
         question = "Which number has one factor?"
-        option_a = "one"
-        option_b = "two"
-        option_c = "three"
-        option_d = "four"
+        options = {"A": "one", "B": "two", "C": "three", "D": "four"}
         free_response = "one"
 
         prompt = build_option_matching_prompt(
             _TEMPLATES["option_matching"],
             question,
             free_response,
-            option_a,
-            option_b,
-            option_c,
-            option_d,
+            options,
         )
 
         assert "Select the option that best matches the reference answer in the context of the question.".lower() in prompt.lower()

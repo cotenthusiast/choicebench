@@ -88,11 +88,18 @@ benchmarks:
 methods:
   - name: direct_mcq
   - name: cyclic_permutation
+    # Optional method-specific constructor kwargs:
+    # params:
+    #   aggregation: majority_vote
   - name: pride
     # requires_logprobs methods can only be paired with backend: huggingface
     # — load_config() raises ConfigError at load time otherwise, before any
     # backend call is made.
     requires_logprobs: true
+    # params are passed to the runner's __init__(...) as keyword arguments.
+    # params:
+    #   calibration_n: 100
+    #   calibration_seed: 42
 
 # ---------------------------------------------------------------------------
 # Metrics

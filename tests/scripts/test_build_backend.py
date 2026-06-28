@@ -6,12 +6,23 @@
 
 import importlib.util
 import pathlib
+import sys
+import types
 
+import pandas as pd
 import pytest
 
 from choicebench.backends.api_backend import APIBackend
 from choicebench.backends.dummy_backend import DummyBackend
-from choicebench.config.schema import GenerationKwargsConfig, ModelConfig
+from choicebench.config.schema import (
+    BenchmarkConfig,
+    ExperimentConfig,
+    GenerationKwargsConfig,
+    MethodConfig,
+    ModelConfig,
+    RunConfig,
+)
+from choicebench.methods import DirectMCQRunner
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 
@@ -33,6 +44,17 @@ def _model(backend: str, **kwargs) -> ModelConfig:
         device=kwargs.pop("device", "cpu"),
         generation_kwargs=GenerationKwargsConfig(),
         **kwargs,
+    )
+
+
+def _experiment(method: MethodConfig) -> ExperimentConfig:
+    return ExperimentConfig(
+        name="unit",
+        models=[_model("dummy")],
+        benchmarks=[BenchmarkConfig(name="toy")],
+        methods=[method],
+        metrics=["accuracy"],
+        run=RunConfig(seed=123, prompt_version="v1"),
     )
 
 
@@ -104,3 +126,271 @@ def test_huggingface_backend_is_loaded_before_return(monkeypatch):
         _model("huggingface", device="cpu"), "rid", run_seed=1
     )
     assert backend.loaded is True
+
+
+def test_instantiate_runner_passes_params_to_registry_method(monkeypatch):
+    run_exp = _load_run_experiment()
+
+    class _ParamRunner:
+        def __init__(self, custom_threshold, **kwargs):
+            self.custom_threshold = custom_threshold
+            self.framework_kwargs = kwargs
+
+    monkeypatch.setitem(run_exp.METHOD_REGISTRY, "param_method", _ParamRunner)
+
+    method = MethodConfig(name="param_method", params={"custom_threshold": 0.75})
+    runner = run_exp.instantiate_runner(
+        _experiment(method),
+        _model("dummy"),
+        method,
+        DummyBackend(),
+        "rid",
+        BenchmarkConfig(name="toy", split="test"),
+    )
+
+    assert runner.custom_threshold == 0.75
+    assert runner.framework_kwargs["method_name"] == "param_method"
+
+
+def test_instantiate_runner_without_params_still_works():
+    run_exp = _load_run_experiment()
+    method = MethodConfig(name="direct_mcq")
+
+    runner = run_exp.instantiate_runner(
+        _experiment(method),
+        _model("dummy"),
+        method,
+        DummyBackend(),
+        "rid",
+        BenchmarkConfig(name="toy", split="test"),
+    )
+
+    assert isinstance(runner, DirectMCQRunner)
+
+
+def test_instantiate_runner_passes_params_to_external_method(monkeypatch):
+    run_exp = _load_run_experiment()
+
+    class _ExternalRunner:
+        def __init__(self, calibration_n, **kwargs):
+            self.calibration_n = calibration_n
+            self.framework_kwargs = kwargs
+
+    module = types.ModuleType("choicebench_test_methods")
+    module.ExternalRunner = _ExternalRunner
+    monkeypatch.setitem(sys.modules, "choicebench_test_methods", module)
+
+    method = MethodConfig(
+        name="choicebench_test_methods:ExternalRunner",
+        params={"calibration_n": 100},
+    )
+    runner = run_exp.instantiate_runner(
+        _experiment(method),
+        _model("dummy"),
+        method,
+        DummyBackend(),
+        "rid",
+        BenchmarkConfig(name="toy", split="test"),
+    )
+
+    assert runner.calibration_n == 100
+    assert runner.framework_kwargs["method_name"] == "choicebench_test_methods:ExternalRunner"
+
+
+def test_instantiate_runner_unsupported_param_has_clear_error(monkeypatch):
+    run_exp = _load_run_experiment()
+
+    class _NoParamRunner:
+        def __init__(self, **kwargs):
+            if "unsupported" in kwargs:
+                raise TypeError("unexpected keyword argument 'unsupported'")
+
+    monkeypatch.setitem(run_exp.METHOD_REGISTRY, "no_param_method", _NoParamRunner)
+
+    method = MethodConfig(name="no_param_method", params={"unsupported": True})
+    with pytest.raises(TypeError, match="no_param_method.*unsupported.*YAML should remove"):
+        run_exp.instantiate_runner(
+            _experiment(method),
+            _model("dummy"),
+            method,
+            DummyBackend(),
+            "rid",
+            BenchmarkConfig(name="toy", split="test"),
+        )
+
+
+def test_yaml_dry_run_is_honored(monkeypatch):
+    run_exp = _load_run_experiment()
+    cfg = _experiment(MethodConfig(name="direct_mcq"))
+    cfg.run.dry_run = True
+
+    monkeypatch.setattr(run_exp, "ensure_dirs", lambda: None)
+    monkeypatch.setattr(
+        run_exp,
+        "parse_args",
+        lambda: types.SimpleNamespace(
+            config="config.yaml",
+            dry_run=False,
+            run_id="rid",
+            yes=True,
+        ),
+    )
+    monkeypatch.setattr(run_exp, "load_config", lambda path: cfg)
+    monkeypatch.setattr(
+        run_exp,
+        "load_benchmark",
+        lambda *args, **kwargs: pytest.fail("dry run should not load benchmarks"),
+    )
+
+    run_exp.main()
+
+
+class _RecordingRunner:
+    run_id = "rid"
+
+    def __init__(self):
+        self.seen_ids: list[str] = []
+
+    def run_many(self, rows):
+        records = rows.to_dict(orient="records")
+        self.seen_ids.extend(row["question_id"] for row in records)
+        return [{"question_id": row["question_id"], "fresh": True} for row in records]
+
+
+class _CheckpointDouble:
+    def __init__(self, state):
+        self.state = state
+        self.load_called = False
+        self.delete_count = 0
+        self.saved_states = []
+
+    def load(self):
+        self.load_called = True
+        return self.state
+
+    def save(self, completed_ids, results, started_at):
+        self.saved_states.append((list(completed_ids), list(results), started_at))
+
+    def delete(self):
+        self.delete_count += 1
+
+
+def test_run_method_resume_true_loads_checkpoint(tmp_path, monkeypatch):
+    run_exp = _load_run_experiment()
+    questions = pd.DataFrame(
+        [
+            {"question_id": "q1"},
+            {"question_id": "q2"},
+        ]
+    )
+    checkpoint = _CheckpointDouble(
+        {
+            "completed_ids": ["q1"],
+            "results": [{"question_id": "q1", "old": True}],
+            "started_at": "2026-01-01T00:00:00+00:00",
+        }
+    )
+    runner = _RecordingRunner()
+    written = {}
+    monkeypatch.setattr(
+        run_exp,
+        "write_run_results",
+        lambda **kwargs: written.setdefault("results", kwargs["results"]) or tmp_path / "out.csv",
+    )
+
+    run_exp.run_method(
+        method_name="direct_mcq",
+        runner=runner,
+        questions=questions,
+        checkpoint_mgr=checkpoint,
+        output_dir=tmp_path,
+        checkpoint_every_n=10,
+        resume=True,
+    )
+
+    assert checkpoint.load_called is True
+    assert runner.seen_ids == ["q2"]
+    assert written["results"] == [
+        {"question_id": "q1", "old": True},
+        {"question_id": "q2", "fresh": True},
+    ]
+
+
+def test_run_method_resume_false_starts_fresh_without_loading(tmp_path, monkeypatch):
+    run_exp = _load_run_experiment()
+    questions = pd.DataFrame(
+        [
+            {"question_id": "q1"},
+            {"question_id": "q2"},
+        ]
+    )
+    checkpoint = _CheckpointDouble(
+        {
+            "completed_ids": ["q1"],
+            "results": [{"question_id": "q1", "old": True}],
+            "started_at": "2026-01-01T00:00:00+00:00",
+        }
+    )
+    runner = _RecordingRunner()
+    written = {}
+    monkeypatch.setattr(
+        run_exp,
+        "write_run_results",
+        lambda **kwargs: written.setdefault("results", kwargs["results"]) or tmp_path / "out.csv",
+    )
+
+    run_exp.run_method(
+        method_name="direct_mcq",
+        runner=runner,
+        questions=questions,
+        checkpoint_mgr=checkpoint,
+        output_dir=tmp_path,
+        checkpoint_every_n=10,
+        resume=False,
+    )
+
+    assert checkpoint.load_called is False
+    assert checkpoint.delete_count >= 1
+    assert runner.seen_ids == ["q1", "q2"]
+    assert written["results"] == [
+        {"question_id": "q1", "fresh": True},
+        {"question_id": "q2", "fresh": True},
+    ]
+
+
+def test_load_benchmark_applies_subject_filter(monkeypatch):
+    run_exp = _load_run_experiment()
+    monkeypatch.setattr(
+        run_exp,
+        "read_benchmark",
+        lambda path: pd.DataFrame(
+            [
+                {"question_id": "q1", "subject": "math"},
+                {"question_id": "q2", "subject": "history"},
+            ]
+        ),
+    )
+
+    questions = run_exp.load_benchmark(
+        BenchmarkConfig(name="toy", subject_filter=["math"]),
+        run_seed=123,
+    )
+
+    assert questions["question_id"].tolist() == ["q1"]
+
+
+def test_load_benchmark_subject_filter_rejects_empty_result(monkeypatch):
+    run_exp = _load_run_experiment()
+    monkeypatch.setattr(
+        run_exp,
+        "read_benchmark",
+        lambda path: pd.DataFrame(
+            [{"question_id": "q1", "subject": "math"}]
+        ),
+    )
+
+    with pytest.raises(ValueError, match="subject_filter.*removed all rows"):
+        run_exp.load_benchmark(
+            BenchmarkConfig(name="toy", subject_filter=["history"]),
+            run_seed=123,
+        )

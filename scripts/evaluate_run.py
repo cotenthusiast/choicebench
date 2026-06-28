@@ -19,6 +19,7 @@ from choicebench.config.paths import REPORTS_DIR, RUNS_DIR
 from choicebench.io.readers import read_all_run_results
 from choicebench.metrics import BUILTIN_METRICS
 from choicebench.parsing.parser import parse_model_answer
+from choicebench.pipeline.options import build_option_map
 from choicebench.scoring.scorer import score_prediction
 
 # ---------------------------------------------------------------------------
@@ -67,12 +68,7 @@ def reparse_run(run_df: pd.DataFrame) -> pd.DataFrame:
     for idx, row in run_df.iterrows():
         if row.get("model_status") == "failure":
             continue
-        options = {
-            "A": row["choice_a"],
-            "B": row["choice_b"],
-            "C": row["choice_c"],
-            "D": row["choice_d"],
-        }
+        options = build_option_map(row)
         parsed = parse_model_answer(row["raw_text"], options)
         scored = score_prediction(parsed, row["correct_option"])
         run_df.loc[idx, "parsed_choice"]  = parsed.final_choice

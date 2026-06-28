@@ -73,6 +73,34 @@ def test_generation_kwargs_parsed(tmp_path):
     assert gk.do_sample is True
 
 
+def test_method_params_default_to_empty_dict(tmp_path):
+    cfg = load_config(_write_config(tmp_path, _valid_config()))
+    assert cfg.methods[0].params == {}
+
+
+def test_method_params_default_dicts_are_independent(tmp_path):
+    data = _valid_config()
+    data["methods"] = [{"name": "direct_mcq"}, {"name": "two_stage"}]
+    cfg = load_config(_write_config(tmp_path, data))
+
+    cfg.methods[0].params["custom"] = True
+
+    assert cfg.methods[1].params == {}
+
+
+def test_method_params_preserved(tmp_path):
+    data = _valid_config()
+    data["methods"] = [
+        {
+            "name": "pride",
+            "requires_logprobs": True,
+            "params": {"calibration_n": 100, "calibration_seed": 42},
+        }
+    ]
+    cfg = load_config(_write_config(tmp_path, data))
+    assert cfg.methods[0].params == {"calibration_n": 100, "calibration_seed": 42}
+
+
 # --- missing / empty required sections -------------------------------------
 
 def test_missing_experiment_name_raises(tmp_path):
@@ -158,6 +186,13 @@ def test_unknown_metric_raises(tmp_path):
     data = _valid_config()
     data["metrics"] = ["not_a_metric"]
     with pytest.raises(ConfigError, match="Unknown metric"):
+        load_config(_write_config(tmp_path, data))
+
+
+def test_method_params_must_be_mapping(tmp_path):
+    data = _valid_config()
+    data["methods"] = [{"name": "direct_mcq", "params": ["not", "a", "mapping"]}]
+    with pytest.raises(ConfigError, match=r"methods\[0\]\.params must be a YAML mapping"):
         load_config(_write_config(tmp_path, data))
 
 

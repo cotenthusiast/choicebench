@@ -68,6 +68,7 @@ class BenchmarkConfig:
 class MethodConfig:
     name: str
     requires_logprobs: bool = False
+    params: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -193,9 +194,21 @@ def _build_methods(raw: list | None) -> list[MethodConfig]:
         raise ConfigError("methods must be a non-empty list of {name, ...} entries.")
     methods = []
     for i, entry in enumerate(raw):
-        name = _require(entry, "name", f"methods[{i}]")
+        where = f"methods[{i}]"
+        if not isinstance(entry, Mapping):
+            raise ConfigError(f"{where} must be a YAML mapping; got {entry!r}.")
+        name = _require(entry, "name", where)
+        params = entry.get("params", {})
+        if params is None:
+            params = {}
+        if not isinstance(params, dict):
+            raise ConfigError(f"{where}.params must be a YAML mapping; got {params!r}.")
         methods.append(
-            MethodConfig(name=name, requires_logprobs=bool(entry.get("requires_logprobs", False)))
+            MethodConfig(
+                name=name,
+                requires_logprobs=bool(entry.get("requires_logprobs", False)),
+                params=dict(params),
+            )
         )
     return methods
 
