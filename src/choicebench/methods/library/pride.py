@@ -1,4 +1,4 @@
-# src/choicebench/methods/pride.py
+# src/choicebench/methods/library/pride.py
 
 """
 Method: PriDe (Permutation Debiasing)
@@ -116,14 +116,9 @@ class PriDeRunner(ExperimentRunner):
             kw["perturbation_name"] = perturbation_name
         super().__init__(**kw)
 
-        # REVIEW NEEDED: the legacy runners/pride.py hard-checked
-        # `client.provider != "together"` because Together was the only
-        # client wired for logprobs. The backend-based equivalent is checking
-        # supports_logprobs rather than a provider string, so this works with
-        # any future backend that implements score_options(), not just
-        # HuggingFaceBackend by name. I have not run this end-to-end against
-        # a real HuggingFaceBackend (no inference was run this session), so
-        # flagging the check itself for review.
+        # PriDe needs per-letter logprobs, so it requires a backend that
+        # implements score_options(). We gate on the capability flag rather
+        # than a provider name, so any logprob-capable backend works.
         if not backend.supports_logprobs:
             raise ValueError(
                 f"PriDe requires a backend with score_options() support; "
@@ -149,12 +144,10 @@ class PriDeRunner(ExperimentRunner):
         )
 
     def run_many(self, question_rows: Sequence[Any]) -> list[dict]:
-        # RESOLVED (Session 3 decision #2): this was async with
-        # asyncio.gather() over run_one() coroutines, but
-        # HuggingFaceBackend.generate()/score_options() are plain synchronous
-        # calls (local forward passes, nothing to await) — the gather never
-        # provided real concurrency, only complexity. Now fully synchronous,
-        # matching ExperimentRunner.run_many in runners/base.py.
+        # Fully synchronous, matching ExperimentRunner.run_many: backend
+        # generate()/score_options() calls are blocking (local forward passes
+        # or already-blocking API calls), so there is no concurrency to gain
+        # from asyncio here. Calibration is fit once, before the eval loop.
         self._ensure_calibration()
         return [self.run_one(row, i) for i, row in enumerate(question_rows)]
 
@@ -229,26 +222,21 @@ class PriDeRunner(ExperimentRunner):
         path.write_text(json.dumps(sidecar_payload, indent=2))
 
     def _cyclic_rollout_prob_matrix(self, question_row: Any) -> np.ndarray:
-        """Run all 4 cyclic permutations through score_options() → shape-(4,4) matrix.
+        """Run all cyclic permutations through score_options() → shape-(n,n) matrix.
 
-        Per-question math is option-count-agnostic: ``letters`` below is this
+        Per-question math is option-count-agnostic: ``letters`` is this
         question's real option keys (whatever length), and
-        logprob_map_to_label_distribution(..., letters=letters) now handles
-        any length >= 2 (Session 3: pride_debias.py was generalized beyond
-        the hardcoded 4-option assumption).
+        logprob_map_to_label_distribution(..., letters=letters) handles any
+        length >= 2.
 
-        REVIEW NEEDED (narrower than before): _ensure_calibration still
-        averages this method's per-question prior vectors with
-        average_prior_probability_vectors(prior_vectors), which requires
-        every vector in the list to be the same length — i.e. it still
-        assumes all calibration questions share one option count. Mixing,
-        say, 3-option and 4-option calibration questions in the same run
-        would need _ensure_calibration switched to the new
-        average_prior_probability_dicts (masked per-letter averaging) and
-        this method updated to return per-question (vector, real_letters)
-        pairs instead of a bare array. Not done here — Task 3 was scoped to
-        pride_debias.py itself, not to wiring every caller's calibration
-        loop through the new capability.
+        Known limitation: _ensure_calibration averages per-question prior
+        vectors with average_prior_probability_vectors(), which requires every
+        vector to be the same length — i.e. it assumes all calibration
+        questions share one option count. Mixing, say, 3-option and 4-option
+        calibration questions in the same run would need _ensure_calibration
+        switched to average_prior_probability_dicts() (masked per-letter
+        averaging) and this method returning per-question (vector, letters)
+        pairs instead of a bare array.
         """
         canon = self._build_options(question_row)
         letters = list(canon.keys())
@@ -319,13 +307,9 @@ class PriDeRunner(ExperimentRunner):
             )
             score_adjusted = self._score(adj_parse, question_row["correct_option"])
 
-        # PORT NOTE: the legacy runners/pride.py also called backend.generate()
-        # to get an unmitigated "raw" text answer for comparison, and stored
-        # it as is_correct_raw / score_status_raw. This port only calls
-        # score_options() (no generate() call at all), so there is no raw
-        # text answer to compare against — those two columns are dropped.
-        # Confirmed no script or test reads them (grepped scripts/, src/,
-        # tests/ — only runners/pride.py itself wrote them).
+        # PriDe scores purely via score_options() — it never calls
+        # backend.generate(), so there is no raw model text to record. The
+        # debiased letter and its score are attached below as pride_* columns.
         row = self._build_result_row(
             question_row=question_row,
             prompt=prompt,

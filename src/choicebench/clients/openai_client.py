@@ -39,8 +39,9 @@ class OpenAIClient(BaseClient):
             max_retries=max_retries,
             min_delay_seconds=min_delay_seconds,
         )
+        from choicebench.config.providers import OPENAI_API_KEY
         self.client = AsyncOpenAI(
-            api_key=api_key,
+            api_key=api_key or OPENAI_API_KEY,
             base_url=base_url,
             timeout=timeout,
             max_retries=0,

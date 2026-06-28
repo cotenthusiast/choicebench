@@ -1,14 +1,4 @@
 # src/choicebench/metrics/base.py
-#
-# REVIEW NEEDED: the originally-specified docstring for compute() described
-# columns correct_answer/predicted_answer/method/model/option_position. That
-# doesn't match this codebase's actual result-row schema (see
-# _build_result_row in runners/base.py / methods/*.py and
-# scripts/evaluate_run.py's load_run()/compute_accuracy()): the real columns
-# are correct_option, parsed_choice, method_name, model_name — and there is
-# no option_position column at all (per-permutation position data is not
-# persisted past majority voting). I adapted the docstring to the columns
-# that actually exist rather than document a contract no real data satisfies.
 
 from abc import ABC, abstractmethod
 

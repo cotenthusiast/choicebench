@@ -97,12 +97,12 @@ class TestCheckpointManagerSave:
         mgr = CheckpointManager(
             checkpoint_dir=tmp_path / "cp",
             run_id="run_abc",
-            condition="two_prompt",
+            condition="two_stage",
             model="gemini-2.5-flash",
             benchmark="arc_challenge",
         )
         mgr.save([], [], "2026-01-01T00:00:00Z")
-        expected = tmp_path / "cp" / "run_abc" / "two_prompt__gemini-2.5-flash__arc_challenge.json"
+        expected = tmp_path / "cp" / "run_abc" / "two_stage__gemini-2.5-flash__arc_challenge.json"
         assert expected.exists()
 
     def test_no_tmp_file_left_after_save(self, manager, tmp_path):

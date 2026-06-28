@@ -64,6 +64,7 @@ logger = logging.getLogger(__name__)
 def build_backend(
     model_config: ModelConfig,
     run_id: str,
+    run_seed: int,
     concurrency_limit: int = 10,
 ) -> APIBackend | HuggingFaceBackend | DummyBackend:
     """Construct the inference backend for a single model config."""
@@ -82,11 +83,13 @@ def build_backend(
             cache_dir,
             model_config.generation_kwargs.temperature,
             model_config.generation_kwargs.max_new_tokens,
-            model_config.run.seed,
+            run_seed,
             concurrency_limit,
         )
     elif backend_type == "huggingface":
-        return HuggingFaceBackend(model_config.model_name_or_path, model_config.device)
+        backend = HuggingFaceBackend(model_config.model_name_or_path, model_config.device)
+        backend.load()  # load tokenizer + weights before any generate()/score_options() call
+        return backend
     elif backend_type == "dummy":
         return DummyBackend()
     else:
@@ -307,7 +310,9 @@ def main() -> None:
                 "── Benchmark: %s  Model: %s (%s) ───────────────────────────────",
                 benchmark_cfg.name, model_config.model_name_or_path, model_config.backend,
             )
-            backend = build_backend(model_config, run_id, config.run.concurrency_limit)
+            backend = build_backend(
+                model_config, run_id, config.run.seed, config.run.concurrency_limit
+            )
             logger.info("Backend: %s", backend.__class__.__name__)
 
             for method in config.methods:

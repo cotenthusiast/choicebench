@@ -1,18 +1,13 @@
 # tests/io/test_readers.py
 
-import json
-
 import pandas as pd
 import pytest
 
 from choicebench.io.readers import (
     read_all_run_results,
-    read_group_splits,
     read_normalized_questions,
     read_raw_questions,
     read_run_results,
-    read_split_ids,
-    read_split_metadata,
 )
 from choicebench.io.writers import write_run_results
 
@@ -47,7 +42,7 @@ def sample_two_stage_results() -> list[dict]:
         {
             "run_id": "run_001",
             "question_id": "q_001",
-            "method_name": "two_prompt",
+            "method_name": "two_stage",
             "model_name": "gpt-5-mini",
             "parsed_choice": "C",
             "is_correct": True,
@@ -80,84 +75,6 @@ class TestReadRawAndNormalizedQuestions:
         )
         normalized_csv_path.write_text(data)
         pd.testing.assert_frame_equal(read_normalized_questions("normalized.csv", processed_dir=tmp_path), sample_normalized_dataframe)
-
-
-class TestReadSplitArtifacts:
-    """Tests for read_split_ids, read_split_metadata, and read_group_splits."""
-
-    def test_read_split_ids_returns_id_list(self, tmp_path):
-        split_ids = ["q_001", "q_014", "q_203", "q_417"]
-        group_dir = tmp_path / "benchmark"
-        group_dir.mkdir()
-
-        with open(group_dir / "robustness_ids.json", "w", encoding="utf-8") as f:
-            json.dump(split_ids, f)
-
-        actual_ids = read_split_ids("robustness", tmp_path, "benchmark")
-        assert actual_ids == split_ids
-
-    def test_read_split_metadata_returns_metadata_dict(self, tmp_path):
-        split_metadata = {
-            "split_name": "robustness",
-            "split_ids": ["q_001", "q_014", "q_203", "q_417"],
-            "subjects": ["anatomy", "economics"],
-            "per_subject": 2,
-            "seed": 42,
-            "strategy": "balanced_subject_sample",
-            "actual_size": 4,
-            "actual_subject_counts": {
-                "anatomy": 2,
-                "economics": 2,
-            },
-            "eligible_pool_size": 120,
-            "excluded_id_count": 10,
-        }
-        group_dir = tmp_path / "benchmark"
-        group_dir.mkdir()
-
-        with open(group_dir / "robustness_metadata.json", "w", encoding="utf-8") as f:
-            json.dump(split_metadata, f)
-
-        actual_ids = read_split_metadata("robustness", tmp_path, "benchmark")
-        assert actual_ids == split_metadata
-
-    def test_read_group_splits_returns_nested_payload_for_benchmark(self, tmp_path):
-        split_ids = ["q_001", "q_014", "q_203", "q_417"]
-        split_metadata = {
-            "split_name": "robustness",
-            "split_ids": split_ids,
-            "subjects": ["anatomy", "economics"],
-            "per_subject": 2,
-            "seed": 42,
-            "strategy": "balanced_subject_sample",
-            "actual_size": 4,
-            "actual_subject_counts": {
-                "anatomy": 2,
-                "economics": 2,
-            },
-            "eligible_pool_size": 120,
-            "excluded_id_count": 10,
-        }
-
-        group_dir = tmp_path / "benchmark"
-        group_dir.mkdir()
-
-        with open(group_dir / "robustness_ids.json", "w", encoding="utf-8") as f:
-            json.dump(split_ids, f)
-
-        with open(group_dir / "robustness_metadata.json", "w", encoding="utf-8") as f:
-            json.dump(split_metadata, f)
-
-        actual_data = read_group_splits("benchmark", tmp_path)
-
-        expected_data = {
-            "robustness": {
-                "ids": split_ids,
-                "metadata": split_metadata,
-            }
-        }
-
-        assert actual_data == expected_data
 
 
 class TestReadRunResults:
@@ -195,7 +112,7 @@ class TestReadRunResults:
             sample_two_stage_results,
             tmp_path,
             "run_001",
-            "two_prompt",
+            "two_stage",
             "gpt-5-mini",
         )
         df = read_run_results(path)
@@ -211,7 +128,7 @@ class TestReadAllRunResults:
             sample_results, tmp_path, "run_001", "baseline", "gpt-5-mini"
         )
         write_run_results(
-            sample_results, tmp_path, "run_001", "two_prompt", "gpt-5-mini"
+            sample_results, tmp_path, "run_001", "two_stage", "gpt-5-mini"
         )
         df = read_all_run_results(tmp_path)
         assert len(df) == 4
@@ -222,7 +139,7 @@ class TestReadAllRunResults:
             sample_results, tmp_path, "run_001", "baseline", "gpt-5-mini"
         )
         write_run_results(
-            sample_results, tmp_path, "run_001", "two_prompt", "gpt-5-mini"
+            sample_results, tmp_path, "run_001", "two_stage", "gpt-5-mini"
         )
         df = read_all_run_results(tmp_path, method_name="baseline")
         assert len(df) == 2

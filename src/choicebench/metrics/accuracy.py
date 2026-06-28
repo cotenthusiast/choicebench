@@ -8,8 +8,7 @@ from choicebench.metrics.base import BaseMetric
 class Accuracy(BaseMetric):
     """Fraction of rows where parsed_choice == correct_option.
 
-    Reports two sub-metrics, matching the two accuracy definitions already
-    used by scripts/evaluate_run.py's compute_accuracy():
+    Reports two sub-metrics:
       - accuracy: end-to-end — correct / total rows (an unparseable or
         failed row counts as incorrect, not excluded).
       - accuracy_conditional: correct / scored rows only (rows with no

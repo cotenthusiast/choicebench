@@ -38,7 +38,8 @@ class GeminiClient(BaseClient):
             max_retries=max_retries,
             min_delay_seconds=min_delay_seconds,
         )
-        self.client = genai.Client(api_key=api_key)
+        from choicebench.config.providers import GEMINI_API_KEY
+        self.client = genai.Client(api_key=api_key or GEMINI_API_KEY)
 
     async def _generate_provider_response(
         self,

@@ -1,6 +1,6 @@
 # src/choicebench/backends/base.py
-# Placeholder — to be completed by researcher.
-# This defines the abstract interface all backends must implement.
+#
+# Abstract interface that all inference backends must implement.
 
 from abc import ABC, abstractmethod
 from typing import Any

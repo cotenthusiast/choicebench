@@ -1,4 +1,4 @@
-# src/choicebench/methods/two_stage.py
+# src/choicebench/methods/library/two_stage.py
 
 """
 Method: Two-Stage Prompting (Free-Text then Match)

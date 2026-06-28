@@ -1,4 +1,4 @@
-# src/choicebench/methods/permutation.py
+# src/choicebench/methods/library/permutation.py
 
 """
 Method: Cyclic Permutation (Majority Vote)

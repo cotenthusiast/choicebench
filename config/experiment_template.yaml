@@ -1,48 +1,52 @@
 # config/experiment_template.yaml
 #
-# Template for a single (model, benchmark, methods, metrics) experiment.
+# Template for an experiment: one or more models, each run against one or
+# more benchmarks, with a set of methods and metrics.
 # Copy this file, fill in the fields below, and run:
 #   python scripts/run_experiment.py --config path/to/your_config.yaml
 #
 # Validated by src/choicebench/config/schema.py — load_config() raises a
 # ConfigError with a clear message if anything here is missing or
 # inconsistent (e.g. a logprob method paired with an API backend).
-#
-# NOTE: this schema describes ONE model running against ONE benchmark.
 
 experiment:
   # Free-form label for this experiment — used in output paths/logs only.
   name: my_experiment
 
 # ---------------------------------------------------------------------------
-# Model
+# Models
 # ---------------------------------------------------------------------------
-model:
-  # "huggingface" — local inference via HuggingFaceBackend. Supports any
-  #   method with requires_logprobs: true (e.g. pride).
-  # "api"         — API-backed inference via APIBackend (currently a stub —
-  #   see src/choicebench/backends/api_backend.py). generate() only; any
-  #   method with requires_logprobs: true will be rejected at config-load
-  #   time, not at runtime.
-  # "dummy"       — DummyBackend: fixed responses, no model/API calls at
-  #   all. For onboarding/smoke-testing the pipeline itself — see
-  #   config/toy_experiment.yaml. Also supports requires_logprobs methods
-  #   (fixed scores), so the full method set can be exercised without a GPU.
-  backend: huggingface
+# One entry per model. Every model is run against every benchmark below.
+models:
+  - # "huggingface" — local inference via HuggingFaceBackend. Supports any
+    #   method with requires_logprobs: true (e.g. pride).
+    # "api"         — API-backed inference via APIBackend + a provider client
+    #   (see CLIENT_REGISTRY). generate() only; any method with
+    #   requires_logprobs: true is rejected at config-load time, not at
+    #   runtime. Requires a `provider:` key.
+    # "dummy"       — DummyBackend: fixed responses, no model/API calls at
+    #   all. For onboarding/smoke-testing the pipeline itself — see
+    #   config/toy_experiment.yaml. Also supports requires_logprobs methods
+    #   (fixed scores), so the full method set can be exercised without a GPU.
+    backend: huggingface
 
-  # HuggingFace hub ID (e.g. "Qwen/Qwen2.5-7B-Instruct") or local path when
-  # backend: huggingface. Provider model name (e.g. "gpt-4.1-mini") when
-  # backend: api.
-  model_name_or_path: Qwen/Qwen2.5-7B-Instruct
+    # HuggingFace hub ID (e.g. "Qwen/Qwen2.5-7B-Instruct") or local path when
+    # backend: huggingface. Provider model name (e.g. "gpt-4.1-mini") when
+    # backend: api.
+    model_name_or_path: Qwen/Qwen2.5-7B-Instruct
 
-  # "cuda" | "cpu" | "auto" (auto = device_map=auto, for multi-GPU). Ignored
-  # when backend: api.
-  device: cuda
+    # Required when backend: api — must match a key in CLIENT_REGISTRY
+    # ("openai" | "gemini" | "groq" | "together"). Omit for other backends.
+    # provider: openai
 
-  generation_kwargs:
-    max_new_tokens: 512
-    temperature: 0.0
-    do_sample: false
+    # "cuda" | "cpu" | "auto" (auto = device_map=auto, for multi-GPU). Ignored
+    # when backend: api.
+    device: cuda
+
+    generation_kwargs:
+      max_new_tokens: 512
+      temperature: 0.0
+      do_sample: false
 
 # ---------------------------------------------------------------------------
 # Benchmarks

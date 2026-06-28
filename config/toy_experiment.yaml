@@ -5,15 +5,11 @@
 # (data/processed/toy_normalized.csv) so the pipeline can be exercised
 # without a GPU or any API key.
 #
-# Real ARC-Challenge data is NOT present in this repo (data/processed/ and
-# data/splits/ only contain a .gitkeep — see scripts/prepare_data.py for how
-# real benchmark data gets generated). benchmark.name is "toy" here,
-# pointing at the bundled toy CSV, so this config can run without first
-# downloading and preprocessing a real dataset.
-#
-# Verified: this file loads and validates via
-# choicebench.config.schema.load_config() — see Session 3 Task 4 report for
-# what end-to-end execution wiring is and isn't done yet.
+# Real benchmark data (MMLU, ARC-Challenge) is NOT bundled in this repo —
+# data/processed/ ships only the toy CSV plus a .gitkeep. See
+# scripts/prepare_data.py for how real benchmark data is downloaded and
+# normalized. benchmark.name is "toy" here, pointing at the bundled toy CSV,
+# so this config runs end-to-end without downloading anything first.
 
 experiment:
   name: toy_experiment

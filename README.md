@@ -2,7 +2,7 @@
 
 A reusable framework for running multiple-choice question (MCQ) evaluation experiments on LLMs.
 
-![Python](https://img.shields.io/badge/python-3.10%2B-blue) ![Tests](https://img.shields.io/badge/tests-267%20passed-brightgreen)
+![Python](https://img.shields.io/badge/python-3.10%2B-blue) ![Tests](https://img.shields.io/badge/tests-294%20passed-brightgreen)
 
 MCQ evaluation is a well-studied LLM benchmark task, but the scaffolding is always the same: load a benchmark, call a model repeatedly, parse its response, score against the gold answer, save results, and compute metrics. This framework handles all of that so you can focus on the experimental condition — what varies between your runs. In five minutes you can run the toy experiment end-to-end. In an afternoon you can add a new debiasing method or metric and run it against MMLU.
 
@@ -29,10 +29,12 @@ TOGETHER_API_KEY=...
 ### Run the toy experiment (no GPU, no API key needed)
 
 ```bash
-python scripts/run_experiment.py --config config/toy_experiment.yaml --yes
+python scripts/run_experiment.py --config config/toy_experiment.yaml --run-id toy_experiment --yes
 ```
 
 This runs the built-in `DummyBackend` (fixed responses, no model) against a 10-question synthetic dataset. It completes in seconds and exercises the full pipeline: benchmark loading → method execution → checkpointing → result CSV writing.
+
+Without `--run-id`, the run is written to a timestamped directory (e.g. `runs/20260628_113755/`) instead; pass `--run-id toy_experiment` so the evaluate step below can find it by name.
 
 ### Evaluate results
 
@@ -46,13 +48,13 @@ Outputs a metrics table to stdout and writes a report to `reports/`.
 
 ```
 runs/toy_experiment/
-  config.yaml                            # copy of the config used
-  toy_experiment__direct_mcq__dummy_1.csv    # one CSV per (method, model)
-  toy_experiment__direct_mcq__dummy_2.csv
-  checkpoints/                           # auto-cleaned on completion
+  config.yaml                                      # copy of the config used
+  toy_experiment_direct_mcq_dummy_1_toy.csv        # one CSV per (run, method, model, benchmark)
+  toy_experiment_direct_mcq_dummy_2_toy.csv
+  checkpoints/                                     # auto-cleaned on completion
 ```
 
-Each result CSV has one row per question with columns for the prompt, raw model output, parsed choice, gold answer, and whether the answer was correct.
+The CSV filename encodes `<run_id>_<method>_<model>_<benchmark>`. Each result CSV has one row per question with columns for the prompt, raw model output, parsed choice, gold answer, and whether the answer was correct.
 
 ---
 
@@ -62,9 +64,9 @@ A complete annotated example:
 
 ```yaml
 experiment:
-  name: my_experiment           # free-form label; used in log output and run ID
+  name: my_experiment           # free-form label; used in log output and paths
 
-models:
+models:                         # one or more; every model runs every benchmark
   - backend: huggingface        # "huggingface" | "api" | "dummy"
     model_name_or_path: Qwen/Qwen2.5-7B-Instruct  # HF hub ID or local path
     device: cuda                # "cuda" | "cpu" | "auto" (multi-GPU)
@@ -72,27 +74,29 @@ models:
       max_new_tokens: 512
       temperature: 0.0
       do_sample: false
-    run:
-      seed: 42
 
   - backend: api                # API-backed model; no GPU required
-    provider: openai            # must match a key in CLIENT_REGISTRY
+    provider: openai            # required for api; key in CLIENT_REGISTRY
     model_name_or_path: gpt-4.1-mini
     generation_kwargs:
       max_new_tokens: 512
       temperature: 0.0
 
-benchmark:
-  name: mmlu                    # "mmlu" | "arc_challenge" | "toy"
-  split: test                   # split name (benchmark-specific)
-  n_samples: 100                # null = full split; integer = random subsample
-  subject_filter: null          # null | list of MMLU subject strings
+benchmarks:                     # a non-empty list (one entry per benchmark)
+  - name: mmlu                  # "mmlu" | "arc_challenge" | "toy" | "huggingface"
+    split: test                 # split name (benchmark-specific)
+    n_samples: 100              # null = full split; positive int = random subsample
+    subject_filter: null        # null | list of MMLU subject strings
 
 methods:
   - name: direct_mcq            # built-in; or "module.path:ClassName" for external
   - name: cyclic_permutation
-  - name: pride
-    requires_logprobs: true     # schema-validated; rejects non-logprob backends
+  - name: two_stage
+  # A logprob method like pride can only be listed if EVERY model above is
+  # logprob-capable (huggingface/dummy). With the api model present, including
+  # it would fail config validation — so it's commented out here:
+  # - name: pride
+  #   requires_logprobs: true   # schema-validated; rejects non-logprob backends
 
 metrics:
   - accuracy
@@ -100,11 +104,12 @@ metrics:
   # - my_package.metrics.my_metric:MyMetricMetric  # external metric
 
 run:
-  seed: 42
+  seed: 42                      # global seed (subsampling, generation, calibration)
   resume: true                  # resume from checkpoint if one exists
   dry_run: false                # print plan and exit without running
-  checkpoint_every_n: 50       # save progress to disk every N questions
-  prompt_version: "v1"         # subdirectory under prompts/
+  checkpoint_every_n: 50        # save progress to disk every N questions
+  prompt_version: "v1"          # subdirectory under prompts/
+  concurrency_limit: 10         # max concurrent in-flight API requests (api backend)
 ```
 
 ---

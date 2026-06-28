@@ -63,7 +63,7 @@ python scripts/run_experiment.py --config config/toy_experiment.yaml --yes
 - All public functions and classes must have type hints on all parameters and return values
 - No hardcoded file paths, model names, or magic numbers in `src/` — put them in `config/` or pass them as arguments
 - No print statements in library code — use `logging.getLogger(__name__)`
-- Tests for new methods/metrics go in `tests/runners/` and `tests/metrics/` respectively
+- Tests for new methods go in `tests/runners/`; tests for new metrics go in `tests/metrics/` (create the directory if it does not exist yet)
 
 ## Adding a new benchmark (4 steps)
 
@@ -84,11 +84,11 @@ python scripts/run_experiment.py --config config/toy_experiment.yaml --yes
 
 ## Submitting a PR
 
-1. Fork the repo and create a feature branch from `choicebench`
+1. Fork the repo and create a feature branch from the default branch
 2. Run `pytest tests/` — all tests must pass
 3. Run the toy experiment end-to-end to verify the pipeline is intact:
    ```bash
-   python scripts/run_experiment.py --config config/toy_experiment.yaml --yes
+   python scripts/run_experiment.py --config config/toy_experiment.yaml --run-id toy_experiment --yes
    ```
-4. Open a PR against `choicebench` with a description of what changed and why
+4. Open a PR against the default branch with a description of what changed and why
 5. For new methods or metrics, include a brief description of the algorithm and a reference if applicable

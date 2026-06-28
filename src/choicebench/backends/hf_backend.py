@@ -1,6 +1,4 @@
 # src/choicebench/backends/hf_backend.py
-# Ported from ../model-generalization/src/modelgen/backends/hf_causal_lm.py
-# (HFCausalLMBackend) — read-only reference; that repo was not modified.
 
 from __future__ import annotations
 

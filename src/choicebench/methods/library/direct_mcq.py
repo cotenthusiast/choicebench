@@ -1,4 +1,4 @@
-# src/choicebench/methods/direct_mcq.py
+# src/choicebench/methods/library/direct_mcq.py
 
 """
 Method: Direct MCQ (Baseline)

@@ -16,7 +16,7 @@ _PROMPTS_DIR = REPO_ROOT / "prompts"
 def _make_runner(backend):
     return TwoStageRunner(
         backend=backend,
-        method_name="two_prompt",
+        method_name="two_stage",
         split_name="robustness",
         prompt_version="v1",
         prompts_dir=_PROMPTS_DIR,
@@ -93,7 +93,7 @@ class TestTwoStageRunnerRunOne:
         result = _make_runner(backend).run_one(runner_question_row, sample_index=0)
 
         assert result["run_id"] == "test_run_001"
-        assert result["method_name"] == "two_prompt"
+        assert result["method_name"] == "two_stage"
         assert result["split_name"] == "robustness"
 
     def test_unparseable_matching_response(self, runner_question_row):

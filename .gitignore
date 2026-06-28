@@ -18,15 +18,12 @@ __pycache__/
 .cursor/
 .claude/
 
-# Data outputs
+# Data outputs (the bundled toy CSV under data/processed/ is committed)
 data/raw/*
 !data/raw/.gitkeep
 data/processed/*
 !data/processed/.gitkeep
-data/splits/*
-!data/splits/.gitkeep
-data/reviews/*
-!data/reviews/.gitkeep
+!data/processed/toy_normalized.csv
 
 # API response cache
 .cache/

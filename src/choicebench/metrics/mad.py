@@ -1,9 +1,4 @@
 # src/choicebench/metrics/mad.py
-# Ported from scripts/evaluate_run.py's compute_positional_bias() and
-# _bootstrap_ci_mean_abs_deviation() — same algorithm, repackaged as a
-# BaseMetric. See base.py's REVIEW NEEDED note: this operates on the actual
-# correct_option/parsed_choice columns, not an option_position column (which
-# doesn't exist in this codebase's result rows).
 
 import numpy as np
 import pandas as pd
@@ -60,9 +55,9 @@ class MAD(BaseMetric):
     def _bootstrap_std(group: pd.DataFrame) -> float:
         """Bootstrap standard deviation of MAD, resampling questions (rows).
 
-        Vectorized over all resamples — see evaluate_run.py's
-        _bootstrap_ci_mean_abs_deviation for the same approach reporting CI
-        bounds instead of std.
+        Vectorized over all resamples: each of _N_BOOTSTRAP resamples draws n
+        rows with replacement, recomputes the per-letter deviations, and the
+        std across resamples is returned as the MAD uncertainty estimate.
         """
         n = len(group)
         rng = np.random.default_rng(_BOOTSTRAP_SEED)

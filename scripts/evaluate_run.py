@@ -11,6 +11,8 @@ import argparse
 import importlib
 import json
 import logging
+
+import pandas as pd
 import yaml
 
 from choicebench.config.paths import REPORTS_DIR, RUNS_DIR

@@ -25,8 +25,9 @@
 #     parsed_choice   — model's parsed answer letter, or None
 #     method_name     — name of the evaluation method
 #     model_name      — name of the model that produced these results
-#     is_correct      — True/False/None (None on backend failure)
-#     score_status    — "correct"/"incorrect"/"unparseable"/"backend_failure"
+#     is_correct      — True/False/None (None when unscored, e.g. parse/backend failure)
+#     score_status    — "score_correct" / "score_incorrect" / "score_unscorable"
+#                       (constants in scoring/types.py)
 #     subject         — MMLU subject string (or equivalent)
 #     provider        — provider name string
 #

@@ -1,12 +1,12 @@
-# src/choicebench/methods/pride_math.py
+# src/choicebench/methods/library/pride_math.py
 
 """PriDe (Zheng et al., ICLR 2024) — probabilities from token logprobs.
 
 Implements cyclic permutation pooling (their Eq.~(1)), per-sample prior
 estimation via Eq.~(7), averaging into a global prior, and Eq.~(8) debiasing
-for held-out samples. Open-weight path: first-completion-token logprobs for
-letters A/B/C/D (Together ``request_logprobs``), mapped to normalized label
-distribution per §2.2 of the paper.
+for held-out samples. Per-letter logprobs come from a logprob-capable backend's
+``score_options(prompt, letters)`` (e.g. HuggingFaceBackend), mapped to a
+normalized label distribution per §2.2 of the paper.
 
 References:
     Chujie Zheng et al., "Large Language Models Are Not Robust Multiple Choice
@@ -24,45 +24,6 @@ import numpy as np
 from choicebench.constants import MCQ_OPTIONS
 
 OPTION_LETTERS: tuple[str, ...] = tuple(MCQ_OPTIONS)
-
-
-def _normalize_option_letter(token: str | None) -> str | None:
-    if token is None:
-        return None
-    stripped = token.strip().upper()
-    return stripped if stripped in set(OPTION_LETTERS) else None
-
-
-def merge_option_logprobs(logprobs: list[Any] | None) -> dict[str, float]:
-    """Together-style first-token logprobs merged to max logprob per A–D."""
-    if not logprobs:
-        return {}
-    first = logprobs[0]
-    if not isinstance(first, Mapping):
-        return {}
-
-    tuples: list[tuple[str | None, Any]] = [
-        (first.get("token"), first.get("logprob")),
-    ]
-    tops = first.get("top_logprobs") or []
-    if isinstance(tops, list):
-        for t in tops:
-            if isinstance(t, Mapping):
-                tuples.append((t.get("token"), t.get("logprob")))
-
-    best: dict[str, float] = {}
-    for tok, lp in tuples:
-        letter = _normalize_option_letter(tok if isinstance(tok, str) else None)
-        if letter is None or lp is None:
-            continue
-        try:
-            lp_f = float(lp)
-        except (TypeError, ValueError):
-            continue
-        prev = best.get(letter)
-        if prev is None or lp_f > prev:
-            best[letter] = lp_f
-    return best
 
 
 _LOGPROB_FLOOR = -30.0
@@ -293,22 +254,6 @@ def calibration_state_from_sidecar(blob: Mapping[str, Any]) -> CalibrationState:
         estimation_question_ids=ids_tuple,
         version=str(blob.get("version", "v2-pride-iclr2024")),
     )
-
-
-def calibration_state_to_sidecar_payload(
-        state: CalibrationState,
-        *,
-        calibration_seed: int,
-        n_options: int = 4,
-) -> dict[str, Any]:
-    return {
-        "version": state.version,
-        "calibration_seed": calibration_seed,
-        "n_options": n_options,
-        "estimation_question_ids": sorted(state.estimation_question_ids),
-        "peprior_probs": {L: float(state.peprior_probs.get(L, 0.0)) for L in OPTION_LETTERS},
-        "epsilon": state.epsilon,
-    }
 
 
 def apply_debiased_choice_from_defaults(
