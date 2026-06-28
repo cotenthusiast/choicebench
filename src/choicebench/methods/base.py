@@ -43,6 +43,7 @@ class ExperimentRunner(ABC):
             max_tokens: int = MAX_TOKENS,
             seed: int | None = SEED,
             perturbation_name: str | None = None,
+            model_label: str | None = None,
     ) -> None:
         self.backend = backend
         self.method_name = method_name
@@ -53,6 +54,7 @@ class ExperimentRunner(ABC):
         self.max_tokens = max_tokens
         self.seed = seed
         self.perturbation_name = perturbation_name
+        self.model_label = model_label
         self._prompts = load_prompt_templates(prompt_version, prompts_dir)
 
     @abstractmethod
@@ -150,7 +152,7 @@ class ExperimentRunner(ABC):
             "sample_index": sample_index,
             # --- model config ---
             "provider": self.backend.provider,
-            "model_name": self.backend.model_name,
+            "model_name": self.model_label or self.backend.model_name,
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
             "seed": self.seed,

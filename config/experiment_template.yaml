@@ -121,3 +121,6 @@ run:
 
   # Prompt template version to use (must match a subdirectory in prompts/).
   prompt_version: "v1"
+
+  # Max concurrent in-flight API requests (API backend only).
+  concurrency_limit: 10

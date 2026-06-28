@@ -52,3 +52,4 @@ run:
   dry_run: false
   checkpoint_every_n: 50
   prompt_version: "v1"
+  concurrency_limit: 10

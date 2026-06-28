@@ -77,6 +77,7 @@ class RunConfig:
     dry_run: bool = False
     checkpoint_every_n: int = 50
     prompt_version: str = "v1"
+    concurrency_limit: int = 10
 
 
 @dataclass
@@ -222,6 +223,7 @@ def _build_run(raw: dict | None) -> RunConfig:
         dry_run=bool(raw.get("dry_run", False)),
         checkpoint_every_n=int(raw.get("checkpoint_every_n", 50)),
         prompt_version=str(raw.get("prompt_version", "v1")),
+        concurrency_limit=int(raw.get("concurrency_limit", 10)),
     )
 
 
