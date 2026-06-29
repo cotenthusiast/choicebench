@@ -5,6 +5,8 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "choicebench"
 version = "0.1.0"
+description = "A lightweight workbench for MCQ evaluation-method experiments"
+license = {text = "MIT"}
 requires-python = ">=3.10"
 dependencies = [
     "pandas",
@@ -28,6 +30,10 @@ dev = [
     "pytest-asyncio",
     "httpx",
 ]
+
+[project.urls]
+Homepage = "https://github.com/cotenthusiast/choicebench"
+Repository = "https://github.com/cotenthusiast/choicebench"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

@@ -3,7 +3,7 @@
 ## Dev environment setup
 
 ```bash
-git clone <repo-url> && cd choicebench
+git clone https://github.com/cotenthusiast/choicebench && cd choicebench
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"          # installs the package + test dependencies
 cp .env.example .env             # then add your API keys

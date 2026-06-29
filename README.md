@@ -13,7 +13,7 @@ MCQ evaluation is a well-studied LLM benchmark task, but the scaffolding is alwa
 ### Installation
 
 ```bash
-git clone <repo-url> && cd choicebench
+git clone https://github.com/cotenthusiast/choicebench && cd choicebench
 python -m venv .venv && source .venv/bin/activate
 pip install -e .
 ```
@@ -216,7 +216,7 @@ src/choicebench/
 | `direct_mcq` | Single-pass: prompt → parse → score | 1 |
 | `cyclic_permutation` | Runs one cyclic permutation per available option, takes majority vote | N options, normally 4 |
 | `two_stage` | Stage 1: free-form answer; Stage 2: map to option letter | 2, or 3 if fallback is enabled |
-| `pride` | PriDe Eq. 8 logprob debiasing for four-option A-D rows. YAML-driven runs use a uniform prior in v0.1 unless calibration rows are supplied by custom construction/manual usage. | 1 score_options call per eval row; +4K calibration calls per run if K calibration rows are supplied |
+| `pride` | PriDe Eq. 8 logprob debiasing. Note: YAML-driven runs use a uniform prior in v0.1 unless a preflight calibration block is configured. Without preflight, this is logprob argmax only — not calibration-fitted debiasing from Zheng et al., ICLR 2024. | 1 score_options call per eval row; +4K calibration calls per run if K calibration rows are supplied |
 
 ### Metrics
 
