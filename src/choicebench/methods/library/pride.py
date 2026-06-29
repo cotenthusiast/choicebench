@@ -97,7 +97,13 @@ class PriDeRunner(ExperimentRunner):
             calibration_benchmark: str = "",
             calibration_runs_dir: Path | None = None,
             calibration_questions: list[dict] | None = None,
+            preflight_questions: list[dict] | None = None,
     ) -> None:
+        # Precedence: calibration_questions > preflight_questions > uniform prior.
+        # calibration_questions is the explicit API; preflight_questions is the
+        # generic key the orchestrator passes when a preflight block is configured.
+        if calibration_questions is None and preflight_questions is not None:
+            calibration_questions = preflight_questions
         kw: dict[str, Any] = dict(
             backend=backend,
             method_name=method_name,
