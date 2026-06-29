@@ -18,6 +18,7 @@ Logprob support required: yes
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -78,6 +79,8 @@ class PriDeRunner(ExperimentRunner):
 
     Logprobs come from backend.score_options() — no provider/client logic.
     """
+
+    requires_score_options: bool = True
 
     def __init__(
             self,
@@ -366,3 +369,141 @@ class PriDeRunner(ExperimentRunner):
                 f"question {question_row.get('question_id', '<unknown>')!r} "
                 f"has valid options {list(options)}."
             )
+
+    async def run_many_async(self, question_rows: Sequence[Any]) -> list[dict]:
+        """Async inference path for PriDe.
+
+        Pattern for logprob-dependent methods:
+        1. Run any preflight/calibration synchronously before the async loop.
+           Concurrent calibration is a v0.2 item.
+        2. Check self.backend.supports_score_options() and fall back to
+           super().run_many_async() for backends that don't support logprobs.
+        3. Use score_options_async() directly on self.backend._raw_client
+           for the main inference loop.
+        4. Keep _score_question_async() signature identical to run_one()
+           so the output contract is preserved.
+        """
+        if not self.backend.supports_score_options():
+            return await super().run_many_async(question_rows)
+
+        self._ensure_calibration()
+
+        rows = question_rows.to_dict(orient="records")
+        results = await asyncio.gather(
+            *[self._score_question_async(row, i) for i, row in enumerate(rows)]
+        )
+        return list(results)
+
+    async def _score_question_async(
+        self,
+        question_row: Any,
+        sample_index: int,
+    ) -> dict:
+        self._ensure_calibration()
+
+        options = self._build_options(question_row)
+        self._require_four_options(question_row)
+        letters = list(options.keys())
+        prompt = self._build_prompt(question_row)
+
+        adjusted_letter: str | None = None
+        score_adjusted = None
+        lp_map: dict[str, float] = {}
+        scoring_error: str | None = None
+
+        try:
+            from choicebench.clients.vllm_client import VLLMClient
+            raw: VLLMClient = self.backend._raw_client
+            logprob_dict = await raw.score_options_async(prompt, letters)
+            scores = [logprob_dict.get(opt, -100.0) for opt in letters]
+            lp_map = dict(zip(letters, scores))
+        except Exception as exc:
+            scoring_error = str(exc)
+            logger.warning(
+                "PriDe: score_options_async failed for question %s — %s",
+                question_row["question_id"],
+                exc,
+            )
+
+        if not lp_map:
+            logger.warning(
+                "PriDe: empty logprobs for question %s — skipping debiasing.",
+                question_row["question_id"],
+            )
+        else:
+            adjusted_letter = apply_debiased_choice_from_defaults(
+                self._calibration_state,
+                lp_map,
+                letters=tuple(letters),
+                eps_prob=1e-12,
+            )
+            adj_parse = ParseResult(
+                final_choice=adjusted_letter,
+                status=PARSE_OK,
+                raw_text=None,
+                normalized_text=adjusted_letter,
+                reason="pride_eq8",
+            )
+            score_adjusted = self._score(adj_parse, question_row["correct_option"])
+
+        row = self._build_result_row(
+            question_row=question_row,
+            prompt=prompt,
+            sample_index=sample_index,
+            model_response=None,
+            parsed_result=None,
+            score_result=None,
+            error=scoring_error,
+        )
+        row["pride_inference_mode"] = "eq8_transfer"
+        row["pride_adjusted_choice"] = adjusted_letter
+        row["peprior_json"] = json.dumps(self._calibration_state.peprior_probs)
+        row["option_logprob_json"] = json.dumps(lp_map) if lp_map else None
+        if score_adjusted is not None:
+            row["score_status"] = score_adjusted.status
+            row["is_correct"] = score_adjusted.is_correct
+
+        return row
+
+    async def _cyclic_rollout_prob_matrix_async(
+        self,
+        question_row: Any,
+    ) -> np.ndarray:
+        canon = self._build_options(question_row)
+        letters = list(canon.keys())
+        permutations = PermutationRunner._generate_permutations(canon)
+        prompts = [
+            PermutationRunner._build_permuted_prompt(
+                question_row,
+                perm,
+                self._prompts["direct_mcq"],
+            )
+            for perm in permutations
+        ]
+
+        from choicebench.clients.vllm_client import VLLMClient
+        raw: VLLMClient = self.backend._raw_client
+
+        async def _score_one(p: str) -> np.ndarray:
+            try:
+                logprob_dict = await raw.score_options_async(p, letters)
+                lp_map = {opt: logprob_dict.get(opt, -100.0) for opt in letters}
+                return logprob_map_to_label_distribution(lp_map, letters=letters)
+            except Exception as exc:
+                logger.warning("PriDe calibration: score_options_async failed — %s", exc)
+                return np.ones(len(letters), dtype=np.float64) / len(letters)
+
+        rows = await asyncio.gather(*[_score_one(p) for p in prompts])
+
+        n_success = sum(
+            1 for r in rows
+            if not np.allclose(r, np.ones(len(letters)) / len(letters))
+        )
+        if n_success == 0:
+            qid = question_row.get("question_id", "<unknown>")
+            raise RuntimeError(
+                f"PriDe calibration: score_options_async() failed for all "
+                f"{len(prompts)} permutations of calibration question {qid!r}."
+            )
+
+        return np.stack(rows, axis=0).astype(np.float64)

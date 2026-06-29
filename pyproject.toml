@@ -31,6 +31,10 @@ dev = [
     "pytest-asyncio",
     "httpx",
 ]
+# vLLM support: vLLM is NOT a Python dependency of ChoiceBench. Run it as a
+# separate server (e.g. `vllm serve <model> --port 8000`) and point ChoiceBench
+# at it via provider: vllm / base_url in your experiment config. The openai SDK
+# (already a core dependency) handles all HTTP communication.
 
 [project.urls]
 Homepage = "https://github.com/cotenthusiast/choicebench"

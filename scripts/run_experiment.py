@@ -49,6 +49,14 @@ from choicebench.preflight import load_preflight
 from choicebench.registry import CLIENT_REGISTRY, METHOD_REGISTRY
 
 # ---------------------------------------------------------------------------
+# Errors
+# ---------------------------------------------------------------------------
+
+class ConfigurationError(Exception):
+    """Raised when the experiment configuration is incompatible before any run starts."""
+
+
+# ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
 
@@ -76,10 +84,13 @@ def build_backend(
         client_cls = CLIENT_REGISTRY.get(model_config.provider)
         if client_cls is None:
             raise ValueError(f"Unknown provider {model_config.provider!r}. Available: {sorted(CLIENT_REGISTRY)}")
-        client = client_cls(
-            model_name=model_config.model_name_or_path,
-            concurrency_limit=model_config.concurrency_limit,
-        )
+        client_kwargs: dict = {
+            "model_name": model_config.model_name_or_path,
+            "concurrency_limit": model_config.concurrency_limit,
+        }
+        if model_config.base_url is not None:
+            client_kwargs["base_url"] = model_config.base_url
+        client = client_cls(**client_kwargs)
         cache_dir = RUNS_DIR / run_id / "cache"
         return APIBackend(
             model_config.provider,
@@ -220,6 +231,51 @@ def instantiate_runner(
 
 
 # ---------------------------------------------------------------------------
+# Configuration validation
+# ---------------------------------------------------------------------------
+
+_LOGPROB_BACKEND_TYPES: frozenset[str] = frozenset({"huggingface"})
+_LOGPROB_API_PROVIDERS: frozenset[str] = frozenset({"vllm"})
+
+
+def _backend_supports_logprobs(model_cfg: ModelConfig) -> bool:
+    if model_cfg.backend in _LOGPROB_BACKEND_TYPES:
+        return True
+    if model_cfg.backend == "api" and model_cfg.provider in _LOGPROB_API_PROVIDERS:
+        return True
+    return False
+
+
+def validate_logprob_compatibility(config: ExperimentConfig) -> None:
+    """Fail fast if any (method, model) pair requires logprobs but the backend cannot provide them.
+
+    Checks runner class attribute requires_score_options against the configured
+    provider. Raises ConfigurationError before any backend is built or network
+    call is made.
+    """
+    for method_cfg in config.methods:
+        runner_cls = METHOD_REGISTRY.get(method_cfg.name)
+        if runner_cls is None and ":" in method_cfg.name:
+            module_path, class_name = method_cfg.name.rsplit(":", 1)
+            try:
+                module = importlib.import_module(module_path)
+                runner_cls = getattr(module, class_name)
+            except (ImportError, AttributeError):
+                runner_cls = None
+        if runner_cls is None or not getattr(runner_cls, "requires_score_options", False):
+            continue
+        for model_cfg in config.models:
+            if _backend_supports_logprobs(model_cfg):
+                continue
+            provider = model_cfg.provider or model_cfg.backend
+            raise ConfigurationError(
+                f"Method {method_cfg.name!r} requires logprob access (score_options) "
+                f"but provider {provider!r} does not support it. "
+                "Use a vLLM or HuggingFace backend for logprob-dependent methods."
+            )
+
+
+# ---------------------------------------------------------------------------
 # Per-method execution
 # ---------------------------------------------------------------------------
 
@@ -274,7 +330,17 @@ async def run_method(
         if use_async:
             batch_results = await runner.run_many_async(batch)
         else:
-            batch_results = runner.run_many(batch)
+            try:
+                batch_results = runner.run_many(batch)
+            except RuntimeError as exc:
+                if "running event loop" in str(exc) or "generate_batch" in str(exc):
+                    raise ConfigurationError(
+                        f"Method {method_name!r} called backend.generate() directly on "
+                        "an API backend. The API backend requires the async path "
+                        "(run_many_async). This is a framework bug — ensure the method "
+                        "is routed through run_many_async() for API backends."
+                    ) from exc
+                raise
 
         accumulated_results.extend(batch_results)
         completed_ids.extend(batch["question_id"].tolist())
@@ -446,6 +512,9 @@ def main() -> None:
         logger.info("Methods    : %s", [m.name for m in config.methods])
         logger.info("Dry run complete — exiting.")
         return
+
+    # --- Early validation: fail before building any backends ---
+    validate_logprob_compatibility(config)
 
     # --- Confirmation prompt ---
     if not args.yes:

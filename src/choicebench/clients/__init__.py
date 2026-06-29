@@ -7,6 +7,7 @@ from choicebench.clients.gemini_client import GeminiClient
 from choicebench.clients.groq_client import GroqClient
 from choicebench.clients.openai_client import OpenAIClient
 from choicebench.clients.together_client import TogetherAIClient
+from choicebench.clients.vllm_client import VLLMClient
 
 __all__ = [
     "AnthropicClient",
@@ -14,4 +15,5 @@ __all__ = [
     "GroqClient",
     "OpenAIClient",
     "TogetherAIClient",
+    "VLLMClient",
 ]

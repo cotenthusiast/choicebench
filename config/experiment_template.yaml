@@ -48,6 +48,21 @@ models:
   #     temperature: 0.0
   #   # Note: seed is not supported by the Anthropic API and is silently ignored.
 
+  # vLLM example — start the server first, then run ChoiceBench as usual:
+  #   vllm serve meta-llama/Llama-3.1-8B-Instruct --port 8000
+  # vLLM requires no additional Python packages; it runs as a separate server.
+  # Unlike other API backends, vLLM supports logprob methods (e.g. pride)
+  # because it exposes per-token log probabilities via its OpenAI-compatible API.
+  # - name: meta-llama/Llama-3.1-8B-Instruct  # must match the model loaded in your vLLM server
+  #   model_name_or_path: meta-llama/Llama-3.1-8B-Instruct
+  #   provider: vllm
+  #   backend: api
+  #   base_url: http://localhost:8000/v1        # your vLLM server address
+  #   concurrency_limit: 5                      # tune to your GPU capacity
+  #   generation_kwargs:
+  #     max_new_tokens: 512
+  #     temperature: 0.0
+
     # "cuda" | "cpu" | "auto" (auto = device_map=auto, for multi-GPU). Ignored
     # when backend: api.
     device: cuda

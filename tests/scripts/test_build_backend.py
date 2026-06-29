@@ -431,3 +431,112 @@ def test_load_benchmark_subject_filter_rejects_empty_result(monkeypatch):
             BenchmarkConfig(name="toy", subject_filter=["history"]),
             run_seed=123,
         )
+
+
+# ---------------------------------------------------------------------------
+# validate_logprob_compatibility tests
+# ---------------------------------------------------------------------------
+
+def _cfg(method_name: str, backend: str, provider: str | None = None) -> ExperimentConfig:
+    return ExperimentConfig(
+        name="unit",
+        models=[_model(backend, provider=provider)],
+        benchmarks=[BenchmarkConfig(name="toy")],
+        methods=[MethodConfig(name=method_name)],
+        metrics=["accuracy"],
+        run=RunConfig(seed=0, prompt_version="v1"),
+    )
+
+
+def test_validate_pride_openai_raises_configuration_error():
+    """pride + openai API backend → ConfigurationError before any run starts."""
+    run_exp = _load_run_experiment()
+    with pytest.raises(run_exp.ConfigurationError, match="requires logprob access"):
+        run_exp.validate_logprob_compatibility(_cfg("pride", "api", provider="openai"))
+
+
+def test_validate_pride_gemini_raises_configuration_error():
+    """pride + gemini API backend → ConfigurationError."""
+    run_exp = _load_run_experiment()
+    with pytest.raises(run_exp.ConfigurationError, match="provider 'gemini'"):
+        run_exp.validate_logprob_compatibility(_cfg("pride", "api", provider="gemini"))
+
+
+def test_validate_pride_dummy_raises_configuration_error():
+    """pride + dummy backend → ConfigurationError (dummy has no logprobs)."""
+    run_exp = _load_run_experiment()
+    with pytest.raises(run_exp.ConfigurationError, match="requires logprob access"):
+        run_exp.validate_logprob_compatibility(_cfg("pride", "dummy"))
+
+
+def test_validate_pride_vllm_passes():
+    """pride + vllm API backend → no error."""
+    run_exp = _load_run_experiment()
+    run_exp.validate_logprob_compatibility(_cfg("pride", "api", provider="vllm"))
+
+
+def test_validate_pride_huggingface_passes():
+    """pride + huggingface backend → no error."""
+    run_exp = _load_run_experiment()
+    run_exp.validate_logprob_compatibility(_cfg("pride", "huggingface"))
+
+
+def test_validate_direct_mcq_openai_passes():
+    """direct_mcq does not require logprobs → any backend is fine."""
+    run_exp = _load_run_experiment()
+    run_exp.validate_logprob_compatibility(_cfg("direct_mcq", "api", provider="openai"))
+
+
+def test_validate_direct_mcq_dummy_passes():
+    """direct_mcq + dummy backend → no error."""
+    run_exp = _load_run_experiment()
+    run_exp.validate_logprob_compatibility(_cfg("direct_mcq", "dummy"))
+
+
+def test_validate_error_message_names_provider():
+    """ConfigurationError message must include the exact provider string."""
+    run_exp = _load_run_experiment()
+    with pytest.raises(run_exp.ConfigurationError, match="provider 'anthropic'"):
+        run_exp.validate_logprob_compatibility(
+            _cfg("pride", "api", provider="anthropic")
+        )
+
+
+# ---------------------------------------------------------------------------
+# Safety-net catch: APIBackend.generate() called directly
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_run_method_catches_api_generate_direct_call(tmp_path, monkeypatch):
+    """run_method() must convert the APIBackend.generate() RuntimeError into
+    a ConfigurationError with a message about the async path."""
+    run_exp = _load_run_experiment()
+
+    class _DirectCallRunner:
+        """Simulates a runner that incorrectly calls backend.generate() directly."""
+        run_id = "rid"
+        backend = None  # makes use_async=False so the sync path is taken
+
+        def run_many(self, rows):
+            raise RuntimeError(
+                "APIBackend.generate() cannot be called inside a running event loop. "
+                "Use await backend.generate_batch([prompt]) from an async runner method."
+            )
+
+    checkpoint = _CheckpointDouble(None)
+    monkeypatch.setattr(
+        run_exp, "write_run_results",
+        lambda **kwargs: tmp_path / "out.csv",
+    )
+    questions = pd.DataFrame([{"question_id": "q1"}])
+
+    with pytest.raises(run_exp.ConfigurationError, match="async path"):
+        await run_exp.run_method(
+            method_name="direct_mcq",
+            runner=_DirectCallRunner(),
+            questions=questions,
+            checkpoint_mgr=checkpoint,
+            output_dir=tmp_path,
+            checkpoint_every_n=10,
+            resume=False,
+        )

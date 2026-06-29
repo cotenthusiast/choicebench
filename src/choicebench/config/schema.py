@@ -52,6 +52,7 @@ class ModelConfig:
     device: str = "cuda"
     generation_kwargs: GenerationKwargsConfig = field(default_factory=GenerationKwargsConfig)
     concurrency_limit: int = 10  # Max in-flight requests for this model (API backends only)
+    base_url: str | None = None  # vLLM server address; ignored for all other providers
 
 
 @dataclass
@@ -145,6 +146,7 @@ def _build_models(raw: dict) -> list[ModelConfig]:
                 device=device,
                 generation_kwargs=_build_generation_kwargs(entry.get("generation_kwargs")),
                 concurrency_limit=int(entry.get("concurrency_limit", 10)),
+                base_url=entry.get("base_url"),
             )
         )
     return models
@@ -263,17 +265,28 @@ def _build_run(raw: dict | None) -> RunConfig:
     )
 
 
+def _is_logprob_capable(model: ModelConfig) -> bool:
+    """Return True if this model config supports score_options()."""
+    if model.backend in _LOGPROB_CAPABLE_BACKENDS:
+        return True
+    # vLLM exposes per-token log probabilities via its OpenAI-compatible API.
+    if model.backend == "api" and model.provider == "vllm":
+        return True
+    return False
+
+
 def _validate_cross_field(config: ExperimentConfig) -> None:
     """Rules that span more than one section — can't be checked per-field."""
     for m in config.methods:
         for model in config.models:
-            if m.requires_logprobs and model.backend not in _LOGPROB_CAPABLE_BACKENDS:
+            if m.requires_logprobs and not _is_logprob_capable(model):
                 raise ConfigError(
                     f"Method {m.name!r} requires score_options() / logprobs, "
-                    f"but model.backend is {model.backend!r}. API backends are "
-                    f"closed/opaque by design (generate() only) — only "
-                    f"{sorted(_LOGPROB_CAPABLE_BACKENDS)} currently support "
-                    f"score_options(). Either drop this method or switch backends."
+                    f"but model.backend={model.backend!r} / provider={model.provider!r} "
+                    f"does not support it. Logprob-capable options: "
+                    f"{sorted(_LOGPROB_CAPABLE_BACKENDS)} backends, or "
+                    f"backend=api with provider=vllm. "
+                    f"Either drop this method or switch backends."
                 )
     seen_benchmark_keys: set[str] = set()
     for bench in config.benchmarks:

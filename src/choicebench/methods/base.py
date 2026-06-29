@@ -33,6 +33,8 @@ class ExperimentRunner(ABC):
     ``run_one`` and ``run_many``.
     """
 
+    requires_score_options: bool = False
+
     def __init__(
             self,
             backend: BaseBackend,
