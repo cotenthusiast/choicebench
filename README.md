@@ -73,6 +73,20 @@ python scripts/prepare_data.py --hf-path allenai/ai2_arc --hf-subset ARC-Challen
 
 ---
 
+## Supported Benchmarks
+
+| Benchmark | Name in config | Prepare command |
+|---|---|---|
+| MMLU | `mmlu` | `python scripts/prepare_data.py --hf-path cais/mmlu --hf-subset all` |
+| ARC-Challenge | `arc_challenge` | `python scripts/prepare_data.py --hf-path allenai/ai2_arc --hf-subset ARC-Challenge` |
+| MMLU-Pro | `mmlu_pro` | `python scripts/prepare_data.py --hf-path TIGER-Lab/MMLU-Pro` |
+| HellaSwag | `hellaswag` | `python scripts/prepare_data.py --hf-path Rowan/hellaswag --split validation` |
+| TruthfulQA | `truthful_qa` | `python scripts/prepare_data.py --hf-path truthful_qa --hf-subset multiple_choice --split validation` |
+
+Any HuggingFace MCQ dataset can also be loaded via `name: huggingface` with `hf_path` specified. See `config/experiment_template.yaml` for the full schema.
+
+---
+
 ## Config Reference
 
 A complete annotated example:

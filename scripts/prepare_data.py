@@ -14,7 +14,10 @@ import logging
 import pandas as pd
 
 from choicebench.benchmarks.arc import build_normalized_dataframe as normalize_arc
+from choicebench.benchmarks.hellaswag import build_normalized_dataframe as normalize_hellaswag
 from choicebench.benchmarks.mmlu import build_normalized_dataframe as normalize_mmlu
+from choicebench.benchmarks.mmlu_pro import build_normalized_dataframe as normalize_mmlu_pro
+from choicebench.benchmarks.truthful_qa import build_normalized_dataframe as normalize_truthful_qa
 from choicebench.config.paths import PROCESSED_DIR, ensure_dirs
 
 logging.basicConfig(
@@ -37,8 +40,10 @@ def download_from_huggingface(hf_path: str, hf_subset: str | None, split: str) -
     return dataset.to_pandas()
 
 
-def normalize_to_schema(df: pd.DataFrame, hf_path: str) -> pd.DataFrame:
-    """Dispatch to the right normalizer based on hf_path.
+def normalize_to_schema(
+    df: pd.DataFrame, hf_path: str, hf_subset: str | None = None
+) -> pd.DataFrame:
+    """Dispatch to the right normalizer based on hf_path (and hf_subset).
 
     HuggingFace delivers data in its native format; each normalizer branch
     converts it to the project's canonical schema before calling the shared
@@ -61,8 +66,20 @@ def normalize_to_schema(df: pd.DataFrame, hf_path: str) -> pd.DataFrame:
         # which the ARC normalizer consumes directly.
         return normalize_arc(df)
 
+    if hf_path == "TIGER-Lab/MMLU-Pro":
+        # options is already a Python list; no pre-processing needed.
+        return normalize_mmlu_pro(df)
+
+    if hf_path == "Rowan/hellaswag":
+        # endings is already a Python list; label is an int; no pre-processing needed.
+        return normalize_hellaswag(df)
+
+    if hf_path == "truthful_qa" and hf_subset == "multiple_choice":
+        # mc1_targets is a dict delivered directly by HuggingFace.
+        return normalize_truthful_qa(df)
+
     raise NotImplementedError(
-        f"No normalizer registered for dataset {hf_path!r}. "
+        f"No normalizer registered for dataset {hf_path!r} (subset={hf_subset!r}). "
         f"To add one: implement normalize_row() in "
         f"src/choicebench/benchmarks/<your_name>.py and add a branch in "
         f"normalize_to_schema() in scripts/prepare_data.py."
@@ -106,7 +123,7 @@ def main() -> None:
     df_raw = download_from_huggingface(args.hf_path, args.hf_subset, args.split)
     logger.info("Downloaded %d rows.", len(df_raw))
 
-    df_normalized = normalize_to_schema(df_raw, args.hf_path)
+    df_normalized = normalize_to_schema(df_raw, args.hf_path, args.hf_subset)
     logger.info("Normalized to %d rows.", len(df_normalized))
 
     df_normalized.to_csv(output_path, index=False)

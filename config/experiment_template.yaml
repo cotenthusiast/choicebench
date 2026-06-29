@@ -96,6 +96,30 @@ benchmarks:
   #   n_samples: null
   #   subject_filter: null
 
+  # MMLU-Pro (prepare first: python scripts/prepare_data.py
+  #   --hf-path TIGER-Lab/MMLU-Pro)
+  # Note: questions with correct answer outside first 4 options
+  # are skipped during preparation.
+  # - name: mmlu_pro
+  #   split: test
+  #   n_samples: null
+  #   subject_filter: null
+
+  # HellaSwag (prepare first: python scripts/prepare_data.py
+  #   --hf-path Rowan/hellaswag --split validation)
+  # Note: use split: validation — test split has no labels.
+  # - name: hellaswag
+  #   split: validation
+  #   n_samples: null
+
+  # TruthfulQA (prepare first: python scripts/prepare_data.py
+  #   --hf-path truthful_qa --hf-subset multiple_choice
+  #   --split validation)
+  # Note: uses mc1_targets (single correct answer format).
+  # - name: truthful_qa
+  #   split: validation
+  #   n_samples: null
+
 # HuggingFace benchmark example — run prepare_data.py first, then set name:
 # benchmarks:
 #   - name: huggingface

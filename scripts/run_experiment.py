@@ -23,18 +23,24 @@ from choicebench.backends.dummy_backend import DummyBackend
 from choicebench.backends.hf_backend import HuggingFaceBackend
 from choicebench.config.paths import (
     ARC_NORMALIZED_PATH,
+    HELLASWAG_NORMALIZED_PATH,
     MMLU_NORMALIZED_PATH,
+    MMLU_PRO_NORMALIZED_PATH,
     PROCESSED_DIR,
     PROMPTS_DIR,
     RUNS_DIR,
     TOY_BENCHMARK_PATH,
+    TRUTHFUL_QA_NORMALIZED_PATH,
     ensure_dirs,
 )
 from choicebench.config.schema import (
     BENCHMARK_ARC_CHALLENGE,
+    BENCHMARK_HELLASWAG,
     BENCHMARK_HUGGINGFACE,
     BENCHMARK_MMLU,
+    BENCHMARK_MMLU_PRO,
     BENCHMARK_TOY,
+    BENCHMARK_TRUTHFUL_QA,
     BenchmarkConfig,
     ExperimentConfig,
     MethodConfig,
@@ -127,6 +133,12 @@ def load_benchmark(benchmark: BenchmarkConfig, run_seed: int) -> pd.DataFrame:
         questions = read_benchmark(ARC_NORMALIZED_PATH)
     elif name == BENCHMARK_TOY:
         questions = read_benchmark(TOY_BENCHMARK_PATH)
+    elif name == BENCHMARK_MMLU_PRO:
+        questions = read_benchmark(MMLU_PRO_NORMALIZED_PATH)
+    elif name == BENCHMARK_HELLASWAG:
+        questions = read_benchmark(HELLASWAG_NORMALIZED_PATH)
+    elif name == BENCHMARK_TRUTHFUL_QA:
+        questions = read_benchmark(TRUTHFUL_QA_NORMALIZED_PATH)
     elif name == BENCHMARK_HUGGINGFACE:
         stem = benchmark_normalized_stem(benchmark)
         csv_path = PROCESSED_DIR / f"{stem}_normalized.csv"

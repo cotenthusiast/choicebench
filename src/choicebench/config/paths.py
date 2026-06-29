@@ -32,3 +32,12 @@ ARC_NORMALIZED_PATH = PROCESSED_DIR / "arc_challenge_normalized.csv"
 
 # TOY benchmark ---------------------------------------
 TOY_BENCHMARK_PATH = PROCESSED_DIR / "toy_normalized.csv"
+
+# MMLU-Pro --------------------------------------------
+MMLU_PRO_NORMALIZED_PATH = PROCESSED_DIR / "mmlu_pro_normalized.csv"
+
+# HellaSwag -------------------------------------------
+HELLASWAG_NORMALIZED_PATH = PROCESSED_DIR / "hellaswag_normalized.csv"
+
+# TruthfulQA ------------------------------------------
+TRUTHFUL_QA_NORMALIZED_PATH = PROCESSED_DIR / "truthful_qa_normalized.csv"
