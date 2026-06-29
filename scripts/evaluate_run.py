@@ -147,13 +147,15 @@ def main() -> None:
     metric_names = config.get("metrics", [])
     logger.info("Metrics to compute: %s", metric_names)
 
-    # --- Compute metrics per (method, model) ---
+    # --- Compute metrics per (method, model, benchmark) ---
     results: dict = {}
-    for (method, model), group in run_df.groupby(["method_name", "model_name"]):
-        results.setdefault(method, {}).setdefault(model, {})
+    for (method, model, bench), group in run_df.groupby(
+        ["method_name", "model_name", "benchmark_name"]
+    ):
+        results.setdefault(method, {}).setdefault(model, {}).setdefault(bench, {})
         for metric_name in metric_names:
             metric = _load_metric(metric_name)
-            results[method][model].update(metric.compute(group))
+            results[method][model][bench].update(metric.compute(group))
 
     # --- Write summary JSON ---
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -165,8 +167,9 @@ def main() -> None:
     # --- Print summary ---
     logger.info("── Eval complete ────────────────────────────────")
     for method, models in results.items():
-        for model, metrics in models.items():
-            logger.info("  [%s | %s]  %s", method, model, metrics)
+        for model, benchmarks in models.items():
+            for bench, metrics in benchmarks.items():
+                logger.info("  [%s | %s | %s]  %s", method, model, bench, metrics)
     logger.info("─────────────────────────────────────────────────")
 
 

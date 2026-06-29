@@ -4,6 +4,26 @@ from pathlib import Path
 
 import pandas as pd
 
+# Tried longest-first so arc_challenge is matched before a hypothetical
+# benchmark whose name is a suffix of it.
+_KNOWN_BENCHMARKS = sorted(
+    ["arc_challenge", "mmlu", "huggingface", "toy"],
+    key=len,
+    reverse=True,
+)
+
+
+def _infer_benchmark_from_stem(stem: str) -> str:
+    """Parse the benchmark name from a result CSV filename stem.
+
+    Filename format: {run_id}_{method_name}_{safe_model}_{benchmark}.
+    The benchmark is the suffix after the last _ that matches a known name.
+    """
+    for name in _KNOWN_BENCHMARKS:
+        if stem.endswith("_" + name):
+            return name
+    return "unknown"
+
 
 def read_benchmark(path: Path) -> pd.DataFrame:
     """Read a normalized benchmark CSV at a known full path.
@@ -61,7 +81,10 @@ def read_all_run_results(
         if model_name and model_name not in filename:
             continue
 
-        frames.append(pd.read_csv(csv_path))
+        df = pd.read_csv(csv_path)
+        if "benchmark_name" not in df.columns:
+            df["benchmark_name"] = _infer_benchmark_from_stem(csv_path.stem)
+        frames.append(df)
 
     if not frames:
         return pd.DataFrame()

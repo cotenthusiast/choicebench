@@ -38,5 +38,7 @@ def write_run_results(
     filename = "_".join(parts) + ".csv"
     output_path = output_dir / filename
 
-    pd.DataFrame(results).to_csv(output_path, index=False)
+    df = pd.DataFrame(results)
+    df["benchmark_name"] = benchmark
+    df.to_csv(output_path, index=False)
     return output_path
