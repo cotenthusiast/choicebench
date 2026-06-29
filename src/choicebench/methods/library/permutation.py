@@ -17,7 +17,7 @@ Logprob support required: no
 """
 
 import collections
-from typing import Any
+from typing import Any, Sequence
 
 from choicebench.parsing.types import ParseResult, PARSE_OK, PARSE_MISSING
 from choicebench.pipeline.prompt_builder import build_direct_mcq_prompt
@@ -101,6 +101,80 @@ class PermutationRunner(ExperimentRunner):
             parsed_result=voted_parse,
             score_result=score_result,
         )
+
+    async def run_many_async(self, question_rows: Sequence[Any]) -> list[dict]:
+        """Async batch execution for PermutationRunner.
+
+        Fans all permutation prompts for all questions out in one
+        generate_batch() call, then reassembles per-question results and
+        runs majority vote — identical logic to run_one() but fully batched.
+        """
+        rows = question_rows.to_dict(orient="records")
+        canonical_options_per_q = [self._build_options(row) for row in rows]
+        permutations_per_q = [
+            self._generate_permutations(opts) for opts in canonical_options_per_q
+        ]
+
+        # Flatten: build one prompt per (question, permutation) pair.
+        all_prompts: list[str] = []
+        # prompt_map[i] = (question_index, permutation_index)
+        prompt_map: list[tuple[int, int]] = []
+        for q_idx, (row, perms) in enumerate(zip(rows, permutations_per_q)):
+            for p_idx, perm in enumerate(perms):
+                all_prompts.append(
+                    self._build_permuted_prompt(row, perm, self._prompts["direct_mcq"])
+                )
+                prompt_map.append((q_idx, p_idx))
+
+        all_responses = await self.backend.generate_batch(all_prompts)
+
+        # Group responses back per question and run majority vote.
+        results = []
+        for q_idx, (row, perms) in enumerate(zip(rows, permutations_per_q)):
+            canonical_options = canonical_options_per_q[q_idx]
+            q_flat_indices = [i for i, (qi, _) in enumerate(prompt_map) if qi == q_idx]
+
+            canonical_choices: list[str | None] = []
+            for flat_i in q_flat_indices:
+                p_idx = prompt_map[flat_i][1]
+                response = all_responses[flat_i]
+                perm = perms[p_idx]
+                if response.is_success():
+                    parsed = self._parse(response.raw_text, perm)
+                    if parsed.final_choice is not None:
+                        canonical_choices.append(
+                            self._unpermute_choice(
+                                parsed.final_choice, perm, canonical_options
+                            )
+                        )
+                    else:
+                        canonical_choices.append(None)
+                else:
+                    canonical_choices.append(None)
+
+            voted_letter = self._majority_vote(canonical_choices)
+            voted_parse = ParseResult(
+                final_choice=voted_letter,
+                status=PARSE_OK if voted_letter else PARSE_MISSING,
+                raw_text=None,
+                normalized_text="",
+                reason="majority_vote",
+            )
+            score_result = None
+            if voted_letter:
+                score_result = self._score(voted_parse, row["correct_option"])
+
+            first_flat = q_flat_indices[0]
+            results.append(self._build_result_row(
+                question_row=row,
+                prompt=all_prompts[first_flat],
+                sample_index=q_idx,
+                model_response=all_responses[first_flat],
+                parsed_result=voted_parse,
+                score_result=score_result,
+            ))
+
+        return results
 
     @staticmethod
     def _generate_permutations(

@@ -16,7 +16,7 @@ Backend requirements: generate only (2 calls per question, or 3 with fallback)
 Logprob support required: no
 """
 
-from typing import Any
+from typing import Any, Sequence
 
 from choicebench.pipeline.prompt_builder import (
     build_direct_mcq_prompt,
@@ -134,3 +134,116 @@ class TwoStageRunner(ExperimentRunner):
         result["fallback_used"] = fallback_used
 
         return result
+
+    async def run_many_async(self, question_rows: Sequence[Any]) -> list[dict]:
+        """Async batch execution for TwoStageRunner.
+
+        Runs three batched phases:
+          Phase 1 — all free-text prompts in one generate_batch() call.
+          Phase 2 — option-matching prompts for questions where phase 1
+                    succeeded, in one generate_batch() call.
+          Phase 3 (optional) — fallback direct-MCQ prompts for questions
+                    where phase 2 was unparseable and fallback_on_parse_failure
+                    is enabled, in one generate_batch() call.
+        """
+        rows = question_rows.to_dict(orient="records")
+
+        # Phase 1: free-text answers for all questions.
+        s1_prompts = [
+            build_free_text_prompt(self._prompts["free_text"], row["question_text"])
+            for row in rows
+        ]
+        s1_responses = await self.backend.generate_batch(s1_prompts)
+
+        # Phase 2: option-matching for questions where phase 1 succeeded.
+        s2_prompt_by_idx: dict[int, str] = {}
+        for i, (row, s1_resp) in enumerate(zip(rows, s1_responses)):
+            if s1_resp.is_success():
+                s2_prompt_by_idx[i] = build_option_matching_prompt(
+                    template=self._prompts["option_matching"],
+                    question=row["question_text"],
+                    free_text=s1_resp.raw_text,
+                    options=self._build_options(row),
+                )
+
+        s2_indices = sorted(s2_prompt_by_idx)
+        s2_prompts = [s2_prompt_by_idx[i] for i in s2_indices]
+        s2_resp_list = await self.backend.generate_batch(s2_prompts) if s2_prompts else []
+        s2_resp_by_idx = dict(zip(s2_indices, s2_resp_list))
+
+        # Parse phase-2 responses; collect fallback candidates.
+        parsed_by_idx: dict[int, Any] = {}
+        scored_by_idx: dict[int, Any] = {}
+        fb_prompt_by_idx: dict[int, str] = {}
+
+        for i in s2_indices:
+            row = rows[i]
+            s2_resp = s2_resp_by_idx[i]
+            if s2_resp.is_success():
+                parsed, scored = self._parse_and_score(
+                    s2_resp.raw_text, row["correct_option"], self._build_options(row)
+                )
+                parsed_by_idx[i] = parsed
+                scored_by_idx[i] = scored
+                if (
+                    self._fallback_on_parse_failure
+                    and (parsed is None or parsed.final_choice is None)
+                ):
+                    fb_prompt_by_idx[i] = build_direct_mcq_prompt(
+                        template=self._prompts["direct_mcq"],
+                        question=row["question_text"],
+                        options=self._build_options(row),
+                    )
+            else:
+                parsed_by_idx[i] = None
+                scored_by_idx[i] = None
+
+        # Phase 3 (optional): fallback direct-MCQ.
+        fb_indices = sorted(fb_prompt_by_idx)
+        fb_prompts = [fb_prompt_by_idx[i] for i in fb_indices]
+        fb_resp_list = await self.backend.generate_batch(fb_prompts) if fb_prompts else []
+        fb_used_set: set[int] = set()
+
+        for i, fb_resp in zip(fb_indices, fb_resp_list):
+            if fb_resp.is_success():
+                row = rows[i]
+                parsed, scored = self._parse_and_score(
+                    fb_resp.raw_text, row["correct_option"], self._build_options(row)
+                )
+                parsed_by_idx[i] = parsed
+                scored_by_idx[i] = scored
+                fb_used_set.add(i)
+
+        # Assemble results in original question order.
+        results = []
+        for i, (row, s1_resp, s1_prompt) in enumerate(zip(rows, s1_responses, s1_prompts)):
+            if not s1_resp.is_success():
+                result = self._build_result_row(
+                    question_row=row,
+                    prompt=s1_prompt,
+                    sample_index=i,
+                    model_response=s1_resp,
+                    parsed_result=None,
+                    score_result=None,
+                )
+                result["free_text_prompt"] = s1_prompt
+                result["free_text_response"] = None
+                result["free_text_latency"] = s1_resp.latency_seconds
+                result["fallback_used"] = False
+            else:
+                s2_resp = s2_resp_by_idx[i]
+                result = self._build_result_row(
+                    question_row=row,
+                    prompt=s2_prompt_by_idx[i],
+                    sample_index=i,
+                    model_response=s2_resp,
+                    parsed_result=parsed_by_idx.get(i),
+                    score_result=scored_by_idx.get(i),
+                )
+                result["free_text_prompt"] = s1_prompt
+                result["free_text_response"] = s1_resp.raw_text
+                result["free_text_latency"] = s1_resp.latency_seconds
+                result["fallback_used"] = i in fb_used_set
+            results.append(result)
+
+        return results

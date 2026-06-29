@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from abc import ABC, abstractmethod
 from typing import Any, Sequence
 
@@ -71,11 +72,10 @@ class ExperimentRunner(ABC):
         """
 
     def run_many(self, question_rows: Sequence[Any]) -> list[dict]:
-        """Execute multiple questions through this experimental condition.
+        """Execute multiple questions synchronously.
 
-        Synchronous: backend calls (generate/score_options) are compute-bound
-        local forward passes or already-blocking API calls, not awaitable
-        I/O, so there is no concurrency to gain from asyncio here.
+        Used by HuggingFace and Dummy backends where generate() is a
+        blocking, compute-bound call with no async I/O to parallelize.
 
         Args:
             question_rows: Sequence of normalized question records.
@@ -85,6 +85,62 @@ class ExperimentRunner(ABC):
         """
         rows = question_rows.to_dict(orient="records")
         return [self.run_one(row, i) for i, row in enumerate(rows)]
+
+    async def run_many_async(self, question_rows: Sequence[Any]) -> list[dict]:
+        """Execute multiple questions concurrently via the API async path.
+
+        Builds one prompt per question using _build_batch_prompt(), submits
+        all prompts at once via backend.generate_batch(), then processes each
+        response through _parse_and_score() and _build_result_row().
+
+        The backend's concurrency_limit semaphore caps simultaneous in-flight
+        requests. Subclasses with multi-call-per-question logic (Permutation,
+        TwoStage) override this method entirely.
+
+        Args:
+            question_rows: Sequence of normalized question records.
+
+        Returns:
+            List of flat result dictionaries, one per question.
+        """
+        rows = question_rows.to_dict(orient="records")
+        prompts = [self._build_batch_prompt(row) for row in rows]
+        responses = await self.backend.generate_batch(prompts)
+
+        results = []
+        for i, (row, response, prompt) in enumerate(zip(rows, responses, prompts)):
+            parsed_result = None
+            score_result = None
+            if response.is_success():
+                options = self._build_options(row)
+                parsed_result, score_result = self._parse_and_score(
+                    raw_text=response.raw_text,
+                    correct_option=row["correct_option"],
+                    options=options,
+                )
+            results.append(self._build_result_row(
+                question_row=row,
+                prompt=prompt,
+                sample_index=i,
+                model_response=response,
+                parsed_result=parsed_result,
+                score_result=score_result,
+            ))
+        return results
+
+    def _build_batch_prompt(self, question_row: Any) -> str:
+        """Build the prompt for one question in the async batch path.
+
+        Override in runners that produce a single prompt per question and
+        want to use the base-class run_many_async(). Runners with multi-call
+        logic (Permutation, TwoStage) override run_many_async() directly
+        instead of this method.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not implement _build_batch_prompt(). "
+            "Override _build_batch_prompt() for single-call runners, or override "
+            "run_many_async() directly for multi-call runners."
+        )
 
     def _call_backend_generate(self, prompt: str) -> ModelResponse:
         """Call backend.generate() and wrap the result in a ModelResponse.

@@ -63,16 +63,13 @@ class DirectMCQRunner(ExperimentRunner):
         )
 
     def _build_prompt(self, question_row: Any) -> str:
-        """Build a direct multiple-choice prompt from a question row.
-
-        Args:
-            question_row: Normalized question record.
-
-        Returns:
-            Fully formatted direct MCQ prompt string.
-        """
+        """Build a direct multiple-choice prompt from a question row."""
         return build_direct_mcq_prompt(
             template=self._prompts["direct_mcq"],
             question=question_row["question_text"],
             options=self._build_options(question_row),
         )
+
+    def _build_batch_prompt(self, question_row: Any) -> str:
+        """Prompt builder for the async batch path — delegates to _build_prompt."""
+        return self._build_prompt(question_row)

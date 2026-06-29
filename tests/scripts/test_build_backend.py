@@ -4,6 +4,7 @@
 # scripts/ is an entry-point directory, not an importable package, so the
 # module is loaded from its file path.
 
+import asyncio
 import importlib.util
 import pathlib
 import sys
@@ -80,7 +81,7 @@ def test_api_backend_receives_run_seed(tmp_path, monkeypatch):
     monkeypatch.setattr(run_exp, "RUNS_DIR", tmp_path)
 
     class _FakeClient:
-        def __init__(self, model_name):
+        def __init__(self, model_name, concurrency_limit=10, **kwargs):
             self.model_name = model_name
             self.provider = "fake"
 
@@ -334,7 +335,7 @@ def test_run_method_resume_true_loads_checkpoint(tmp_path, monkeypatch):
         lambda **kwargs: written.setdefault("results", kwargs["results"]) or tmp_path / "out.csv",
     )
 
-    run_exp.run_method(
+    asyncio.run(run_exp.run_method(
         method_name="direct_mcq",
         runner=runner,
         questions=questions,
@@ -342,7 +343,7 @@ def test_run_method_resume_true_loads_checkpoint(tmp_path, monkeypatch):
         output_dir=tmp_path,
         checkpoint_every_n=10,
         resume=True,
-    )
+    ))
 
     assert checkpoint.load_called is True
     assert runner.seen_ids == ["q2"]
@@ -375,7 +376,7 @@ def test_run_method_resume_false_starts_fresh_without_loading(tmp_path, monkeypa
         lambda **kwargs: written.setdefault("results", kwargs["results"]) or tmp_path / "out.csv",
     )
 
-    run_exp.run_method(
+    asyncio.run(run_exp.run_method(
         method_name="direct_mcq",
         runner=runner,
         questions=questions,
@@ -383,7 +384,7 @@ def test_run_method_resume_false_starts_fresh_without_loading(tmp_path, monkeypa
         output_dir=tmp_path,
         checkpoint_every_n=10,
         resume=False,
-    )
+    ))
 
     assert checkpoint.load_called is False
     assert checkpoint.delete_count >= 1

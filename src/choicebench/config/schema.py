@@ -51,6 +51,7 @@ class ModelConfig:
     provider: str | None = None  # Only required for API backends
     device: str = "cuda"
     generation_kwargs: GenerationKwargsConfig = field(default_factory=GenerationKwargsConfig)
+    concurrency_limit: int = 10  # Max in-flight requests for this model (API backends only)
 
 
 @dataclass
@@ -65,10 +66,18 @@ class BenchmarkConfig:
 
 
 @dataclass
+class PreflightConfig:
+    source: str = "benchmark"   # "benchmark" or a file path
+    split: str = "validation"   # split label; used for disjointness check
+    n: int = 100                # number of preflight questions to load
+
+
+@dataclass
 class MethodConfig:
     name: str
     requires_logprobs: bool = False
     params: dict[str, Any] = field(default_factory=dict)
+    preflight: PreflightConfig | None = None
 
 
 @dataclass
@@ -135,6 +144,7 @@ def _build_models(raw: dict) -> list[ModelConfig]:
                 provider=entry.get("provider"),
                 device=device,
                 generation_kwargs=_build_generation_kwargs(entry.get("generation_kwargs")),
+                concurrency_limit=int(entry.get("concurrency_limit", 10)),
             )
         )
     return models
@@ -203,11 +213,24 @@ def _build_methods(raw: list | None) -> list[MethodConfig]:
             params = {}
         if not isinstance(params, dict):
             raise ConfigError(f"{where}.params must be a YAML mapping; got {params!r}.")
+        preflight_raw = entry.get("preflight")
+        preflight: PreflightConfig | None = None
+        if preflight_raw is not None:
+            if not isinstance(preflight_raw, dict):
+                raise ConfigError(
+                    f"{where}.preflight must be a YAML mapping; got {preflight_raw!r}."
+                )
+            preflight = PreflightConfig(
+                source=str(preflight_raw.get("source", "benchmark")),
+                split=str(preflight_raw.get("split", "validation")),
+                n=int(preflight_raw.get("n", 100)),
+            )
         methods.append(
             MethodConfig(
                 name=name,
                 requires_logprobs=bool(entry.get("requires_logprobs", False)),
                 params=dict(params),
+                preflight=preflight,
             )
         )
     return methods

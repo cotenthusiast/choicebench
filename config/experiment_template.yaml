@@ -95,9 +95,10 @@ methods:
     # params:
     #   fallback_on_parse_failure: true
 
-  # PriDe is available for logprob-capable backends, but v0.1 requires exactly
-  # four valid A-D options. YAML-driven runs currently use a uniform prior
-  # unless calibration rows are supplied by custom construction/manual usage.
+  # WARNING: YAML-driven PriDe runs use a UNIFORM prior unless a preflight
+  # block is configured. Without preflight, this is logprob argmax only —
+  # not calibration-fitted debiasing from Zheng et al., ICLR 2024.
+  # To use the calibrated prior, add a preflight block to this method entry.
   # - name: pride
   #   requires_logprobs: true
 
@@ -133,6 +134,6 @@ run:
   # Prompt template version to use (must match a subdirectory in prompts/).
   prompt_version: "v1"
 
-  # API client concurrency guard. v0.1 orchestration still runs each
-  # benchmark/model/method job synchronously.
+  # Global fallback for API backends. Set concurrency_limit per model in the
+  # models: section above to override per provider (e.g. openai: 10, gemini: 1).
   concurrency_limit: 10

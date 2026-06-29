@@ -53,3 +53,7 @@ class BaseBackend(ABC):
     def supports_logprobs(self) -> bool:
         """Return True if this backend supports score_options."""
         return False
+
+    def is_async_capable(self) -> bool:
+        """Return True if this backend supports the async generate_batch() path."""
+        return False

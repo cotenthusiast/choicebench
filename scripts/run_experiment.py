@@ -9,6 +9,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import importlib
 import logging
 import shutil
@@ -44,6 +45,7 @@ from choicebench.config.schema import (
 from choicebench.infra.checkpoint import CheckpointManager
 from choicebench.io.readers import read_benchmark
 from choicebench.io.writers import write_run_results
+from choicebench.preflight import load_preflight
 from choicebench.registry import CLIENT_REGISTRY, METHOD_REGISTRY
 
 # ---------------------------------------------------------------------------
@@ -66,7 +68,6 @@ def build_backend(
     model_config: ModelConfig,
     run_id: str,
     run_seed: int,
-    concurrency_limit: int = 10,
 ) -> APIBackend | HuggingFaceBackend | DummyBackend:
     """Construct the inference backend for a single model config."""
     backend_type = model_config.backend
@@ -75,7 +76,10 @@ def build_backend(
         client_cls = CLIENT_REGISTRY.get(model_config.provider)
         if client_cls is None:
             raise ValueError(f"Unknown provider {model_config.provider!r}. Available: {sorted(CLIENT_REGISTRY)}")
-        client = client_cls(model_name=model_config.model_name_or_path)
+        client = client_cls(
+            model_name=model_config.model_name_or_path,
+            concurrency_limit=model_config.concurrency_limit,
+        )
         cache_dir = RUNS_DIR / run_id / "cache"
         return APIBackend(
             model_config.provider,
@@ -85,7 +89,7 @@ def build_backend(
             model_config.generation_kwargs.temperature,
             model_config.generation_kwargs.max_new_tokens,
             run_seed,
-            concurrency_limit,
+            model_config.concurrency_limit,
         )
     elif backend_type == "huggingface":
         backend = HuggingFaceBackend(
@@ -161,6 +165,7 @@ def instantiate_runner(
     backend: APIBackend | HuggingFaceBackend | DummyBackend,
     run_id: str,
     benchmark_cfg: BenchmarkConfig,
+    preflight_questions: list[dict] | None = None,
 ):
     """Look up and instantiate the runner for a given method name.
 
@@ -187,6 +192,10 @@ def instantiate_runner(
                 f"Could not load method class {method_name!r}: {exc}"
             ) from exc
 
+    extra_kwargs: dict = {}
+    if preflight_questions is not None:
+        extra_kwargs["preflight_questions"] = preflight_questions
+
     try:
         return runner_cls(
             backend=backend,
@@ -200,6 +209,7 @@ def instantiate_runner(
             seed=config.run.seed,
             model_label=model_config.model_name_or_path,
             **method_params,
+            **extra_kwargs,
         )
     except TypeError as exc:
         raise TypeError(
@@ -213,7 +223,7 @@ def instantiate_runner(
 # Per-method execution
 # ---------------------------------------------------------------------------
 
-def run_method(
+async def run_method(
     method_name: str,
     runner,
     questions: pd.DataFrame,
@@ -227,8 +237,8 @@ def run_method(
     """Run a single evaluation method with checkpointing and write results to CSV.
 
     Resumes from a saved checkpoint if one exists, otherwise starts fresh.
-    Progress is saved to disk every checkpoint_every_n questions so a crash
-    can be recovered without restarting from scratch.
+    Progress is saved every checkpoint_every_n questions. For API backends the
+    batch is processed concurrently; for HF/Dummy backends it runs serially.
     """
     # --- Resume or start fresh ---
     if resume:
@@ -253,10 +263,18 @@ def run_method(
         remaining = questions
         logger.info("[%s] Starting fresh: %d questions", method_name, len(remaining))
 
+    # Use async batch path for API backends; sync path for HF / Dummy.
+    backend = getattr(runner, "backend", None)
+    use_async = backend is not None and isinstance(backend, APIBackend)
+
     # --- Batched inference loop ---
     for batch_start in range(0, len(remaining), checkpoint_every_n):
         batch = remaining.iloc[batch_start : batch_start + checkpoint_every_n]
-        batch_results = runner.run_many(batch)
+
+        if use_async:
+            batch_results = await runner.run_many_async(batch)
+        else:
+            batch_results = runner.run_many(batch)
 
         accumulated_results.extend(batch_results)
         completed_ids.extend(batch["question_id"].tolist())
@@ -278,6 +296,86 @@ def run_method(
     )
     checkpoint_mgr.delete()
     logger.info("[%s] Done → %s", method_name, output_path)
+
+
+# ---------------------------------------------------------------------------
+# Concurrent model execution
+# ---------------------------------------------------------------------------
+
+async def _run_model(
+    method: MethodConfig,
+    model_config: ModelConfig,
+    benchmark_cfg: BenchmarkConfig,
+    questions: pd.DataFrame,
+    preflight_questions: list[dict] | None,
+    config: ExperimentConfig,
+    run_id: str,
+    output_dir: Path,
+    checkpoint_dir: Path,
+) -> None:
+    """Set up and run one (method, model, benchmark) combination."""
+    logger.info(
+        "── Benchmark: %s  Method: %s  Model: %s (%s) ──────────────────",
+        benchmark_cfg.name, method.name,
+        model_config.model_name_or_path, model_config.backend,
+    )
+    backend = build_backend(model_config, run_id, config.run.seed)
+    logger.info("Backend: %s", backend.__class__.__name__)
+
+    checkpoint_mgr = CheckpointManager(
+        checkpoint_dir=checkpoint_dir,
+        run_id=run_id,
+        condition=method.name,
+        model=model_config.model_name_or_path,
+        benchmark=benchmark_cfg.name,
+    )
+    runner = instantiate_runner(
+        config, model_config, method, backend, run_id, benchmark_cfg,
+        preflight_questions=preflight_questions,
+    )
+    await run_method(
+        method_name=method.name,
+        runner=runner,
+        questions=questions,
+        checkpoint_mgr=checkpoint_mgr,
+        output_dir=output_dir,
+        checkpoint_every_n=config.run.checkpoint_every_n,
+        resume=config.run.resume,
+        model_name=model_config.model_name_or_path,
+        benchmark=benchmark_cfg.name,
+    )
+
+
+async def run_models_concurrently(
+    method: MethodConfig,
+    benchmark_cfg: BenchmarkConfig,
+    model_configs: list[ModelConfig],
+    preflight_questions: list[dict] | None,
+    questions: pd.DataFrame,
+    config: ExperimentConfig,
+    run_id: str,
+    output_dir: Path,
+    checkpoint_dir: Path,
+) -> None:
+    """Run all models for one (benchmark, method) combination.
+
+    API models run concurrently via asyncio.gather(); HF and Dummy models
+    run sequentially after, since their generate() is blocking and they have
+    no async machinery to parallelise across.
+    """
+    api_models = [m for m in model_configs if m.backend == "api"]
+    sync_models = [m for m in model_configs if m.backend != "api"]
+
+    if api_models:
+        await asyncio.gather(*[
+            _run_model(method, m, benchmark_cfg, questions, preflight_questions,
+                       config, run_id, output_dir, checkpoint_dir)
+            for m in api_models
+        ])
+
+    for m in sync_models:
+        await _run_model(method, m, benchmark_cfg, questions, preflight_questions,
+                         config, run_id, output_dir, checkpoint_dir)
 
 
 # ---------------------------------------------------------------------------
@@ -305,6 +403,33 @@ def parse_args() -> argparse.Namespace:
         help="Skip the confirmation prompt.",
     )
     return parser.parse_args()
+
+
+async def _async_main(
+    config: ExperimentConfig,
+    run_id: str,
+    output_dir: Path,
+    checkpoint_dir: Path,
+) -> None:
+    """Async body of the experiment: benchmark → method → concurrent models."""
+    for benchmark_cfg in config.benchmarks:
+        questions = load_benchmark(benchmark_cfg, config.run.seed)
+        logger.info("Loaded %d questions from %s", len(questions), benchmark_cfg.name)
+
+        for method in config.methods:
+            preflight_questions = load_preflight(method, benchmark_cfg, config.run.seed)
+
+            await run_models_concurrently(
+                method=method,
+                benchmark_cfg=benchmark_cfg,
+                model_configs=config.models,
+                preflight_questions=preflight_questions,
+                questions=questions,
+                config=config,
+                run_id=run_id,
+                output_dir=output_dir,
+                checkpoint_dir=checkpoint_dir,
+            )
 
 
 def main() -> None:
@@ -338,43 +463,7 @@ def main() -> None:
     shutil.copy2(args.config, output_dir / "config.yaml")
     logger.info("Run ID: %s  |  Output: %s", run_id, output_dir)
 
-    # --- Run each benchmark sequentially ---
-    for benchmark_cfg in config.benchmarks:
-        questions = load_benchmark(benchmark_cfg, config.run.seed)
-        logger.info("Loaded %d questions from %s", len(questions), benchmark_cfg.name)
-
-        for model_config in config.models:
-            logger.info(
-                "── Benchmark: %s  Model: %s (%s) ───────────────────────────────",
-                benchmark_cfg.name, model_config.model_name_or_path, model_config.backend,
-            )
-            backend = build_backend(
-                model_config, run_id, config.run.seed, config.run.concurrency_limit
-            )
-            logger.info("Backend: %s", backend.__class__.__name__)
-
-            for method in config.methods:
-                checkpoint_mgr = CheckpointManager(
-                    checkpoint_dir=checkpoint_dir,
-                    run_id=run_id,
-                    condition=method.name,
-                    model=model_config.model_name_or_path,
-                    benchmark=benchmark_cfg.name,
-                )
-                runner = instantiate_runner(
-                    config, model_config, method, backend, run_id, benchmark_cfg
-                )
-                run_method(
-                    method_name=method.name,
-                    runner=runner,
-                    questions=questions,
-                    checkpoint_mgr=checkpoint_mgr,
-                    output_dir=output_dir,
-                    checkpoint_every_n=config.run.checkpoint_every_n,
-                    resume=config.run.resume,
-                    model_name=model_config.model_name_or_path,
-                    benchmark=benchmark_cfg.name,
-                )
+    asyncio.run(_async_main(config, run_id, output_dir, checkpoint_dir))
 
     # --- Run summary ---
     logger.info("── Run complete ─────────────────────────────────")
