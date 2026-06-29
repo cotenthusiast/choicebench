@@ -6,7 +6,7 @@
 # External methods and metrics can be registered without touching this file —
 # use "module.path:ClassName" syntax in the YAML config instead.
 
-from choicebench.clients import GeminiClient, GroqClient, OpenAIClient, TogetherAIClient
+from choicebench.clients import AnthropicClient, GeminiClient, GroqClient, OpenAIClient, TogetherAIClient
 from choicebench.methods import DirectMCQRunner, PermutationRunner, PriDeRunner, TwoStageRunner
 
 METHOD_REGISTRY: dict[str, type] = {
@@ -17,6 +17,7 @@ METHOD_REGISTRY: dict[str, type] = {
 }
 
 CLIENT_REGISTRY: dict[str, type] = {
+    "anthropic": AnthropicClient,
     "openai": OpenAIClient,
     "gemini": GeminiClient,
     "groq": GroqClient,

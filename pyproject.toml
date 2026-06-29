@@ -13,6 +13,7 @@ dependencies = [
     "numpy",
     "datasets",
     "python-dotenv",
+    "anthropic>=0.20.0",
     "openai",
     "google-genai",
     "groq",

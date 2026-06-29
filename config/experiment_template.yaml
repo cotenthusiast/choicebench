@@ -36,8 +36,17 @@ models:
     model_name_or_path: Qwen/Qwen2.5-7B-Instruct
 
     # Required when backend: api — must match a key in CLIENT_REGISTRY
-    # ("openai" | "gemini" | "groq" | "together"). Omit for other backends.
+    # ("anthropic" | "openai" | "gemini" | "groq" | "together"). Omit for other backends.
     # provider: openai
+
+  # Anthropic API example:
+  # - backend: api
+  #   model_name_or_path: claude-opus-4-5    # or claude-sonnet-4-5, claude-haiku-4-5
+  #   provider: anthropic
+  #   generation_kwargs:
+  #     max_new_tokens: 512
+  #     temperature: 0.0
+  #   # Note: seed is not supported by the Anthropic API and is silently ignored.
 
     # "cuda" | "cpu" | "auto" (auto = device_map=auto, for multi-GPU). Ignored
     # when backend: api.
