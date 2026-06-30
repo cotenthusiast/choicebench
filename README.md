@@ -9,6 +9,39 @@ MCQ evaluation is a well-studied LLM benchmark task, but the scaffolding is alwa
 
 ---
 
+## Why ChoiceBench?
+
+Most MCQ methodology research ships as bespoke per-paper code. 
+Researchers studying answer-order bias, debiasing methods, or MCQ 
+evaluation procedures typically reimplement the same experiment 
+infrastructure from scratch, paper after paper. ChoiceBench is the 
+reusable framework built for exactly this problem.
+
+**vs. lm-evaluation-harness:** lm-eval is designed for model 
+benchmarking, answering "how does this model perform across 
+benchmarks?" ChoiceBench is designed for a different question: 
+"how do different evaluation methods compare on the same 
+questions?" If you want a leaderboard or capability report, lm-eval 
+is the right tool. If you want to compare cyclic permutation against 
+direct prompting on MMLU, ChoiceBench is.
+
+**vs. Inspect AI:** Inspect is a strong general-purpose evaluation 
+framework, well suited for frontier model auditing, agents, and 
+safety evals. ChoiceBench is narrower by design. The experiment 
+grid (benchmarks x models x methods) is the native unit. Adding a 
+new evaluation method means implementing `run_one()` and the 
+framework handles inference, checkpointing, parsing, scoring, and 
+comparison reporting. If your research question is the evaluation 
+method itself rather than the model, ChoiceBench is built around 
+that question.
+
+**vs. paper repos:** Much of the MCQ methodology literature relies 
+on per-paper experiment code that works but is difficult to build 
+on. ChoiceBench aims to be the shared foundation that makes results 
+easier to reproduce and extend.
+
+---
+
 ## Quick Start
 
 ### Installation
