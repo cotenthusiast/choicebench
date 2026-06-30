@@ -203,6 +203,9 @@ run:
   # Prompt template version to use (must match a subdirectory in prompts/).
   prompt_version: "v1"
 
-  # Global fallback for API backends. Set concurrency_limit per model in the
-  # models: section above to override per provider (e.g. openai: 10, gemini: 1).
+  # Global default cap on in-flight API requests, applied to any model that
+  # does not set its own concurrency_limit in the models: section above. A
+  # per-model concurrency_limit overrides this (e.g. openai: 10, gemini: 1).
+  # This is the knob that prevents provider rate-limit (429) errors; lower it
+  # for stricter providers. Ignored for huggingface/dummy backends.
   concurrency_limit: 10

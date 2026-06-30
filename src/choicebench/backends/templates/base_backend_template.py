@@ -17,7 +17,11 @@
 #         return MyBackend(model_config.model_name_or_path, ...)
 #   Add "backend: my_backend" to the model entry in your YAML config.
 #   Add "my_backend" to _VALID_BACKENDS in src/choicebench/config/schema.py.
-#   If score_options() works, also add it to _LOGPROB_CAPABLE_BACKENDS.
+#   If score_options() works, set supports_logprobs = True (below) and register
+#   the class in _NONAPI_BACKEND_CLASSES in src/choicebench/config/schema.py so
+#   the single logprob-capability check (model_supports_logprobs) picks it up.
+#   That one function gates both config validation and the pre-run check — there
+#   is no second list to keep in sync.
 #
 # WHAT THE FRAMEWORK EXPECTS
 #   - generate(prompt) → str: plain text output. Must be synchronous.

@@ -83,6 +83,9 @@ python scripts/evaluate_run.py --run-id toy_experiment
 
 Logs a metrics summary and writes a JSON report to `reports/`.
 
+Expected output for the toy run is `accuracy: 0.3`: `DummyBackend` always answers
+`A`, and 3 of the 10 toy questions have `A` as their correct option.
+
 ### What the output looks like
 
 ```
@@ -101,9 +104,15 @@ The bundled toy CSV needs no setup. For the built-in HuggingFace benchmarks,
 normalize them once before running experiments:
 
 ```bash
-python scripts/prepare_data.py --hf-path cais/mmlu --hf-subset all --output-name mmlu
-python scripts/prepare_data.py --hf-path allenai/ai2_arc --hf-subset ARC-Challenge --output-name arc_challenge
+python scripts/prepare_data.py --hf-path cais/mmlu --hf-subset all
+python scripts/prepare_data.py --hf-path allenai/ai2_arc --hf-subset ARC-Challenge
 ```
+
+For a registered benchmark, `prepare_data.py` writes to the stem the config
+expects automatically (e.g. `arc_challenge_normalized.csv`), so `--output-name`
+is unnecessary — these commands match the **Supported Benchmarks** table below.
+Pass `--output-name <stem>` only for an unregistered `name: huggingface` dataset
+whose `output_name` you set in the config.
 
 ---
 
@@ -175,7 +184,7 @@ run:
   dry_run: false                # print plan and exit without running
   checkpoint_every_n: 50        # save progress to disk every N questions
   prompt_version: "v1"          # subdirectory under prompts/
-  concurrency_limit: 10         # API client guard; orchestration is synchronous in v0.1
+  concurrency_limit: 10         # max in-flight requests per API model (rate-limit guard)
 ```
 
 ---
@@ -209,14 +218,37 @@ External: list the import path directly in YAML, e.g.
 2. Implement `_generate_provider_response()` — call the provider SDK, extract `raw_text`, return a `ModelResponse`
 3. Register in `src/choicebench/registry.py` and add the API key to `.env`
 
-The retry loop, backoff, semaphore, and request/response validation are all handled by `BaseClient`. You only implement the single raw API call. In v0.1, experiment orchestration still iterates benchmark/model/method jobs synchronously; the client concurrency guard is infrastructure for provider calls, not parallel job scheduling.
+The retry loop, backoff, semaphore, and request/response validation are all handled by `BaseClient`. You only implement the single raw API call. Within a run, all API models for a (benchmark, method) execute concurrently via `asyncio.gather()`, and the questions in each batch run concurrently bounded by that model's `concurrency_limit` semaphore; only benchmarks and methods iterate serially. The `concurrency_limit` knob is what caps in-flight requests and prevents provider rate-limit (429) errors.
 
 ### Add a new backend (4 steps)
 
 1. Copy `src/choicebench/backends/templates/base_backend_template.py` to `src/choicebench/backends/my_backend.py`
 2. Implement `generate()` (required) and optionally `score_options()` + `supports_logprobs = True`
 3. Add a branch to `build_backend()` in `scripts/run_experiment.py`
-4. Add the backend key to `_VALID_BACKENDS` in `src/choicebench/config/schema.py`; if it implements `score_options()`, also add it to `_LOGPROB_CAPABLE_BACKENDS`
+4. Add the backend key to `_VALID_BACKENDS` in `src/choicebench/config/schema.py`. If it implements `score_options()`, set `supports_logprobs = True` on the class and register it in `_NONAPI_BACKEND_CLASSES` (same file). Logprob capability is decided by a single function, `model_supports_logprobs()`, which reads each backend's own `supports_logprobs` — both config validation and the pre-run gate consult it, so there is no second list to keep in sync.
+
+### Add a new benchmark (4 steps)
+
+1. Create `src/choicebench/benchmarks/my_bench.py`
+2. Implement `build_normalized_dataframe(df)` — convert the raw HuggingFace
+   DataFrame into the normalized schema (`question_id`, `question_text`,
+   `choice_a`–`choice_d`, `correct_option`, `subject`, …) — and decorate it:
+   ```python
+   from choicebench.benchmarks.registry import benchmark
+
+   @benchmark(name="my_bench", hf_path="org/my-bench", hf_subset="default", default_split="test")
+   def build_normalized_dataframe(df):
+       ...
+   ```
+3. Import the module in `src/choicebench/benchmarks/__init__.py` so the
+   `@benchmark` decorator runs and registers the entry on import.
+4. Run `python scripts/prepare_data.py --hf-path org/my-bench --hf-subset default`.
+   Because the `hf_path` is registered, the normalized CSV is written to the
+   stem `my_bench` automatically (no `--output-name` needed), which is exactly
+   what `name: my_bench` in your config loads.
+
+For a one-off dataset you don't want to register, use `name: huggingface` with
+`hf_path`/`output_name` in the config and pass `--output-name` to `prepare_data.py`.
 
 ### External registration via `"module.path:ClassName"` syntax
 
@@ -265,6 +297,52 @@ src/choicebench/
 | `cyclic_permutation` | Runs one cyclic permutation per available option, takes majority vote | N options, normally 4 |
 | `two_stage` | Stage 1: free-form answer; Stage 2: map to option letter | 2, or 3 if fallback is enabled |
 | `pride` | PriDe Eq. 8 logprob debiasing. Note: YAML-driven runs use a uniform prior in v0.1 unless a preflight calibration block is configured. Without preflight, this is logprob argmax only — not calibration-fitted debiasing from Zheng et al., ICLR 2024. | 1 score_options call per eval row; +4K calibration calls per run if K calibration rows are supplied |
+| `cyclic_logprob` | Eq. 1 logprob averaging: score every cyclic permutation via `score_options`, average probability mass back to canonical slots, argmax | N options, normally 4 score_options calls |
+
+#### Authoritative answer column per method
+
+Every method writes its final answer to **`parsed_choice`**, and both built-in
+metrics (`accuracy`, `mad`) read that column. This is uniform across all methods:
+
+| Method | Authoritative answer column | How it's produced |
+|---|---|---|
+| `direct_mcq` | `parsed_choice` | parsed from the single `raw_text` generation |
+| `cyclic_permutation` | `parsed_choice` | majority vote across rotations |
+| `two_stage` | `parsed_choice` | parsed from stage-2 (or fallback) generation |
+| `cyclic_logprob` | `parsed_choice` | Eq. 1 argmax over averaged logprobs |
+| `pride` | `parsed_choice` | Eq. 8 debiased argmax (also mirrored in `pride_adjusted_choice`) |
+
+`pride` additionally records `pride_adjusted_choice` and `cyclic_logprob` records
+`option_distributions_json`, but these are diagnostics — `parsed_choice` is the
+single authoritative column for scoring and for any user `groupby`. Each method
+also sets a non-`None` `model_status` (`"success"`/`"failure"`) on every row, so a
+`model_status == "success"` filter behaves the same across methods.
+
+#### Logprob methods on vLLM vs HuggingFace
+
+`pride` and `cyclic_logprob` read per-letter log-probabilities via
+`score_options`. The numerics differ by backend, and the config does not name the
+difference:
+
+- **HuggingFace** reads the true full-vocabulary logit for each option label
+  (one forward pass). Option labels must be **single tokens** in the model's
+  tokenizer; a multi-token label raises a `ValueError` naming the offending
+  letter and suggesting the space-prefixed form.
+- **vLLM** reads the **top-20 generation logprobs**, so any option letter not in
+  that top-20 is **floored to `-100.0`** (treated as near-impossible). A model
+  that spreads probability mass thinly can have a real option silently floored,
+  so HF and vLLM runs of the "same" method can yield different priors/answers.
+
+Partially-degraded rows are flagged: `n_permutations_failed` / `n_permutations_total`
+record how many permutations fell back to a uniform distribution (for `pride`,
+these are the calibration rollout permutations).
+
+**PriDe calibration sidecar:** a cached prior is reused only when the model-name
+slug, calibration benchmark, calibration question ids, `calibration_seed`,
+`temperature`, `max_tokens`, and `prompt_version` all match. It does **not**
+capture model weights, so two local checkpoints sharing a basename
+(`org/model` → `org_model`) collide on the sidecar path — use a distinct
+`run_id`/calibration directory for those.
 
 ### Metrics
 
@@ -324,7 +402,7 @@ Planned v0.2 work:
 - **Variable-option schema** — first-class `choices` / `correct_index` columns replacing the legacy `choice_a`–`choice_d` layout, enabling benchmarks with 2, 3, or 5+ options per row.
 - **Mixed-option PriDe and MAD** — calibration and subject-level metrics that handle questions with different option counts in the same run.
 - **Config-driven PriDe calibration splits** — specify calibration rows directly in YAML rather than passing them via Python construction.
-- **Parallel orchestration** — concurrent execution across independent model/provider jobs (v0.1 iterates synchronously).
+- **Parallel orchestration across benchmark/method jobs** — v0.1 already runs API models concurrently (`asyncio.gather`) and questions concurrently under each model's `concurrency_limit`; benchmarks and methods still iterate serially, which this work would parallelize.
 - **Inspect AI adapter** — run ChoiceBench methods inside [Inspect](https://inspect.ai) workflows.
 - **Broader benchmark adapters and stronger script-level integration tests.**
 
