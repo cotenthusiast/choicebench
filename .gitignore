@@ -51,3 +51,6 @@ HANDOFF.md
 # Local Claude Code / terminal transcript dumps (not for version control)
 claude-terminal-capture.md
 .notes/
+
+# Pre-release audit notes (kept locally, not version-controlled)
+audits/
