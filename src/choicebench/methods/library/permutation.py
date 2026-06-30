@@ -19,6 +19,7 @@ Logprob support required: no
 import collections
 from typing import Any, Sequence
 
+from choicebench.clients.types import FAILURE_STATUS, SUCCESS_STATUS
 from choicebench.parsing.types import ParseResult, PARSE_OK, PARSE_MISSING
 from choicebench.pipeline.prompt_builder import build_direct_mcq_prompt
 from choicebench.methods.base import ExperimentRunner
@@ -92,8 +93,11 @@ class PermutationRunner(ExperimentRunner):
         if voted_letter:
             score_result = self._score(voted_parse, question_row["correct_option"])
 
-        # Use the first permutation's trace for the result row
-        return self._build_result_row(
+        # Use the first permutation's trace for the result row, but report
+        # model_status by the *voted* outcome, not responses[0] (FSF-5 / PF-3):
+        # a row must not be marked "failure" while carrying a valid voted answer
+        # just because the first rotation's call failed.
+        row = self._build_result_row(
             question_row=question_row,
             prompt=prompts[0],
             sample_index=sample_index,
@@ -101,6 +105,8 @@ class PermutationRunner(ExperimentRunner):
             parsed_result=voted_parse,
             score_result=score_result,
         )
+        row["model_status"] = SUCCESS_STATUS if voted_letter else FAILURE_STATUS
+        return row
 
     async def run_many_async(self, question_rows: Sequence[Any]) -> list[dict]:
         """Async batch execution for PermutationRunner.
@@ -165,14 +171,16 @@ class PermutationRunner(ExperimentRunner):
                 score_result = self._score(voted_parse, row["correct_option"])
 
             first_flat = q_flat_indices[0]
-            results.append(self._build_result_row(
+            result_row = self._build_result_row(
                 question_row=row,
                 prompt=all_prompts[first_flat],
                 sample_index=q_idx,
                 model_response=all_responses[first_flat],
                 parsed_result=voted_parse,
                 score_result=score_result,
-            ))
+            )
+            result_row["model_status"] = SUCCESS_STATUS if voted_letter else FAILURE_STATUS
+            results.append(result_row)
 
         return results
 

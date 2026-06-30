@@ -305,3 +305,52 @@ class TestPermutationRunnerRunOne:
         assert result["run_id"] == "test_run_001"
         assert result["method_name"] == "pride"
         assert result["split_name"] == "robustness"
+
+    def test_first_call_fails_but_vote_succeeds_is_not_failure(self, runner_question_row):
+        """PF-3 / FSF-5: if only the first permutation call fails but the vote
+        still produces a valid answer, the row must not be model_status=failure
+        while carrying a valid scored parsed_choice."""
+        canonical = {"A": "FTP", "B": "HTTP", "C": "HTTPS", "D": "SMTP"}
+        perms = PermutationRunner._generate_permutations(canonical)
+        responses = []
+        for i, perm in enumerate(perms):
+            if i == 0:
+                responses.append(ProviderTimeoutError("first call timed out"))
+            else:
+                for letter, text in perm.items():
+                    if text == "HTTPS":
+                        responses.append(letter)
+                        break
+        backend = MockBackend(responses=responses)
+        runner = PermutationRunner(
+            backend=backend,
+            method_name="cyclic_permutation",
+            split_name="robustness",
+            prompt_version="v1",
+            prompts_dir=_PROMPTS_DIR,
+            run_id="test_run_001",
+        )
+
+        result = runner.run_one(runner_question_row, sample_index=0)
+
+        assert result["parsed_choice"] == "C"
+        assert result["model_status"] != "failure"
+        assert result["model_status"] == "success"
+
+    def test_all_fail_marks_model_status_failure(self, runner_question_row):
+        """When the vote yields nothing, the row is model_status=failure."""
+        responses = [ProviderTimeoutError("timeout") for _ in range(4)]
+        backend = MockBackend(responses=responses)
+        runner = PermutationRunner(
+            backend=backend,
+            method_name="cyclic_permutation",
+            split_name="robustness",
+            prompt_version="v1",
+            prompts_dir=_PROMPTS_DIR,
+            run_id="test_run_001",
+        )
+
+        result = runner.run_one(runner_question_row, sample_index=0)
+
+        assert result["parsed_choice"] is None
+        assert result["model_status"] == "failure"

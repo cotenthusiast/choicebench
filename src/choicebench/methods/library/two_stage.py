@@ -9,9 +9,10 @@ anchoring at the point the model actually reasons about the answer. Stage two
 shows the model its own free-text answer alongside the four lettered options
 and asks it to pick the matching letter. An optional fallback re-issues a
 direct MCQ prompt if stage two's match is unparseable.
-Reference: this project's primary research method — tests whether eliciting
-a free-text answer before the model ever sees option letters reduces the
-positional bias documented by Zheng et al., ICLR 2024 (arXiv:2309.03882).
+Reference: a bundled example method (one of several shipped with ChoiceBench,
+not the headline) — tests whether eliciting a free-text answer before the model
+ever sees option letters reduces the positional bias documented by Zheng et al.,
+ICLR 2024 (arXiv:2309.03882).
 Backend requirements: generate only (2 calls per question, or 3 with fallback)
 Logprob support required: no
 """

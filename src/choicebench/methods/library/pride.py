@@ -14,6 +14,13 @@ Reference: Zheng et al., ICLR 2024, "Large Language Models Are Not Robust
 Multiple Choice Selectors" (arXiv:2309.03882), §3, Eq. 1/7/8.
 Backend requirements: generate + score_options
 Logprob support required: yes
+
+vLLM-path caveat: on the vLLM backend, score_options is read from the top-20
+generation logprobs, so any option letter NOT present in that top-20 is floored
+to -100.0 (treated as near-impossible). For a model that spreads probability
+mass thinly, a real option can be silently floored and lose. The HuggingFace
+backend reads the true full-vocabulary logit and is not subject to this floor,
+so HF and vLLM "PriDe" runs can produce different priors / debiased answers.
 """
 
 from __future__ import annotations
@@ -26,6 +33,7 @@ from typing import Any, Sequence
 
 import numpy as np
 
+from choicebench.clients.types import FAILURE_STATUS, SUCCESS_STATUS
 from choicebench.parsing.types import PARSE_OK, ParseResult
 from choicebench.pipeline.prompt_builder import build_direct_mcq_prompt
 from choicebench.methods.base import ExperimentRunner
@@ -43,7 +51,7 @@ from choicebench.methods.library.pride_math import (
 
 logger = logging.getLogger(__name__)
 
-_SIDE_SCHEMA_VERSION = 3
+_SIDE_SCHEMA_VERSION = 4
 
 
 def _pick_calibration_rows(
@@ -78,6 +86,13 @@ class PriDeRunner(ExperimentRunner):
     All evaluation rows use ``eq8_transfer`` mode.
 
     Logprobs come from backend.score_options() — no provider/client logic.
+
+    Calibration sidecar reuse key (PF-9): a cached prior is reused only when the
+    model_name slug, ``calibration_benchmark``, sorted calibration question ids,
+    ``calibration_seed``, ``temperature``, ``max_tokens``, and ``prompt_version``
+    all match. It does NOT capture model weights — two local checkpoints that
+    share a basename (``org/model`` → ``org_model``) still collide on the sidecar
+    path, so use distinct ``run_id`` / ``calibration_runs_dir`` for those.
     """
 
     requires_score_options: bool = True
@@ -94,6 +109,7 @@ class PriDeRunner(ExperimentRunner):
             max_tokens: int | None = None,
             seed: int | None = None,
             perturbation_name: str | None = None,
+            model_label: str | None = None,
             *,
             calibration_n: int = 50,
             calibration_seed: int = 42,
@@ -123,6 +139,8 @@ class PriDeRunner(ExperimentRunner):
             kw["seed"] = seed
         if perturbation_name is not None:
             kw["perturbation_name"] = perturbation_name
+        if model_label is not None:
+            kw["model_label"] = model_label
         super().__init__(**kw)
 
         # PriDe needs per-letter logprobs, so it requires a backend that
@@ -143,6 +161,14 @@ class PriDeRunner(ExperimentRunner):
 
         self._calibration_ready: bool = False
         self._calibration_state: CalibrationState = calibration_state_uniform()
+        # PF-4: count permutation rollouts that fell back to a uniform
+        # distribution during calibration. PriDe's per-eval-row score is a
+        # single score_options call (no per-row permutations), so the
+        # uniform-fallback degradation lives in calibration; these totals are
+        # stamped onto every eval row so a degraded calibration is visible in
+        # the CSV without scrolling the log.
+        self._calibration_n_perm_failed: int = 0
+        self._calibration_n_perm_total: int = 0
 
     def _sidecar_path(self) -> Path:
         slug = self.backend.model_name.replace("/", "_").replace(" ", "_")
@@ -157,8 +183,11 @@ class PriDeRunner(ExperimentRunner):
         # generate()/score_options() calls are blocking (local forward passes
         # or already-blocking API calls), so there is no concurrency to gain
         # from asyncio here. Calibration is fit once, before the eval loop.
+        # The orchestrator always passes a DataFrame, so normalize to records
+        # exactly like base.ExperimentRunner.run_many does (FC-2 / MF-B).
+        rows = question_rows.to_dict(orient="records")
         self._ensure_calibration()
-        return [self.run_one(row, i) for i, row in enumerate(question_rows)]
+        return [self.run_one(row, i) for i, row in enumerate(rows)]
 
     def _ensure_calibration(self) -> None:
         if self._calibration_ready:
@@ -180,6 +209,12 @@ class PriDeRunner(ExperimentRunner):
                     blob.get("schema_version") == _SIDE_SCHEMA_VERSION
                     and tuple(sorted(blob.get("calibration_question_ids") or [])) == sorted_ids
                     and int(blob.get("calibration_seed", -1)) == self._calibration_seed
+                    # PF-9: also key on the generation settings the prior was fit
+                    # under, so a sidecar is never silently reused across runs with
+                    # a different temperature / max_tokens / prompt_version.
+                    and blob.get("temperature") == self.temperature
+                    and blob.get("max_tokens") == self.max_tokens
+                    and blob.get("prompt_version") == self.prompt_version
                 ):
                     self._calibration_state = calibration_state_from_sidecar(blob)
                     self._calibration_ready = True
@@ -221,6 +256,12 @@ class PriDeRunner(ExperimentRunner):
             "schema_version": _SIDE_SCHEMA_VERSION,
             "version": self._calibration_state.version,
             "calibration_seed": self._calibration_seed,
+            # Generation settings the prior was fit under — part of the reuse key
+            # (PF-9). model weights are NOT captured (only the model_name slug in
+            # the filename), so two checkpoints sharing a basename still collide.
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+            "prompt_version": self.prompt_version,
             "n_options": len(OPTION_LETTERS),
             "calibration_question_ids": list(sorted_ids),
             "peprior_probs": {
@@ -275,6 +316,9 @@ class PriDeRunner(ExperimentRunner):
                 logger.warning("PriDe calibration: score_options failed — %s", exc)
                 rows.append(uni.copy())
                 last_exc = exc
+
+        self._calibration_n_perm_total += len(prompts)
+        self._calibration_n_perm_failed += len(prompts) - n_success
 
         if n_success == 0:
             qid = question_row.get("question_id", "<unknown>")
@@ -348,6 +392,21 @@ class PriDeRunner(ExperimentRunner):
         row["pride_adjusted_choice"] = adjusted_letter
         row["peprior_json"] = json.dumps(self._calibration_state.peprior_probs)
         row["option_logprob_json"] = json.dumps(lp_map) if lp_map else None
+        # PF-4: calibration-rollout permutation failures (see __init__ note).
+        row["n_permutations_total"] = self._calibration_n_perm_total
+        row["n_permutations_failed"] = self._calibration_n_perm_failed
+        # Mirror cyclic_logprob.py: the debiased letter is PriDe's authoritative
+        # answer, so it must populate parsed_choice — the column both built-in
+        # metrics (Accuracy, MAD) read. Without this PriDe reports 0.0 / NaN.
+        if adjusted_letter is not None:
+            row["parsed_choice"] = adjusted_letter
+            row["parse_status"] = PARSE_OK
+        # PriDe never calls generate(), so model_status would otherwise stay
+        # None even on full success. Set it explicitly so a uniform
+        # `model_status == "success"` / notna() filter works across all methods
+        # (FC-4 / PF-3): success when a debiased answer was produced, failure
+        # when score_options yielded nothing to debias.
+        row["model_status"] = SUCCESS_STATUS if adjusted_letter is not None else FAILURE_STATUS
         if score_adjusted is not None:
             row["score_status"] = score_adjusted.status
             row["is_correct"] = score_adjusted.is_correct
@@ -459,6 +518,21 @@ class PriDeRunner(ExperimentRunner):
         row["pride_adjusted_choice"] = adjusted_letter
         row["peprior_json"] = json.dumps(self._calibration_state.peprior_probs)
         row["option_logprob_json"] = json.dumps(lp_map) if lp_map else None
+        # PF-4: calibration-rollout permutation failures (see __init__ note).
+        row["n_permutations_total"] = self._calibration_n_perm_total
+        row["n_permutations_failed"] = self._calibration_n_perm_failed
+        # Mirror cyclic_logprob.py: the debiased letter is PriDe's authoritative
+        # answer, so it must populate parsed_choice — the column both built-in
+        # metrics (Accuracy, MAD) read. Without this PriDe reports 0.0 / NaN.
+        if adjusted_letter is not None:
+            row["parsed_choice"] = adjusted_letter
+            row["parse_status"] = PARSE_OK
+        # PriDe never calls generate(), so model_status would otherwise stay
+        # None even on full success. Set it explicitly so a uniform
+        # `model_status == "success"` / notna() filter works across all methods
+        # (FC-4 / PF-3): success when a debiased answer was produced, failure
+        # when score_options yielded nothing to debias.
+        row["model_status"] = SUCCESS_STATUS if adjusted_letter is not None else FAILURE_STATUS
         if score_adjusted is not None:
             row["score_status"] = score_adjusted.status
             row["is_correct"] = score_adjusted.is_correct

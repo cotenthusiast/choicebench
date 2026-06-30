@@ -159,6 +159,26 @@ class TestCyclicLogprobRunnerRunOne:
 
         assert row["parsed_choice"] == "C"
         assert row["is_correct"] is True
+        # PF-3: success rows carry a non-None model_status despite never calling generate().
+        assert row["model_status"] == "success"
+
+    @pytest.mark.parametrize(
+        "n_failed",
+        [0, 2, 3],  # none, some, all-but-one (of 4 permutations)
+    )
+    def test_run_one_reports_n_permutations_failed(self, runner_question_row, n_failed):
+        """PF-4: n_permutations_failed/_total must count uniform-fallback permutations."""
+        good = [-0.1, -2.0, -3.0, -4.0]
+        # First (4 - n_failed) succeed, the rest raise → uniform fallback.
+        score_responses = [good] * (4 - n_failed) + [RuntimeError("down")] * n_failed
+        backend = MockBackend(score_responses=score_responses, supports_logprobs=True)
+        runner = _make_runner(backend)
+        row = runner.run_one(runner_question_row, sample_index=0)
+
+        assert row["n_permutations_total"] == 4
+        assert row["n_permutations_failed"] == n_failed
+        # As long as ≥1 permutation succeeded, an answer is still produced.
+        assert row["parsed_choice"] is not None
 
     def test_run_one_base_schema_fields_present(self, runner_question_row):
         """Result row must carry all standard base schema fields."""
@@ -187,6 +207,7 @@ class TestCyclicLogprobRunnerRunOne:
 
         assert row["parsed_choice"] is None
         assert row["is_correct"] is None
+        assert row["model_status"] == "failure"
 
     def test_run_one_makes_n_score_options_calls(self, runner_question_row):
         """run_one() must call score_options() exactly N times (once per permutation)."""

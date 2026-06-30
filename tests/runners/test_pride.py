@@ -2,16 +2,172 @@
 
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 from choicebench.backends.dummy_backend import DummyBackend
 from choicebench.methods.library.pride import PriDeRunner
+from choicebench.metrics.accuracy import Accuracy
+from choicebench.metrics.mad import MAD
 
 from tests.runners.conftest import MockBackend
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 _PROMPTS_DIR = REPO_ROOT / "prompts"
+
+
+def _make_question_row(qid: str, correct_option: str) -> dict:
+    """A normalized 4-option question row with the given gold letter."""
+    return {
+        "question_id": qid,
+        "subject": "demo",
+        "question_text": f"Question {qid}?",
+        "choice_a": "alpha",
+        "choice_b": "bravo",
+        "choice_c": "charlie",
+        "choice_d": "delta",
+        "correct_option": correct_option,
+        "correct_answer_text": {"A": "alpha", "B": "bravo", "C": "charlie", "D": "delta"}[correct_option],
+    }
+
+
+class TestPriDeMetricsIntegration:
+    def test_pride_is_scored_by_builtin_metrics(self, tmp_path: Path):
+        """Regression for MF-A / FSF-1: PriDe must populate parsed_choice so the
+        built-in metrics score it. Accuracy must match the row-level is_correct
+        rate (not 0.0) and MAD must not be NaN."""
+        rows = [
+            _make_question_row("q0", "A"),
+            _make_question_row("q1", "B"),
+            _make_question_row("q2", "A"),
+            _make_question_row("q3", "C"),
+        ]
+        runner = PriDeRunner(
+            backend=DummyBackend(),
+            method_name="pride",
+            split_name="robustness",
+            prompt_version="v1",
+            prompts_dir=_PROMPTS_DIR,
+            run_id="pride_metrics",
+            calibration_n=0,
+            calibration_seed=0,
+            calibration_benchmark="mmlu",
+            calibration_runs_dir=tmp_path,
+            calibration_questions=[],
+        )
+
+        result_rows = [runner.run_one(r, i) for i, r in enumerate(rows)]
+        df = pd.DataFrame(result_rows)
+
+        # Every row must carry parsed_choice == its debiased answer.
+        assert df["parsed_choice"].notna().all()
+
+        # PF-3: success rows must carry a non-None model_status even though
+        # PriDe never calls generate().
+        assert df["model_status"].notna().all()
+        assert (df["model_status"] == "success").all()
+
+        actual_correct_rate = df["is_correct"].mean()
+        acc = Accuracy().compute(df)
+        assert acc["accuracy"] == pytest.approx(actual_correct_rate)
+        # DummyBackend always scores A highest → 2 of 4 gold answers are A.
+        assert acc["accuracy"] == pytest.approx(0.5)
+
+        mad = MAD().compute(df)
+        assert mad["mad"] == mad["mad"]  # not NaN
+
+
+class TestPriDePartialFailureFlag:
+    @pytest.mark.parametrize("n_failed", [0, 2, 3])
+    def test_eval_rows_report_calibration_permutation_failures(
+        self, runner_question_row, tmp_path: Path, n_failed: int
+    ):
+        """PF-4: n_permutations_failed/_total reflect uniform-fallback permutations
+        during calibration (PriDe's per-row score is a single call). Tested for
+        0 (none), 2 (some), and 3 (all-but-one of 4) failures."""
+        good = [-0.1, -2.0, -3.0, -4.0]
+        # 4 calibration permutation calls (some fail → uniform), then 1 eval call.
+        cal_calls = [good] * (4 - n_failed) + [RuntimeError("down")] * n_failed
+        backend = MockBackend(
+            score_responses=cal_calls + [good],  # + eval call
+            supports_logprobs=True,
+        )
+        cal_row = {**runner_question_row, "question_id": "cal_001"}
+        runner = PriDeRunner(
+            backend=backend,
+            method_name="pride",
+            split_name="robustness",
+            prompt_version="v1",
+            prompts_dir=_PROMPTS_DIR,
+            run_id=f"pride_pf4_{n_failed}",
+            calibration_n=1,
+            calibration_seed=0,
+            calibration_benchmark="mmlu",
+            calibration_runs_dir=tmp_path,
+            calibration_questions=[cal_row],
+        )
+
+        rows = runner.run_many(pd.DataFrame([runner_question_row]))
+        assert rows[0]["n_permutations_total"] == 4
+        assert rows[0]["n_permutations_failed"] == n_failed
+
+
+class TestPriDeConstruction:
+    def test_accepts_and_forwards_model_label(self, tmp_path: Path):
+        """Regression: instantiate_runner always passes model_label=, so PriDe's
+        __init__ must accept and forward it (otherwise pride can never be built
+        through the orchestrator)."""
+        runner = PriDeRunner(
+            backend=DummyBackend(),
+            method_name="pride",
+            split_name="robustness",
+            prompt_version="v1",
+            prompts_dir=_PROMPTS_DIR,
+            run_id="pride_label",
+            model_label="org/my-model",
+            calibration_n=0,
+            calibration_seed=0,
+            calibration_benchmark="mmlu",
+            calibration_runs_dir=tmp_path,
+            calibration_questions=[],
+        )
+        assert runner.model_label == "org/my-model"
+
+
+class TestPriDeSidecarKey:
+    def test_sidecar_records_generation_settings(self, runner_question_row, tmp_path: Path):
+        """PF-9: the sidecar payload must record temperature/max_tokens/prompt_version
+        so a prior fit under different settings is not silently reused."""
+        import json
+
+        biased = [-0.1, -5.0, -5.0, -5.0]
+        backend = MockBackend(
+            score_responses=[biased] * 4 + [[-1.0, -2.0, -3.0, -4.0]],
+            supports_logprobs=True,
+        )
+        cal_row = {**runner_question_row, "question_id": "cal_001"}
+        runner = PriDeRunner(
+            backend=backend,
+            method_name="pride",
+            split_name="robustness",
+            prompt_version="v1",
+            prompts_dir=_PROMPTS_DIR,
+            run_id="pride_sidecar",
+            temperature=0.7,
+            max_tokens=128,
+            calibration_n=1,
+            calibration_seed=0,
+            calibration_benchmark="mmlu",
+            calibration_runs_dir=tmp_path,
+            calibration_questions=[cal_row],
+        )
+        runner.run_many(pd.DataFrame([runner_question_row]))
+
+        sidecar = json.loads(runner._sidecar_path().read_text())
+        assert sidecar["temperature"] == 0.7
+        assert sidecar["max_tokens"] == 128
+        assert sidecar["prompt_version"] == "v1"
 
 
 class TestPriDeRunnerIntegration:
@@ -80,7 +236,7 @@ class TestPriDeRunnerIntegration:
             calibration_questions=[],
         )
 
-        rows = runner.run_many([runner_question_row])
+        rows = runner.run_many(pd.DataFrame([runner_question_row]))
         assert len(rows) == 1
         assert rows[0]["pride_inference_mode"] == "eq8_transfer"
         prior = json.loads(rows[0]["peprior_json"])
@@ -118,7 +274,7 @@ class TestPriDeRunnerIntegration:
             calibration_questions=[cal_row],
         )
 
-        rows = runner.run_many([runner_question_row])
+        rows = runner.run_many(pd.DataFrame([runner_question_row]))
         assert len(rows) == 1
         assert rows[0]["pride_inference_mode"] == "eq8_transfer"
         prior = json.loads(rows[0]["peprior_json"])
@@ -157,4 +313,4 @@ class TestPriDeRunnerIntegration:
         )
 
         with pytest.raises(RuntimeError, match="score_options"):
-            runner.run_many([runner_question_row])
+            runner.run_many(pd.DataFrame([runner_question_row]))

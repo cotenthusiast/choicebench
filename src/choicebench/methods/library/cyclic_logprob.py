@@ -13,6 +13,12 @@ Reference: Zheng et al., ICLR 2024, "Large Language Models Are Not Robust
 Multiple Choice Selectors" (arXiv:2309.03882) — §2.2, Eq. (1).
 Backend requirements: score_options
 Logprob support required: yes
+
+vLLM-path caveat: on the vLLM backend, scores come from the top-20 generation
+logprobs, so any option letter not in that top-20 is floored to -100.0 (treated
+as near-impossible). A low-confidence-spread model can thus have a real option
+silently treated as impossible. The HuggingFace backend reads the true
+full-vocabulary logit and is not subject to this floor.
 """
 
 from __future__ import annotations
@@ -24,6 +30,7 @@ from typing import Any, Sequence
 
 import numpy as np
 
+from choicebench.clients.types import FAILURE_STATUS, SUCCESS_STATUS
 from choicebench.parsing.types import PARSE_OK, ParseResult
 from choicebench.methods.base import ExperimentRunner
 from choicebench.methods.library.permutation import PermutationRunner
@@ -104,9 +111,17 @@ class CyclicLogprobRunner(ExperimentRunner):
         )
         row["cyclic_logprob_inference_mode"] = "eq1_averaging"
         row["option_distributions_json"] = json.dumps(mat.tolist())
+        # PF-4: surface how many permutations fell back to a uniform distribution
+        # so a partially-degraded row is distinguishable in the CSV, not only in
+        # the scrolled log.
+        row["n_permutations_total"] = len(prompts)
+        row["n_permutations_failed"] = len(prompts) - n_success
         if final_letter is not None:
             row["parsed_choice"] = final_letter
             row["parse_status"] = PARSE_OK
+        # Logprob method: generate() is never called, so set model_status
+        # explicitly for uniform status filtering across methods (PF-3).
+        row["model_status"] = SUCCESS_STATUS if final_letter is not None else FAILURE_STATUS
         if score_result is not None:
             row["is_correct"] = score_result.is_correct
             row["score_status"] = score_result.status
@@ -215,9 +230,14 @@ class CyclicLogprobRunner(ExperimentRunner):
             )
             result_row["cyclic_logprob_inference_mode"] = "eq1_averaging"
             result_row["option_distributions_json"] = json.dumps(mat.tolist())
+            result_row["n_permutations_total"] = n_perms
+            result_row["n_permutations_failed"] = n_perms - n_success
             if final_letter is not None:
                 result_row["parsed_choice"] = final_letter
                 result_row["parse_status"] = PARSE_OK
+            result_row["model_status"] = (
+                SUCCESS_STATUS if final_letter is not None else FAILURE_STATUS
+            )
             if score_result is not None:
                 result_row["is_correct"] = score_result.is_correct
                 result_row["score_status"] = score_result.status
