@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "choicebench"
 version = "0.1.0"
-description = "A lightweight workbench for MCQ evaluation-method experiments"
+description = "A lightweight framework for MCQ evaluation-method research"
 license = {text = "MIT"}
 requires-python = ">=3.10"
 dependencies = [
@@ -27,7 +27,7 @@ hf = [
     "accelerate",
 ]
 dev = [
-    "pytest",
+    "pytest>=7.0",
     "pytest-asyncio",
     "httpx",
 ]

@@ -1,7 +1,8 @@
 # choicebench
 
-ChoiceBench is a lightweight research workbench for running MCQ evaluation-method experiments on LLMs, with built-in support for answer-order bias analysis and mitigation methods.
+ChoiceBench is a lightweight framework for MCQ evaluation-method research on LLMs, with built-in support for answer-order bias analysis and mitigation methods.
 
+[![Tests](https://github.com/cotenthusiast/choicebench/actions/workflows/test.yml/badge.svg)](https://github.com/cotenthusiast/choicebench/actions/workflows/test.yml)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 
 MCQ evaluation is a well-studied LLM benchmark task, but the scaffolding is always the same: load a benchmark, call a model repeatedly, parse its response, score against the gold answer, save results, and compute metrics. This framework handles all of that so you can focus on the experimental condition — what varies between your runs. In five minutes you can run the toy experiment end-to-end. In an afternoon you can add a new debiasing method or metric and run it against MMLU.
@@ -293,3 +294,20 @@ Planned v0.2 work:
 - **Parallel orchestration** — concurrent execution across independent model/provider jobs (v0.1 iterates synchronously).
 - **Inspect AI adapter** — run ChoiceBench methods inside [Inspect](https://inspect.ai) workflows.
 - **Broader benchmark adapters and stronger script-level integration tests.**
+
+---
+
+## Citation
+
+If you use ChoiceBench in your research, please cite:
+
+```bibtex
+@software{choicebench2026,
+  author    = {Hanna, Karl},
+  title     = {ChoiceBench: A lightweight framework for MCQ evaluation-method research},
+  year      = {2026},
+  url       = {https://github.com/cotenthusiast/choicebench},
+  version   = {0.1.0},
+  license   = {MIT}
+}
+```

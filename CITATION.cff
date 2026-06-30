@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+message: "If you use ChoiceBench in your research, please cite it."
+type: software
+title: "ChoiceBench: A lightweight framework for MCQ evaluation-method research"
+authors:
+  - family-names: "Hanna"
+    given-names: "Karl"
+    orcid: ""
+repository-code: "https://github.com/cotenthusiast/choicebench"
+url: "https://github.com/cotenthusiast/choicebench"
+license: MIT
+version: "0.1.0"
+date-released: "2026-07-01"
+keywords:
+  - "large language models"
+  - "multiple choice questions"
+  - "evaluation"
+  - "positional bias"
+  - "answer order bias"
+  - "debiasing"
+  - "MCQ evaluation methods"
+  - "NLP"
