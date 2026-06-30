@@ -58,15 +58,45 @@ def load_run_config(run_id: str) -> dict:
 # Reparsing
 # ---------------------------------------------------------------------------
 
+# parse_reason values that mark an answer NOT derived from a single raw_text
+# generation. Reparsing raw_text for these would silently overwrite a correct,
+# aggregated answer:
+#   - majority_vote (permutation): the row stores only the first rotation's
+#     raw_text; the answer is a vote across all rotations.
+#   - pride_eq8 (pride) / eq1_averaging (cyclic_logprob): logprob methods with
+#     raw_text=None; the answer comes from score_options, not text.
+_NON_DIRECT_PARSE_REASONS = frozenset({"majority_vote", "pride_eq8", "eq1_averaging"})
+
+
+def _is_reparseable_row(row) -> bool:
+    """True only for direct_mcq-shaped rows whose answer came from one raw_text call.
+
+    Multi-call (two_stage — its raw_text is the unparseable stage-2 text the
+    fallback recovered from) and aggregated/logprob methods are excluded, since
+    reparsing their stored raw_text does not reproduce their reported answer.
+    """
+    if row.get("parse_reason") in _NON_DIRECT_PARSE_REASONS:
+        return False
+    return row.get("method_name") == "direct_mcq"
+
+
 def reparse_run(run_df: pd.DataFrame) -> pd.DataFrame:
-    """Re-run the current parser and scorer on all non-failed rows.
+    """Re-run the current parser and scorer on direct_mcq rows only.
 
     Useful when the parser has been updated and you want to recompute
     parsed_choice / is_correct without re-running expensive model inference.
+    Only direct_mcq rows are touched: every other method's answer is either
+    aggregated across calls or derived from logprobs, so reparsing the single
+    stored raw_text would silently corrupt the reported answer (see FSF-2).
     """
     run_df = run_df.copy()
+    skipped: dict[str, int] = {}
     for idx, row in run_df.iterrows():
         if row.get("model_status") == "failure":
+            continue
+        if not _is_reparseable_row(row):
+            method = row.get("method_name") or "<unknown>"
+            skipped[method] = skipped.get(method, 0) + 1
             continue
         options = build_option_map(row)
         parsed = parse_model_answer(row["raw_text"], options)
@@ -77,6 +107,16 @@ def reparse_run(run_df: pd.DataFrame) -> pd.DataFrame:
         run_df.loc[idx, "parse_reason"]   = parsed.reason
         run_df.loc[idx, "score_status"]   = scored.status
         run_df.loc[idx, "is_correct"]     = scored.is_correct
+
+    if skipped:
+        logger.warning(
+            "--reparse only recomputes direct_mcq rows (answers from a single "
+            "raw_text generation). Left untouched: %s. These methods' answers are "
+            "aggregated (majority_vote), logprob-derived (pride_eq8, eq1_averaging), "
+            "or multi-call (two_stage), so reparsing their raw_text would silently "
+            "corrupt the reported answer.",
+            ", ".join(f"{m} ({n} rows)" for m, n in sorted(skipped.items())),
+        )
     return run_df
 
 
@@ -124,7 +164,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--reparse", action="store_true",
-        help="Re-run the parser on raw_text before computing metrics.",
+        help="Re-run the parser on raw_text before computing metrics. Only "
+             "direct_mcq rows are affected; aggregated/logprob/multi-call "
+             "methods are skipped (a warning lists them).",
     )
     return parser.parse_args()
 
