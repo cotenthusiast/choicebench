@@ -5,6 +5,7 @@ import logging
 
 import pandas as pd
 
+from choicebench.benchmarks.registry import benchmark
 from choicebench.constants import MCQ_ANSWER_MAP
 
 logger = logging.getLogger(__name__)
@@ -74,6 +75,12 @@ def normalize_row(row: dict[str, object]) -> dict[str, object] | None:
     }
 
 
+@benchmark(
+    name="truthful_qa",
+    hf_path="truthful_qa",
+    hf_subset="multiple_choice",
+    default_split="validation",
+)
 def build_normalized_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     """Build a normalized DataFrame from a raw TruthfulQA DataFrame.
 

@@ -10,16 +10,14 @@ from pathlib import Path
 
 import pandas as pd
 
+from choicebench.benchmarks.registry import BENCHMARK_REGISTRY
 from choicebench.config.paths import (
-    ARC_NORMALIZED_PATH,
-    MMLU_NORMALIZED_PATH,
     PROCESSED_DIR,
     TOY_BENCHMARK_PATH,
+    get_benchmark_path,
 )
 from choicebench.config.schema import (
-    BENCHMARK_ARC_CHALLENGE,
     BENCHMARK_HUGGINGFACE,
-    BENCHMARK_MMLU,
     BENCHMARK_TOY,
     BenchmarkConfig,
     MethodConfig,
@@ -32,16 +30,14 @@ logger = logging.getLogger(__name__)
 
 def _load_benchmark_df(benchmark_cfg: BenchmarkConfig) -> pd.DataFrame:
     name = benchmark_cfg.name
-    if name == BENCHMARK_MMLU:
-        return read_benchmark(MMLU_NORMALIZED_PATH)
-    if name == BENCHMARK_ARC_CHALLENGE:
-        return read_benchmark(ARC_NORMALIZED_PATH)
     if name == BENCHMARK_TOY:
         return read_benchmark(TOY_BENCHMARK_PATH)
     if name == BENCHMARK_HUGGINGFACE:
         stem = benchmark_normalized_stem(benchmark_cfg)
         csv_path = PROCESSED_DIR / f"{stem}_normalized.csv"
         return read_benchmark(csv_path)
+    if name in BENCHMARK_REGISTRY:
+        return read_benchmark(get_benchmark_path(name))
     raise ValueError(f"Unknown benchmark for preflight loading: {name!r}")
 
 

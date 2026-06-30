@@ -21,23 +21,10 @@ def ensure_dirs() -> None:
     ]:
         directory.mkdir(parents=True, exist_ok=True)
 
-# Filenames ------------------------------------------
-MMLU_NORMALIZED_FILENAME = "mmlu_normalized.csv"
-
-# Full file paths ------------------------------------
-MMLU_NORMALIZED_PATH = PROCESSED_DIR / MMLU_NORMALIZED_FILENAME
-
-# ARC-Challenge ---------------------------------------
-ARC_NORMALIZED_PATH = PROCESSED_DIR / "arc_challenge_normalized.csv"
-
 # TOY benchmark ---------------------------------------
 TOY_BENCHMARK_PATH = PROCESSED_DIR / "toy_normalized.csv"
 
-# MMLU-Pro --------------------------------------------
-MMLU_PRO_NORMALIZED_PATH = PROCESSED_DIR / "mmlu_pro_normalized.csv"
 
-# HellaSwag -------------------------------------------
-HELLASWAG_NORMALIZED_PATH = PROCESSED_DIR / "hellaswag_normalized.csv"
-
-# TruthfulQA ------------------------------------------
-TRUTHFUL_QA_NORMALIZED_PATH = PROCESSED_DIR / "truthful_qa_normalized.csv"
+def get_benchmark_path(name: str) -> Path:
+    """Return the normalized CSV path for a registered benchmark."""
+    return PROCESSED_DIR / f"{name}_normalized.csv"

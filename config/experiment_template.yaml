@@ -76,7 +76,17 @@ models:
 # Benchmarks
 # ---------------------------------------------------------------------------
 benchmarks:
-  - # "mmlu" | "arc_challenge" | "toy" | "huggingface"
+  - # Any registered benchmark name (mmlu, arc_challenge, mmlu_pro, hellaswag,
+    # truthful_qa) or "toy" (built-in) or "huggingface" (generic HF path).
+    #
+    # To add any HuggingFace MCQ benchmark:
+    #   1. Create src/choicebench/benchmarks/<name>.py
+    #   2. Decorate build_normalized_dataframe with @benchmark(...)
+    #   3. Import it in src/choicebench/benchmarks/__init__.py
+    #   4. Run: python scripts/prepare_data.py --hf-path <hf_path>
+    #   5. Use name: <name> in your config
+    #
+    # No other files need to change.
     name: arc_challenge
 
     # Which split to draw from.

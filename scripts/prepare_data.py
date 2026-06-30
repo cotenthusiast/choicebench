@@ -13,11 +13,7 @@ import logging
 
 import pandas as pd
 
-from choicebench.benchmarks.arc import build_normalized_dataframe as normalize_arc
-from choicebench.benchmarks.hellaswag import build_normalized_dataframe as normalize_hellaswag
-from choicebench.benchmarks.mmlu import build_normalized_dataframe as normalize_mmlu
-from choicebench.benchmarks.mmlu_pro import build_normalized_dataframe as normalize_mmlu_pro
-from choicebench.benchmarks.truthful_qa import build_normalized_dataframe as normalize_truthful_qa
+from choicebench.benchmarks.registry import get_by_hf_path
 from choicebench.config.paths import PROCESSED_DIR, ensure_dirs
 
 logging.basicConfig(
@@ -45,45 +41,25 @@ def normalize_to_schema(
 ) -> pd.DataFrame:
     """Dispatch to the right normalizer based on hf_path (and hf_subset).
 
-    HuggingFace delivers data in its native format; each normalizer branch
-    converts it to the project's canonical schema before calling the shared
-    build_normalized_dataframe() from the benchmark module.
-
     To add support for a new dataset:
-      1. Implement normalize_row() in src/choicebench/benchmarks/<name>.py
-      2. Add a branch here that pre-processes the raw DataFrame if needed
-         and calls build_normalized_dataframe() from that module.
+      1. Create src/choicebench/benchmarks/<name>.py
+      2. Implement build_normalized_dataframe(df) decorated with
+         @benchmark(name=..., hf_path=..., hf_subset=...)
+      3. Import it in src/choicebench/benchmarks/__init__.py
     """
-    if hf_path == "cais/mmlu":
-        # HuggingFace delivers choices as a Python list; the MMLU normalizer
-        # expects the string-serialized form (it calls ast.literal_eval).
-        df = df.copy()
-        df["choices"] = df["choices"].apply(str)
-        return normalize_mmlu(df)
-
-    if hf_path == "allenai/ai2_arc":
-        # HuggingFace delivers choices as a dict {"text": [...], "label": [...]},
-        # which the ARC normalizer consumes directly.
-        return normalize_arc(df)
-
-    if hf_path == "TIGER-Lab/MMLU-Pro":
-        # options is already a Python list; no pre-processing needed.
-        return normalize_mmlu_pro(df)
-
-    if hf_path == "Rowan/hellaswag":
-        # endings is already a Python list; label is an int; no pre-processing needed.
-        return normalize_hellaswag(df)
-
-    if hf_path == "truthful_qa" and hf_subset == "multiple_choice":
-        # mc1_targets is a dict delivered directly by HuggingFace.
-        return normalize_truthful_qa(df)
-
-    raise NotImplementedError(
-        f"No normalizer registered for dataset {hf_path!r} (subset={hf_subset!r}). "
-        f"To add one: implement normalize_row() in "
-        f"src/choicebench/benchmarks/<your_name>.py and add a branch in "
-        f"normalize_to_schema() in scripts/prepare_data.py."
-    )
+    entry = get_by_hf_path(hf_path, hf_subset)
+    if entry is None:
+        raise NotImplementedError(
+            f"No normalizer registered for dataset {hf_path!r} "
+            f"(subset={hf_subset!r}).\n"
+            f"To add one:\n"
+            f"  1. Create src/choicebench/benchmarks/<name>.py\n"
+            f"  2. Implement build_normalized_dataframe(df) decorated "
+            f"with @benchmark(name=..., hf_path={hf_path!r}, "
+            f"hf_subset={hf_subset!r})\n"
+            f"  3. Import it in src/choicebench/benchmarks/__init__.py"
+        )
+    return entry.normalizer(df)
 
 
 def parse_args() -> argparse.Namespace:

@@ -21,26 +21,18 @@ import pandas as pd
 from choicebench.backends.api_backend import APIBackend
 from choicebench.backends.dummy_backend import DummyBackend
 from choicebench.backends.hf_backend import HuggingFaceBackend
+from choicebench.benchmarks.registry import BENCHMARK_REGISTRY
 from choicebench.config.paths import (
-    ARC_NORMALIZED_PATH,
-    HELLASWAG_NORMALIZED_PATH,
-    MMLU_NORMALIZED_PATH,
-    MMLU_PRO_NORMALIZED_PATH,
     PROCESSED_DIR,
     PROMPTS_DIR,
     RUNS_DIR,
     TOY_BENCHMARK_PATH,
-    TRUTHFUL_QA_NORMALIZED_PATH,
     ensure_dirs,
+    get_benchmark_path,
 )
 from choicebench.config.schema import (
-    BENCHMARK_ARC_CHALLENGE,
-    BENCHMARK_HELLASWAG,
     BENCHMARK_HUGGINGFACE,
-    BENCHMARK_MMLU,
-    BENCHMARK_MMLU_PRO,
     BENCHMARK_TOY,
-    BENCHMARK_TRUTHFUL_QA,
     BenchmarkConfig,
     ExperimentConfig,
     MethodConfig,
@@ -127,18 +119,8 @@ def build_backend(
 def load_benchmark(benchmark: BenchmarkConfig, run_seed: int) -> pd.DataFrame:
     """Load benchmark questions as a DataFrame, applying filters and sample cap."""
     name = benchmark.name
-    if name == BENCHMARK_MMLU:
-        questions = read_benchmark(MMLU_NORMALIZED_PATH)
-    elif name == BENCHMARK_ARC_CHALLENGE:
-        questions = read_benchmark(ARC_NORMALIZED_PATH)
-    elif name == BENCHMARK_TOY:
+    if name == BENCHMARK_TOY:
         questions = read_benchmark(TOY_BENCHMARK_PATH)
-    elif name == BENCHMARK_MMLU_PRO:
-        questions = read_benchmark(MMLU_PRO_NORMALIZED_PATH)
-    elif name == BENCHMARK_HELLASWAG:
-        questions = read_benchmark(HELLASWAG_NORMALIZED_PATH)
-    elif name == BENCHMARK_TRUTHFUL_QA:
-        questions = read_benchmark(TRUTHFUL_QA_NORMALIZED_PATH)
     elif name == BENCHMARK_HUGGINGFACE:
         stem = benchmark_normalized_stem(benchmark)
         csv_path = PROCESSED_DIR / f"{stem}_normalized.csv"
@@ -155,6 +137,20 @@ def load_benchmark(benchmark: BenchmarkConfig, run_seed: int) -> pd.DataFrame:
                 f"Normalized benchmark not found: {csv_path}\n"
                 f"Run: {cmd}"
             )
+    elif name in BENCHMARK_REGISTRY:
+        path = get_benchmark_path(name)
+        if not path.exists():
+            entry = BENCHMARK_REGISTRY[name]
+            cmd = f"python scripts/prepare_data.py --hf-path {entry.hf_path}"
+            if entry.hf_subset:
+                cmd += f" --hf-subset {entry.hf_subset}"
+            if entry.default_split != "test":
+                cmd += f" --split {entry.default_split}"
+            raise FileNotFoundError(
+                f"Normalized benchmark not found: {path}\n"
+                f"Run: {cmd}"
+            )
+        questions = read_benchmark(path)
     else:
         raise ValueError(f"Unknown benchmark: {name!r}")
 

@@ -6,6 +6,7 @@ import hashlib
 import pandas as pd
 
 from choicebench.benchmarks.base import build_normalized_dataframe as _build_normalized_dataframe
+from choicebench.benchmarks.registry import benchmark
 from choicebench.constants import MCQ_ANSWER_MAP
 
 
@@ -59,6 +60,12 @@ def normalize_row(row: dict[str, object]) -> dict[str, object]:
     })
 
 
+@benchmark(
+    name="mmlu",
+    hf_path="cais/mmlu",
+    hf_subset="all",
+    default_split="test",
+)
 def build_normalized_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     """
     Builds a normalized dataframe from a raw MMLU dataframe.
@@ -76,4 +83,9 @@ def build_normalized_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     Returns:
         Pandas dataframe where each row follows the normalized schema.
     """
+    # HuggingFace delivers choices as a Python list; normalize_row calls
+    # ast.literal_eval so it needs the string-serialized form.
+    if not df.empty and not isinstance(df["choices"].iloc[0], str):
+        df = df.copy()
+        df["choices"] = df["choices"].apply(str)
     return _build_normalized_dataframe(df, normalize_row)

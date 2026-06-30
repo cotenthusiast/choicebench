@@ -5,6 +5,7 @@ import hashlib
 import pandas as pd
 
 from choicebench.benchmarks.base import build_normalized_dataframe as _build_normalized_dataframe
+from choicebench.benchmarks.registry import benchmark
 from choicebench.constants import MCQ_OPTIONS
 
 _ARC_SUBJECT = "arc_challenge"
@@ -74,6 +75,12 @@ def normalize_row(row: dict[str, object]) -> dict[str, object]:
     }
 
 
+@benchmark(
+    name="arc_challenge",
+    hf_path="allenai/ai2_arc",
+    hf_subset="ARC-Challenge",
+    default_split="test",
+)
 def build_normalized_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     """Build a normalized DataFrame from a raw ARC-Challenge DataFrame.
 

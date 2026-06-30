@@ -5,6 +5,7 @@ import hashlib
 import pandas as pd
 
 from choicebench.benchmarks.base import build_normalized_dataframe as _build_normalized_dataframe
+from choicebench.benchmarks.registry import benchmark
 from choicebench.constants import MCQ_ANSWER_MAP
 
 
@@ -60,6 +61,12 @@ def normalize_row(row: dict[str, object]) -> dict[str, object]:
     }
 
 
+@benchmark(
+    name="hellaswag",
+    hf_path="Rowan/hellaswag",
+    hf_subset=None,
+    default_split="validation",
+)
 def build_normalized_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     """Build a normalized DataFrame from a raw HellaSwag DataFrame.
 

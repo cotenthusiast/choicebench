@@ -12,6 +12,7 @@ from typing import Any, Mapping
 
 import yaml
 
+from choicebench.benchmarks.registry import BENCHMARK_REGISTRY
 from choicebench.metrics import BUILTIN_METRICS
 
 DEFAULT_MAX_NEW_TOKENS = 512
@@ -24,22 +25,13 @@ _VALID_BACKENDS = {"huggingface", "api", "dummy"}
 _LOGPROB_CAPABLE_BACKENDS = {"huggingface", "dummy"}
 _VALID_DEVICES = {"cuda", "cpu", "auto"}
 
-BENCHMARK_MMLU = "mmlu"
-BENCHMARK_ARC_CHALLENGE = "arc_challenge"
 BENCHMARK_TOY = "toy"
 BENCHMARK_HUGGINGFACE = "huggingface"
-BENCHMARK_MMLU_PRO = "mmlu_pro"
-BENCHMARK_HELLASWAG = "hellaswag"
-BENCHMARK_TRUTHFUL_QA = "truthful_qa"
-VALID_BENCHMARKS = {
-    BENCHMARK_MMLU,
-    BENCHMARK_ARC_CHALLENGE,
-    BENCHMARK_TOY,
-    BENCHMARK_HUGGINGFACE,
-    BENCHMARK_MMLU_PRO,
-    BENCHMARK_HELLASWAG,
-    BENCHMARK_TRUTHFUL_QA,
-}
+
+
+def get_valid_benchmarks() -> set[str]:
+    """Return the set of valid benchmark names (registry + special cases)."""
+    return set(BENCHMARK_REGISTRY.keys()) | {BENCHMARK_TOY, BENCHMARK_HUGGINGFACE}
 
 
 class ConfigError(Exception):
@@ -166,9 +158,10 @@ def _build_models(raw: dict) -> list[ModelConfig]:
 def _build_benchmark_entry(raw: dict, index: int) -> BenchmarkConfig:
     where = f"benchmarks[{index}]"
     name = _require(raw, "name", where)
-    if name not in VALID_BENCHMARKS:
+    valid = get_valid_benchmarks()
+    if name not in valid:
         raise ConfigError(
-            f"{where}.name must be one of {sorted(VALID_BENCHMARKS)}; got {name!r}."
+            f"{where}.name must be one of {sorted(valid)}; got {name!r}."
         )
     n_samples = raw.get("n_samples")
     if n_samples is not None and (not isinstance(n_samples, int) or n_samples <= 0):

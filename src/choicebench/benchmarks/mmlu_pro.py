@@ -5,6 +5,7 @@ import logging
 
 import pandas as pd
 
+from choicebench.benchmarks.registry import benchmark
 from choicebench.constants import MCQ_ANSWER_MAP
 
 logger = logging.getLogger(__name__)
@@ -75,6 +76,12 @@ def normalize_row(row: dict[str, object]) -> dict[str, object] | None:
     }
 
 
+@benchmark(
+    name="mmlu_pro",
+    hf_path="TIGER-Lab/MMLU-Pro",
+    hf_subset=None,
+    default_split="test",
+)
 def build_normalized_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     """Build a normalized DataFrame from a raw MMLU-Pro DataFrame.
 
