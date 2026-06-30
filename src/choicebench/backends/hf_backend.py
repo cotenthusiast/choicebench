@@ -195,9 +195,15 @@ class HuggingFaceBackend(BaseBackend):
             ids = self._tokenizer.encode(opt, add_special_tokens=False)
             if len(ids) != 1:
                 raise ValueError(
-                    f"Option '{opt}' encodes to {len(ids)} token(s) in this tokenizer. "
-                    "score_options requires each option to be exactly one token. "
-                    "Try passing the space-prefixed form (e.g. ' A') or check the tokenizer."
+                    f"score_options() cannot score option label {opt!r}: it encodes "
+                    f"to {len(ids)} tokens in {self._model_path}'s tokenizer, but "
+                    f"scoring requires each option label to be exactly one token "
+                    f"(so per-letter log-probs are comparable). Most tokenizers emit "
+                    f"a single token for a bare 'A'–'D' only after a leading space; "
+                    f"check whether this tokenizer needs the space-prefixed form "
+                    f"(e.g. ' {opt}' instead of {opt!r}). This is a hard constraint of "
+                    f"label scoring, not a transient error — pride / cyclic_logprob "
+                    f"cannot run on this model until option labels are single-token."
                 )
             option_token_ids[opt] = ids[0]
 
