@@ -12,17 +12,24 @@ from typing import Any, Mapping
 
 import yaml
 
+from choicebench.backends.dummy_backend import DummyBackend
+from choicebench.backends.hf_backend import HuggingFaceBackend
 from choicebench.benchmarks.registry import BENCHMARK_REGISTRY
 from choicebench.metrics import BUILTIN_METRICS
 
 DEFAULT_MAX_NEW_TOKENS = 512
 
 _VALID_BACKENDS = {"huggingface", "api", "dummy"}
-# Backends known (in this codebase) to implement score_options() — i.e.
-# supports_logprobs=True. "dummy" is included deliberately: DummyBackend
-# returns fixed scores precisely so it can stand in for a logprob-capable
-# backend in tests and onboarding configs (see config/toy_experiment.yaml).
-_LOGPROB_CAPABLE_BACKENDS = {"huggingface", "dummy"}
+# An API backend is logprob-capable iff its provider is vLLM, mirroring
+# APIBackend.supports_logprobs (True only when wrapping VLLMClient). This is the
+# only place api-provider logprob capability is encoded.
+_LOGPROB_API_PROVIDERS = {"vllm"}
+# Non-api backend classes, consulted for their declared supports_logprobs so we
+# never maintain a second hardcoded "logprob-capable" name list (FCD-2 / PF-2).
+_NONAPI_BACKEND_CLASSES = {
+    "dummy": DummyBackend,
+    "huggingface": HuggingFaceBackend,
+}
 _VALID_DEVICES = {"cuda", "cpu", "auto"}
 
 BENCHMARK_TOY = "toy"
@@ -54,7 +61,9 @@ class ModelConfig:
     provider: str | None = None  # Only required for API backends
     device: str = "cuda"
     generation_kwargs: GenerationKwargsConfig = field(default_factory=GenerationKwargsConfig)
-    concurrency_limit: int = 10  # Max in-flight requests for this model (API backends only)
+    # Max in-flight requests for this model (API backends only). None means
+    # "inherit run.concurrency_limit", resolved when the backend is built.
+    concurrency_limit: int | None = None
     base_url: str | None = None  # vLLM server address; ignored for all other providers
 
 
@@ -148,7 +157,11 @@ def _build_models(raw: dict) -> list[ModelConfig]:
                 provider=entry.get("provider"),
                 device=device,
                 generation_kwargs=_build_generation_kwargs(entry.get("generation_kwargs")),
-                concurrency_limit=int(entry.get("concurrency_limit", 10)),
+                concurrency_limit=(
+                    int(entry["concurrency_limit"])
+                    if entry.get("concurrency_limit") is not None
+                    else None
+                ),
                 base_url=entry.get("base_url"),
             )
         )
@@ -203,6 +216,20 @@ def benchmark_normalized_stem(config: BenchmarkConfig) -> str:
         )
     stem = config.hf_path.rsplit("/", 1)[-1]
     return stem.lower().replace("-", "_")
+
+
+def benchmark_write_label(config: BenchmarkConfig) -> str:
+    """Return the benchmark identity written to result CSVs and checkpoint keys.
+
+    For the generic ``huggingface`` path, two distinct datasets both carry
+    name ``"huggingface"``, so writing under the literal name would collide
+    (overwrite + blend). The normalized stem (from output_name/hf_path) is the
+    real per-dataset identity and is used instead. Every other benchmark type
+    uses its ``name`` verbatim.
+    """
+    if config.name == BENCHMARK_HUGGINGFACE:
+        return benchmark_normalized_stem(config)
+    return config.name
 
 
 def _build_methods(raw: list | None) -> list[MethodConfig]:
@@ -269,32 +296,49 @@ def _build_run(raw: dict | None) -> RunConfig:
     )
 
 
-def _is_logprob_capable(model: ModelConfig) -> bool:
-    """Return True if this model config supports score_options()."""
-    if model.backend in _LOGPROB_CAPABLE_BACKENDS:
-        return True
-    # vLLM exposes per-token log probabilities via its OpenAI-compatible API.
-    if model.backend == "api" and model.provider == "vllm":
-        return True
-    return False
+def model_supports_logprobs(model: ModelConfig) -> bool:
+    """Single source of truth: does this model's backend expose score_options()?
+
+    Both config validation (this module) and run_experiment's pre-run gate call
+    this one function, so the two can never drift apart (FCD-2 / PF-2). Capability
+    is read from the backends' own declared ``supports_logprobs`` rather than a
+    hardcoded name list:
+      - api backends are capable iff the provider is vLLM (see _LOGPROB_API_PROVIDERS).
+      - dummy / huggingface report their class capability directly; constructing
+        them here is cheap (no weights are loaded until .load()).
+    """
+    if model.backend == "api":
+        return model.provider in _LOGPROB_API_PROVIDERS
+    cls = _NONAPI_BACKEND_CLASSES.get(model.backend)
+    if cls is None:
+        return False
+    if cls is HuggingFaceBackend:
+        probe = cls(model.model_name_or_path, model.device)
+    else:
+        probe = cls()
+    return bool(probe.supports_logprobs)
 
 
 def _validate_cross_field(config: ExperimentConfig) -> None:
     """Rules that span more than one section — can't be checked per-field."""
     for m in config.methods:
         for model in config.models:
-            if m.requires_logprobs and not _is_logprob_capable(model):
+            if m.requires_logprobs and not model_supports_logprobs(model):
                 raise ConfigError(
                     f"Method {m.name!r} requires score_options() / logprobs, "
                     f"but model.backend={model.backend!r} / provider={model.provider!r} "
                     f"does not support it. Logprob-capable options: "
-                    f"{sorted(_LOGPROB_CAPABLE_BACKENDS)} backends, or "
+                    f"{sorted(_NONAPI_BACKEND_CLASSES)} backends, or "
                     f"backend=api with provider=vllm. "
                     f"Either drop this method or switch backends."
                 )
     seen_benchmark_keys: set[str] = set()
     for bench in config.benchmarks:
-        key = bench.output_name or bench.name
+        # Key on the *resolved written label* (what actually lands in the CSV
+        # filename / checkpoint key / benchmark_name column), not just
+        # output_name — otherwise two `name: huggingface` entries that resolve
+        # to the same stem would slip past and silently overwrite each other.
+        key = benchmark_write_label(bench)
         if key in seen_benchmark_keys:
             raise ConfigError(
                 f"Duplicate benchmark key {key!r} in benchmarks list — "

@@ -96,6 +96,53 @@ def test_api_backend_receives_run_seed(tmp_path, monkeypatch):
     assert backend._seed == 1234
 
 
+def test_model_inherits_run_concurrency_limit_when_unset(tmp_path, monkeypatch):
+    """PF-12: a model that does not set concurrency_limit inherits the
+    run-level default passed to build_backend()."""
+    run_exp = _load_run_experiment()
+    monkeypatch.setattr(run_exp, "RUNS_DIR", tmp_path)
+
+    class _FakeClient:
+        def __init__(self, model_name, concurrency_limit=10, **kwargs):
+            self.model_name = model_name
+            self.provider = "fake"
+            self.concurrency_limit = concurrency_limit
+
+    monkeypatch.setitem(run_exp.CLIENT_REGISTRY, "fake", _FakeClient)
+
+    backend = run_exp.build_backend(
+        _model("api", provider="fake", model_name_or_path="fake-model"),
+        "rid",
+        run_seed=1,
+        default_concurrency_limit=3,
+    )
+    assert backend._concurrency_limit == 3
+    assert backend._raw_client.concurrency_limit == 3
+
+
+def test_per_model_concurrency_limit_overrides_run_default(tmp_path, monkeypatch):
+    """PF-12: an explicit per-model concurrency_limit wins over the run default."""
+    run_exp = _load_run_experiment()
+    monkeypatch.setattr(run_exp, "RUNS_DIR", tmp_path)
+
+    class _FakeClient:
+        def __init__(self, model_name, concurrency_limit=10, **kwargs):
+            self.model_name = model_name
+            self.provider = "fake"
+            self.concurrency_limit = concurrency_limit
+
+    monkeypatch.setitem(run_exp.CLIENT_REGISTRY, "fake", _FakeClient)
+
+    backend = run_exp.build_backend(
+        _model("api", provider="fake", model_name_or_path="fake-model", concurrency_limit=7),
+        "rid",
+        run_seed=1,
+        default_concurrency_limit=3,
+    )
+    assert backend._concurrency_limit == 7
+    assert backend._raw_client.concurrency_limit == 7
+
+
 def test_api_backend_unknown_provider_raises():
     run_exp = _load_run_experiment()
     with pytest.raises(ValueError, match="Unknown provider"):
@@ -462,11 +509,16 @@ def test_validate_pride_gemini_raises_configuration_error():
         run_exp.validate_logprob_compatibility(_cfg("pride", "api", provider="gemini"))
 
 
-def test_validate_pride_dummy_raises_configuration_error():
-    """pride + dummy backend → ConfigurationError (dummy has no logprobs)."""
+def test_validate_pride_dummy_passes():
+    """pride + dummy backend → no error.
+
+    PF-2: DummyBackend.supports_logprobs is True, so the unified capability
+    check (model_supports_logprobs) classifies dummy as logprob-capable in both
+    the schema validator and this pre-run gate. (Previously the two gates
+    disagreed and this combination passed schema then crashed here — FCD-2.)
+    """
     run_exp = _load_run_experiment()
-    with pytest.raises(run_exp.ConfigurationError, match="requires logprob access"):
-        run_exp.validate_logprob_compatibility(_cfg("pride", "dummy"))
+    run_exp.validate_logprob_compatibility(_cfg("pride", "dummy"))
 
 
 def test_validate_pride_vllm_passes():

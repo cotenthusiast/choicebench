@@ -38,7 +38,9 @@ from choicebench.config.schema import (
     MethodConfig,
     ModelConfig,
     benchmark_normalized_stem,
+    benchmark_write_label,
     load_config,
+    model_supports_logprobs,
 )
 from choicebench.infra.checkpoint import CheckpointManager
 from choicebench.io.readers import read_benchmark
@@ -74,17 +76,27 @@ def build_backend(
     model_config: ModelConfig,
     run_id: str,
     run_seed: int,
+    default_concurrency_limit: int = 10,
 ) -> APIBackend | HuggingFaceBackend | DummyBackend:
-    """Construct the inference backend for a single model config."""
+    """Construct the inference backend for a single model config.
+
+    A model that does not set its own ``concurrency_limit`` inherits
+    ``default_concurrency_limit`` (the run-level ``run.concurrency_limit``).
+    """
     backend_type = model_config.backend
 
     if backend_type == "api":
         client_cls = CLIENT_REGISTRY.get(model_config.provider)
         if client_cls is None:
             raise ValueError(f"Unknown provider {model_config.provider!r}. Available: {sorted(CLIENT_REGISTRY)}")
+        concurrency_limit = (
+            model_config.concurrency_limit
+            if model_config.concurrency_limit is not None
+            else default_concurrency_limit
+        )
         client_kwargs: dict = {
             "model_name": model_config.model_name_or_path,
-            "concurrency_limit": model_config.concurrency_limit,
+            "concurrency_limit": concurrency_limit,
         }
         if model_config.base_url is not None:
             client_kwargs["base_url"] = model_config.base_url
@@ -98,7 +110,7 @@ def build_backend(
             model_config.generation_kwargs.temperature,
             model_config.generation_kwargs.max_new_tokens,
             run_seed,
-            model_config.concurrency_limit,
+            concurrency_limit,
         )
     elif backend_type == "huggingface":
         backend = HuggingFaceBackend(
@@ -146,6 +158,11 @@ def load_benchmark(benchmark: BenchmarkConfig, run_seed: int) -> pd.DataFrame:
                 cmd += f" --hf-subset {entry.hf_subset}"
             if entry.default_split != "test":
                 cmd += f" --split {entry.default_split}"
+            # Pin the stem to the registry name so the produced file lands at
+            # exactly `path`. prepare_data.py also auto-resolves this for a
+            # registered hf_path, but stating it makes the hint correct
+            # regardless and avoids the old ai2_arc → arc_challenge dead end.
+            cmd += f" --output-name {name}"
             raise FileNotFoundError(
                 f"Normalized benchmark not found: {path}\n"
                 f"Run: {cmd}"
@@ -215,6 +232,15 @@ def instantiate_runner(
     if preflight_questions is not None:
         extra_kwargs["preflight_questions"] = preflight_questions
 
+    # Methods that fit a calibration sidecar (e.g. PriDe) write it under
+    # calibration_runs_dir / run_id. Default that to RUNS_DIR so sidecars land in
+    # the run's own directory instead of the current working directory — but only
+    # if the method accepts the parameter and the user did not set it in params.
+    import inspect
+    runner_params = inspect.signature(runner_cls.__init__).parameters
+    if "calibration_runs_dir" in runner_params and "calibration_runs_dir" not in method_params:
+        extra_kwargs["calibration_runs_dir"] = RUNS_DIR
+
     try:
         return runner_cls(
             backend=backend,
@@ -242,18 +268,6 @@ def instantiate_runner(
 # Configuration validation
 # ---------------------------------------------------------------------------
 
-_LOGPROB_BACKEND_TYPES: frozenset[str] = frozenset({"huggingface"})
-_LOGPROB_API_PROVIDERS: frozenset[str] = frozenset({"vllm"})
-
-
-def _backend_supports_logprobs(model_cfg: ModelConfig) -> bool:
-    if model_cfg.backend in _LOGPROB_BACKEND_TYPES:
-        return True
-    if model_cfg.backend == "api" and model_cfg.provider in _LOGPROB_API_PROVIDERS:
-        return True
-    return False
-
-
 def validate_logprob_compatibility(config: ExperimentConfig) -> None:
     """Fail fast if any (method, model) pair requires logprobs but the backend cannot provide them.
 
@@ -273,7 +287,7 @@ def validate_logprob_compatibility(config: ExperimentConfig) -> None:
         if runner_cls is None or not getattr(runner_cls, "requires_score_options", False):
             continue
         for model_cfg in config.models:
-            if _backend_supports_logprobs(model_cfg):
+            if model_supports_logprobs(model_cfg):
                 continue
             provider = model_cfg.provider or model_cfg.backend
             raise ConfigurationError(
@@ -393,15 +407,22 @@ async def _run_model(
         benchmark_cfg.name, method.name,
         model_config.model_name_or_path, model_config.backend,
     )
-    backend = build_backend(model_config, run_id, config.run.seed)
+    backend = build_backend(
+        model_config, run_id, config.run.seed, config.run.concurrency_limit
+    )
     logger.info("Backend: %s", backend.__class__.__name__)
+
+    # The written identity for the generic `huggingface` path is the normalized
+    # stem, not the literal name "huggingface" — otherwise two distinct HF
+    # datasets collide on the CSV filename / checkpoint key (FCD-3 / MF-C).
+    write_label = benchmark_write_label(benchmark_cfg)
 
     checkpoint_mgr = CheckpointManager(
         checkpoint_dir=checkpoint_dir,
         run_id=run_id,
         condition=method.name,
         model=model_config.model_name_or_path,
-        benchmark=benchmark_cfg.name,
+        benchmark=write_label,
     )
     runner = instantiate_runner(
         config, model_config, method, backend, run_id, benchmark_cfg,
@@ -416,7 +437,7 @@ async def _run_model(
         checkpoint_every_n=config.run.checkpoint_every_n,
         resume=config.run.resume,
         model_name=model_config.model_name_or_path,
-        benchmark=benchmark_cfg.name,
+        benchmark=write_label,
     )
 
 

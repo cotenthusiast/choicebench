@@ -85,11 +85,33 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _resolve_output_stem(
+    output_name: str | None, hf_path: str, hf_subset: str | None
+) -> str:
+    """Resolve the CSV filename stem for a prepared dataset.
+
+    Precedence:
+      1. An explicit --output-name always wins.
+      2. If the (hf_path, hf_subset) pair matches a registered benchmark, use
+         that registry entry's name — so e.g. allenai/ai2_arc + ARC-Challenge
+         produces arc_challenge_normalized.csv, which is exactly what
+         load_benchmark() looks for. Without this, the stem would be derived
+         from the hf_path ("ai2_arc") and the run would never find the file.
+      3. Otherwise derive from the hf_path tail (lowercased, hyphens→underscores).
+    """
+    if output_name:
+        return output_name
+    entry = get_by_hf_path(hf_path, hf_subset)
+    if entry is not None:
+        return entry.name
+    return hf_path.rsplit("/", 1)[-1].lower().replace("-", "_")
+
+
 def main() -> None:
     ensure_dirs()
     args = parse_args()
 
-    stem = args.output_name or args.hf_path.rsplit("/", 1)[-1].lower().replace("-", "_")
+    stem = _resolve_output_stem(args.output_name, args.hf_path, args.hf_subset)
     output_path = PROCESSED_DIR / f"{stem}_normalized.csv"
 
     if output_path.exists():
