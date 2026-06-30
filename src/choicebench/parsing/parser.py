@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Collection, Mapping
 
 from choicebench.constants import MCQ_OPTIONS
@@ -171,6 +172,25 @@ def extract_choice_letter(
     )
 
 
+def _option_matches_as_token(normalized_option: str, normalized_text: str) -> bool:
+    """
+    Return True if the option text appears in the model output as a distinct
+    token sequence rather than as an incidental substring.
+
+    Matching is bounded by non-alphanumeric characters (or the string edges),
+    so option ``"4"`` matches the standalone ``4`` in ``"the answer is 4"`` but
+    not the ``4`` inside ``"14"``. Comparison is case-insensitive.
+    """
+    if normalized_option == "":
+        return False
+    pattern = (
+        r"(?<![A-Za-z0-9])"
+        + re.escape(normalized_option)
+        + r"(?![A-Za-z0-9])"
+    )
+    return re.search(pattern, normalized_text, flags=re.IGNORECASE) is not None
+
+
 def extract_choice_text_match(
     normalized_text: str,
     options: Mapping[str, str],
@@ -179,10 +199,12 @@ def extract_choice_text_match(
     Fallback matching against the option texts themselves, for outputs where
     the model writes out the answer text instead of a letter.
 
-    Each option's normalized text is checked against the normalized model
-    output for an exact or substring match. Returns PARSE_OK if exactly one
-    option matches, PARSE_AMBIGUOUS if more than one option matches, and
-    PARSE_MISSING if none match.
+    Each option's normalized text is matched against the normalized model
+    output on token boundaries (see _option_matches_as_token): the option must
+    appear as a distinct token sequence, not merely as a raw substring, so a
+    short/numeric option like ``"4"`` does not spuriously match inside ``"14"``.
+    Returns PARSE_OK if exactly one option matches, PARSE_AMBIGUOUS if more than
+    one option matches, and PARSE_MISSING if none match.
 
     Args:
         normalized_text: Pre-normalized model output text.
@@ -194,9 +216,7 @@ def extract_choice_text_match(
     candidates = []
     for letter, option_text in options.items():
         normalized_option = normalize_output_text(option_text)
-        if normalized_option.lower() == normalized_text.lower():
-            candidates.append(letter)
-        elif normalized_option.lower() in normalized_text.lower():
+        if _option_matches_as_token(normalized_option, normalized_text):
             candidates.append(letter)
 
     candidates = set(candidates)

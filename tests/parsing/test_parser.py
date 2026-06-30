@@ -123,6 +123,34 @@ class TestExtractChoiceTextMatch:
         assert result.final_choice is None
         assert result.status == PARSE_MISSING
 
+    def test_numeric_option_does_not_match_inside_longer_number(self) -> None:
+        # Correct answer "4" must NOT match the "4" inside "14".
+        options = {"A": "4", "B": "5", "C": "3", "D": "6"}
+        result = extract_choice_text_match("the total comes to 14", options)
+        assert result.final_choice is None
+        assert result.status == PARSE_MISSING
+
+    def test_numeric_option_matches_as_standalone_token(self) -> None:
+        # Correct answer "4" matches the standalone "4" in surrounding text.
+        options = {"A": "4", "B": "5", "C": "3", "D": "6"}
+        result = extract_choice_text_match("the answer is 4", options)
+        assert result.final_choice == "A"
+        assert result.status == PARSE_OK
+
+    def test_numeric_option_matches_when_output_is_only_the_number(self) -> None:
+        # Correct answer "4" matches when the output is exactly "4".
+        options = {"A": "4", "B": "5", "C": "3", "D": "6"}
+        result = extract_choice_text_match("4", options)
+        assert result.final_choice == "A"
+        assert result.status == PARSE_OK
+
+    def test_word_option_matches_at_word_boundary_with_trailing_text(self) -> None:
+        # Word-level (not digit-specific): "Paris" matches in "Paris, France".
+        options = {"A": "Paris", "B": "London", "C": "Berlin", "D": "Rome"}
+        result = extract_choice_text_match("Paris, France", options)
+        assert result.final_choice == "A"
+        assert result.status == PARSE_OK
+
 
 class TestParseModelAnswer:
     """Tests for parse_model_answer."""
@@ -213,5 +241,23 @@ class TestParseModelAnswer:
         result = parse_model_answer("Type 2 diabetes mellitus", sample_options)
 
         assert text_match_called is True
+        assert result.final_choice == "B"
+        assert result.status == PARSE_OK
+
+    def test_numeric_substring_does_not_mis_score_through_full_path(self) -> None:
+        # End-to-end: letter extraction misses, and the text-match fallback must
+        # not score option "4" just because "4" is a substring of "14".
+        options = {"A": "4", "B": "5", "C": "3", "D": "6"}
+        result = parse_model_answer("After calculation, the total comes to 14.", options)
+        assert result.final_choice is None
+        assert result.status == PARSE_MISSING
+
+    def test_realworld_text_answer_still_matches_through_full_path(self, sample_options) -> None:
+        # No regression: a genuine written-out answer is still matched on the
+        # fallback path when no letter is present.
+        result = parse_model_answer(
+            "Given the presentation, the diagnosis is Type 2 diabetes mellitus.",
+            sample_options,
+        )
         assert result.final_choice == "B"
         assert result.status == PARSE_OK
