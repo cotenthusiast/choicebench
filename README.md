@@ -318,9 +318,26 @@ metrics (`accuracy`, `mad`) read that column. This is uniform across all methods
 
 `pride` additionally records `pride_adjusted_choice` and `cyclic_logprob` records
 `option_distributions_json`, but these are diagnostics — `parsed_choice` is the
-single authoritative column for scoring and for any user `groupby`. Each method
-also sets a non-`None` `model_status` (`"success"`/`"failure"`) on every row, so a
-`model_status == "success"` filter behaves the same across methods.
+single authoritative column for scoring and for any user `groupby`.
+
+Each method also sets a non-`None` `model_status` (`"success"`/`"failure"`) on
+every row, but **what `model_status` means is not uniform across methods** — so a
+`model_status == "success"` filter does *not* behave identically for all five.
+There are two camps:
+
+| Method | `model_status` reflects | What `"success"` means |
+|---|---|---|
+| `direct_mcq` | transport success | the backend call returned — even if the output was unparseable, so `parsed_choice` may be `None` |
+| `two_stage` | transport success | the backend call(s) returned — even if unparseable, so `parsed_choice` may be `None` |
+| `cyclic_permutation` | answer produced | a majority-vote answer was produced (`parsed_choice` is set) |
+| `cyclic_logprob` | answer produced | a final argmax answer was produced (`parsed_choice` is set) |
+| `pride` | answer produced | a debiased answer was produced (`parsed_choice` is set) |
+
+So for `direct_mcq`/`two_stage` a responded-but-unparseable row is `success` with
+`parsed_choice == None`, whereas for the other three the same situation is
+`failure`. If you need an answer-presence filter that is consistent across all
+five methods, filter on `parsed_choice.notna()` (or `parse_status == "parse_ok"`)
+rather than on `model_status`.
 
 #### Logprob methods on vLLM vs HuggingFace
 

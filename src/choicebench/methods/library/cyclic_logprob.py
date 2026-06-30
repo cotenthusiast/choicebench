@@ -120,7 +120,13 @@ class CyclicLogprobRunner(ExperimentRunner):
             row["parsed_choice"] = final_letter
             row["parse_status"] = PARSE_OK
         # Logprob method: generate() is never called, so set model_status
-        # explicitly for uniform status filtering across methods (PF-3).
+        # explicitly (PF-3) to answer-produced semantics — success iff a final
+        # answer was produced. NOTE: this is NOT the same meaning as
+        # direct_mcq/two_stage, where model_status reflects transport success
+        # (the call returned) even when the output is unparseable. model_status
+        # is therefore not uniform across methods; for a cross-method
+        # answer-presence filter use parsed_choice.notna(). See the README
+        # "Authoritative answer column per method" table.
         row["model_status"] = SUCCESS_STATUS if final_letter is not None else FAILURE_STATUS
         if score_result is not None:
             row["is_correct"] = score_result.is_correct

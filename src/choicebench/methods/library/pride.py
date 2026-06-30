@@ -402,10 +402,15 @@ class PriDeRunner(ExperimentRunner):
             row["parsed_choice"] = adjusted_letter
             row["parse_status"] = PARSE_OK
         # PriDe never calls generate(), so model_status would otherwise stay
-        # None even on full success. Set it explicitly so a uniform
-        # `model_status == "success"` / notna() filter works across all methods
-        # (FC-4 / PF-3): success when a debiased answer was produced, failure
-        # when score_options yielded nothing to debias.
+        # None even on full success. Set it explicitly (FC-4 / PF-3) to
+        # answer-produced semantics: success when a debiased answer was
+        # produced, failure when score_options yielded nothing to debias.
+        # NOTE: this is NOT the same meaning as direct_mcq/two_stage, where
+        # model_status reflects transport success (the call returned) even when
+        # the output is unparseable. model_status is therefore not uniform
+        # across methods; for a cross-method answer-presence filter use
+        # parsed_choice.notna(). See the README "Authoritative answer column
+        # per method" table.
         row["model_status"] = SUCCESS_STATUS if adjusted_letter is not None else FAILURE_STATUS
         if score_adjusted is not None:
             row["score_status"] = score_adjusted.status
@@ -528,10 +533,15 @@ class PriDeRunner(ExperimentRunner):
             row["parsed_choice"] = adjusted_letter
             row["parse_status"] = PARSE_OK
         # PriDe never calls generate(), so model_status would otherwise stay
-        # None even on full success. Set it explicitly so a uniform
-        # `model_status == "success"` / notna() filter works across all methods
-        # (FC-4 / PF-3): success when a debiased answer was produced, failure
-        # when score_options yielded nothing to debias.
+        # None even on full success. Set it explicitly (FC-4 / PF-3) to
+        # answer-produced semantics: success when a debiased answer was
+        # produced, failure when score_options yielded nothing to debias.
+        # NOTE: this is NOT the same meaning as direct_mcq/two_stage, where
+        # model_status reflects transport success (the call returned) even when
+        # the output is unparseable. model_status is therefore not uniform
+        # across methods; for a cross-method answer-presence filter use
+        # parsed_choice.notna(). See the README "Authoritative answer column
+        # per method" table.
         row["model_status"] = SUCCESS_STATUS if adjusted_letter is not None else FAILURE_STATUS
         if score_adjusted is not None:
             row["score_status"] = score_adjusted.status
