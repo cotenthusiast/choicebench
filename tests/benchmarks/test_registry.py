@@ -222,6 +222,31 @@ def test_load_benchmark_missing_csv_generates_correct_command(
         assert f"--split {default_split}" in msg
 
 
+def test_load_benchmark_unregistered_huggingface_gives_non_circular_error():
+    # A `name: huggingface` dataset with no registered normalizer must NOT loop
+    # the user back to a prepare_data.py command that itself raises
+    # NotImplementedError. The error must point to the Add-a-benchmark workflow.
+    run_exp = _load_run_experiment()
+
+    from choicebench.config.schema import BenchmarkConfig
+
+    bench = BenchmarkConfig(
+        name="huggingface",
+        hf_path="someorg/my-oneoff-mcq",
+        hf_subset=None,
+    )
+    with pytest.raises(FileNotFoundError) as exc_info:
+        run_exp.load_benchmark(bench, run_seed=42)
+
+    msg = str(exc_info.value)
+    # Names the offending dataset and points to the real next step.
+    assert "someorg/my-oneoff-mcq" in msg
+    assert "Add a benchmark" in msg
+    assert "@benchmark" in msg
+    # Does NOT send the user back to the failing prepare_data.py command.
+    assert "python scripts/prepare_data.py --hf-path" not in msg
+
+
 # ---------------------------------------------------------------------------
 # normalize_to_schema() routing in prepare_data.py
 # ---------------------------------------------------------------------------

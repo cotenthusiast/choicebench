@@ -21,7 +21,7 @@ import pandas as pd
 from choicebench.backends.api_backend import APIBackend
 from choicebench.backends.dummy_backend import DummyBackend
 from choicebench.backends.hf_backend import HuggingFaceBackend
-from choicebench.benchmarks.registry import BENCHMARK_REGISTRY
+from choicebench.benchmarks.registry import BENCHMARK_REGISTRY, get_by_hf_path
 from choicebench.config.paths import (
     PROCESSED_DIR,
     PROMPTS_DIR,
@@ -141,6 +141,24 @@ def load_benchmark(benchmark: BenchmarkConfig, run_seed: int) -> pd.DataFrame:
         else:
             hf_path = benchmark.hf_path
             hf_subset = benchmark.hf_subset
+            if get_by_hf_path(hf_path, hf_subset) is None:
+                # No registered normalizer for this hf_path: prepare_data.py
+                # would raise NotImplementedError, so do NOT send the user back
+                # to it (that was a circular dead end). Every HuggingFace
+                # dataset needs a registered @benchmark normalizer first.
+                raise FileNotFoundError(
+                    f"Normalized benchmark not found: {csv_path}\n"
+                    f"No normalizer is registered for hf_path {hf_path!r} "
+                    f"(subset={hf_subset!r}), so prepare_data.py cannot "
+                    f"normalize it. Every HuggingFace dataset needs a "
+                    f"registered @benchmark normalizer before it can be "
+                    f"prepared. See the 'Add a benchmark' section of README.md: "
+                    f"create src/choicebench/benchmarks/<name>.py, decorate "
+                    f"build_normalized_dataframe with @benchmark(name=..., "
+                    f"hf_path={hf_path!r}, hf_subset={hf_subset!r}), import it in "
+                    f"src/choicebench/benchmarks/__init__.py, then run "
+                    f"prepare_data.py."
+                )
             cmd = f"python scripts/prepare_data.py --hf-path {hf_path}"
             if hf_subset:
                 cmd += f" --hf-subset {hf_subset}"

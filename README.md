@@ -111,8 +111,9 @@ python scripts/prepare_data.py --hf-path allenai/ai2_arc --hf-subset ARC-Challen
 For a registered benchmark, `prepare_data.py` writes to the stem the config
 expects automatically (e.g. `arc_challenge_normalized.csv`), so `--output-name`
 is unnecessary — these commands match the **Supported Benchmarks** table below.
-Pass `--output-name <stem>` only for an unregistered `name: huggingface` dataset
-whose `output_name` you set in the config.
+Pass `--output-name <stem>` when you load a dataset via `name: huggingface`, to
+match the `output_name` you set in the config — the dataset must still have a
+registered `@benchmark` normalizer (see **Add a benchmark**).
 
 ---
 
@@ -126,7 +127,7 @@ whose `output_name` you set in the config.
 | HellaSwag | `hellaswag` | `python scripts/prepare_data.py --hf-path Rowan/hellaswag --split validation` |
 | TruthfulQA | `truthful_qa` | `python scripts/prepare_data.py --hf-path truthful_qa --hf-subset multiple_choice --split validation` |
 
-Any HuggingFace MCQ dataset can also be loaded via `name: huggingface` with `hf_path` specified. See `config/experiment_template.yaml` for the full schema.
+A HuggingFace MCQ dataset can also be referenced by `hf_path` via `name: huggingface` (instead of by its registry name), but there is **no code-free path** — the dataset still needs a registered `@benchmark` normalizer first (see **Add a benchmark** below). Without one, `prepare_data.py` raises `NotImplementedError`. See `config/experiment_template.yaml` for the full schema.
 
 ---
 
@@ -247,8 +248,11 @@ The retry loop, backoff, semaphore, and request/response validation are all hand
    stem `my_bench` automatically (no `--output-name` needed), which is exactly
    what `name: my_bench` in your config loads.
 
-For a one-off dataset you don't want to register, use `name: huggingface` with
-`hf_path`/`output_name` in the config and pass `--output-name` to `prepare_data.py`.
+There is no code-free shortcut: every HuggingFace dataset needs a registered
+`@benchmark` normalizer (the four steps above). Once registered, you can
+reference it either by its registry name (`name: my_bench`) or generically by
+`hf_path` (`name: huggingface` with `hf_path`/`output_name` in the config, passing
+a matching `--output-name` to `prepare_data.py`).
 
 ### External registration via `"module.path:ClassName"` syntax
 
@@ -367,7 +371,7 @@ capture model weights, so two local checkpoints sharing a basename
 | `mmlu` | HuggingFace `cais/mmlu` | 57-subject, 14k questions; run `prepare_data.py` first |
 | `arc_challenge` | HuggingFace `allenai/ai2_arc` | 1172-question subset; run `prepare_data.py` first |
 | `toy` | Bundled synthetic CSV | 10 questions; no setup needed |
-| `huggingface` | User-specified HuggingFace dataset | Requires a normalizer branch in `scripts/prepare_data.py` |
+| `huggingface` | User-specified HuggingFace dataset | Requires a registered `@benchmark` normalizer module (see **Add a benchmark**) |
 
 ### Option Schema
 
