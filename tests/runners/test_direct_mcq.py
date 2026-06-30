@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from choicebench.clients.types import ProviderTimeoutError
-from choicebench.methods.library.direct_mcq import DirectMCQRunner
+from choicebench.methods.direct_mcq import DirectMCQRunner
 from choicebench.scoring.types import SCORE_CORRECT, SCORE_INCORRECT, SCORE_UNSCORABLE
 from choicebench.parsing.types import PARSE_OK
 

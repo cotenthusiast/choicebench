@@ -28,7 +28,7 @@ from choicebench.clients.types import (
     FAILURE_STATUS,
     ErrorInfo,
 )
-from choicebench.methods.library.direct_mcq import DirectMCQRunner
+from choicebench.methods.direct_mcq import DirectMCQRunner
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _PROMPTS_DIR = _REPO_ROOT / "prompts"
