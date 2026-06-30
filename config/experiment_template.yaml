@@ -160,6 +160,17 @@ methods:
   # - name: pride
   #   requires_logprobs: true
 
+  # Logprob cyclic permutation — Zheng et al. Eq. (1) averaging.
+  # Requires a backend that exposes per-token logprobs (vLLM or HuggingFace).
+  # More principled than cyclic_permutation (majority vote) because it uses the
+  # full logprob distribution rather than a single argmax per permutation.
+  # - name: cyclic_logprob
+  #   requires_logprobs: true
+  #   # backend: api
+  #   # provider: vllm   # start server first: vllm serve <model> --port 8000
+  #   # — or —
+  #   # backend: huggingface
+
 # ---------------------------------------------------------------------------
 # Metrics
 # ---------------------------------------------------------------------------
