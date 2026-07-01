@@ -410,14 +410,36 @@ mixed-N subject metrics are v0.2 work.
 
 ---
 
-## SLURM / HPC
+## Optional SLURM / HPC examples
 
-Two scripts in `scripts/slurm/`:
+The local setup in **Quick Start** is still the recommended path for normal
+machines. On HPC/Slurm systems, you may need to load a site-specific Python
+module, keep virtualenvs and HuggingFace caches on scratch storage, and submit
+runs through `sbatch`.
 
-- **`submit_job.sh`** — single job, one config, one GPU node. Suitable for all API runs and local models up to ~30B parameters.
-- **`submit_array.sh`** — job array, one task per config. Edit the `CONFIGS` array in the file, then submit with an explicit array range such as `sbatch --array=1-3 scripts/slurm/submit_array.sh`.
+Editable templates are in `examples/hpc/`:
 
-Both scripts compute `REPO_ROOT` from their location. Set `VENV_DIR` and adjust the `#SBATCH` partition/GPU resources to match your cluster layout.
+- `setup_hpc.sh` - one-time virtualenv setup and editable install.
+- `env_hpc.sh` - reusable environment activation script for batch jobs.
+- `run_choicebench.sbatch` - minimal Slurm example using the toy config and no
+  GPU by default.
+
+Example:
+
+```bash
+export CHOICEBENCH_BASE=/path/to/scratch/choicebench
+export CHOICEBENCH_REPO=/path/to/choicebench
+export CHOICEBENCH_PYTHON_MODULE=python3/3.10.5/gcc-9.3.0  # example only
+bash examples/hpc/setup_hpc.sh
+sbatch examples/hpc/run_choicebench.sbatch
+```
+
+Module names, partitions, GPU requests, and scratch paths are cluster-specific;
+edit the templates for your site. These examples are convenience starting points,
+not a guarantee that every HPC environment works unchanged.
+
+There are also compact submission helpers in `scripts/slurm/` for users who
+already have a virtualenv and know the resources they want:
 
 ```bash
 CONFIG=config/my_experiment.yaml sbatch scripts/slurm/submit_job.sh
