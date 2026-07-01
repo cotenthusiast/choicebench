@@ -2,12 +2,36 @@
 
 import ast
 import hashlib
+from collections.abc import Iterable
 
 import pandas as pd
 
 from choicebench.benchmarks.base import build_normalized_dataframe as _build_normalized_dataframe
 from choicebench.benchmarks.registry import benchmark
 from choicebench.constants import MCQ_ANSWER_MAP
+
+
+def _parse_choices(choices: object) -> list[str]:
+    """Parse MMLU choices from HF/Pandas-native and legacy string formats."""
+    parsed_choices = ast.literal_eval(choices) if isinstance(choices, str) else choices
+
+    if hasattr(parsed_choices, "tolist"):
+        parsed_choices = parsed_choices.tolist()
+
+    if isinstance(parsed_choices, list | tuple):
+        choices_list = list(parsed_choices)
+    elif isinstance(parsed_choices, Iterable) and not isinstance(parsed_choices, str | bytes | dict):
+        choices_list = list(parsed_choices)
+    else:
+        choices_list = [parsed_choices]
+
+    if len(choices_list) != 4:
+        raise ValueError(
+            "MMLU choices must contain exactly 4 choices; "
+            f"found {len(choices_list)} choices: {choices_list!r}"
+        )
+
+    return [str(choice) for choice in choices_list]
 
 
 def normalize_row(row: dict[str, object]) -> dict[str, object]:
@@ -34,7 +58,7 @@ def normalize_row(row: dict[str, object]) -> dict[str, object]:
             - correct_answer_text
     """
     subject, question, choices, answer = row["subject"], row["question"], row["choices"], row["answer"]
-    parsed_choices = ast.literal_eval(choices)
+    parsed_choices = _parse_choices(choices)
     choice_a, choice_b, choice_c, choice_d = parsed_choices[0], parsed_choices[1], parsed_choices[2], parsed_choices[3]
     answer = MCQ_ANSWER_MAP[answer]
     content = f"{subject}|{question}|{choice_a}|{choice_b}|{choice_c}|{choice_d}"
@@ -83,9 +107,4 @@ def build_normalized_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     Returns:
         Pandas dataframe where each row follows the normalized schema.
     """
-    # HuggingFace delivers choices as a Python list; normalize_row calls
-    # ast.literal_eval so it needs the string-serialized form.
-    if not df.empty and not isinstance(df["choices"].iloc[0], str):
-        df = df.copy()
-        df["choices"] = df["choices"].apply(str)
     return _build_normalized_dataframe(df, normalize_row)
