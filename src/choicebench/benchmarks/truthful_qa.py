@@ -77,7 +77,7 @@ def normalize_row(row: dict[str, object]) -> dict[str, object] | None:
 
 @benchmark(
     name="truthful_qa",
-    hf_path="truthful_qa",
+    hf_path="truthfulqa/truthful_qa",
     hf_subset="multiple_choice",
     default_split="validation",
 )

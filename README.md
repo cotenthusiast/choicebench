@@ -128,7 +128,7 @@ registered `@benchmark` normalizer (see **Add a benchmark**).
 | ARC-Challenge | `arc_challenge` | `python scripts/prepare_data.py --hf-path allenai/ai2_arc --hf-subset ARC-Challenge` |
 | MMLU-Pro | `mmlu_pro` | `python scripts/prepare_data.py --hf-path TIGER-Lab/MMLU-Pro` |
 | HellaSwag | `hellaswag` | `python scripts/prepare_data.py --hf-path Rowan/hellaswag --split validation` |
-| TruthfulQA | `truthful_qa` | `python scripts/prepare_data.py --hf-path truthful_qa --hf-subset multiple_choice --split validation` |
+| TruthfulQA | `truthful_qa` | `python scripts/prepare_data.py --hf-path truthfulqa/truthful_qa --hf-subset multiple_choice --split validation` |
 
 A HuggingFace MCQ dataset can also be referenced by `hf_path` via `name: huggingface` (instead of by its registry name), but there is **no code-free path** — the dataset still needs a registered `@benchmark` normalizer first (see **Add a benchmark** below). Without one, `prepare_data.py` raises `NotImplementedError`. See `config/experiment_template.yaml` for the full schema.
 
@@ -395,7 +395,7 @@ capture model weights, so two local checkpoints sharing a basename
 | `arc_challenge` | HuggingFace `allenai/ai2_arc` | 1172-question subset; run `prepare_data.py` first |
 | `mmlu_pro` | HuggingFace `TIGER-Lab/MMLU-Pro` | Normalized to first four options; rows whose answer is outside A-D are skipped |
 | `hellaswag` | HuggingFace `Rowan/hellaswag` | Use the `validation` split; test labels are unavailable |
-| `truthful_qa` | HuggingFace `truthful_qa`, subset `multiple_choice` | Uses `mc1_targets`; rows whose answer is outside the first four choices are skipped |
+| `truthful_qa` | HuggingFace `truthfulqa/truthful_qa`, subset `multiple_choice` | Uses `mc1_targets`; rows whose answer is outside the first four choices are skipped |
 | `toy` | Bundled synthetic CSV | 10 questions; no setup needed |
 | `huggingface` | User-specified HuggingFace dataset | Requires a registered `@benchmark` normalizer module (see **Add a benchmark**) |
 

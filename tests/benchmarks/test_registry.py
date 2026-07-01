@@ -31,7 +31,7 @@ _EXPECTED_BENCHMARKS = [
     ("arc_challenge","allenai/ai2_arc",       "ARC-Challenge",    "test"),
     ("mmlu_pro",     "TIGER-Lab/MMLU-Pro",    None,               "test"),
     ("hellaswag",    "Rowan/hellaswag",        None,               "validation"),
-    ("truthful_qa",  "truthful_qa",           "multiple_choice",  "validation"),
+    ("truthful_qa",  "truthfulqa/truthful_qa","multiple_choice",  "validation"),
 ]
 
 
@@ -76,6 +76,14 @@ def test_get_by_hf_path_returns_none_for_unknown():
 
 def test_get_by_hf_path_subset_mismatch_returns_none():
     assert get_by_hf_path("cais/mmlu", "wrong_subset") is None
+
+
+def test_get_by_hf_path_old_truthful_qa_path_not_aliased():
+    """The pre-move HF path (truthful_qa) is intentionally not registered as
+    an alias for the canonical truthfulqa/truthful_qa path: it fails at
+    datasets.load_dataset() before ever reaching the registry, so aliasing
+    it here would not make old configs work."""
+    assert get_by_hf_path("truthful_qa", "multiple_choice") is None
 
 
 # ---------------------------------------------------------------------------
@@ -265,7 +273,7 @@ def _load_prepare_data():
     ("arc_challenge", _make_arc_df,           "allenai/ai2_arc",   "ARC-Challenge"),
     ("mmlu_pro",      _make_mmlu_pro_df,      "TIGER-Lab/MMLU-Pro", None),
     ("hellaswag",     _make_hellaswag_df,     "Rowan/hellaswag",    None),
-    ("truthful_qa",   _make_truthful_qa_df,   "truthful_qa",       "multiple_choice"),
+    ("truthful_qa",   _make_truthful_qa_df,   "truthfulqa/truthful_qa", "multiple_choice"),
 ])
 def test_normalize_to_schema_routes_correctly(name, make_df, hf_path, hf_subset):
     prepare = _load_prepare_data()

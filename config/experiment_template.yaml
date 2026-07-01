@@ -123,7 +123,7 @@ benchmarks:
   #   n_samples: null
 
   # TruthfulQA (prepare first: python scripts/prepare_data.py
-  #   --hf-path truthful_qa --hf-subset multiple_choice
+  #   --hf-path truthfulqa/truthful_qa --hf-subset multiple_choice
   #   --split validation)
   # Note: uses mc1_targets (single correct answer format).
   # - name: truthful_qa
