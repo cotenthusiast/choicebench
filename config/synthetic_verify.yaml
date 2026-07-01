@@ -1,10 +1,8 @@
 # config/synthetic_verify.yaml
 #
-# Synthetic end-to-end verification config for the post-audit fixes. Exercises
-# all five bundled methods (direct_mcq, cyclic_permutation, two_stage, pride,
-# cyclic_logprob) on DummyBackend against the bundled toy dataset — no GPU,
-# no API key. Used to confirm PriDe is scored, --reparse is gated to
-# direct_mcq, and every method reports a non-None model_status.
+# Synthetic end-to-end verification config. Exercises all five bundled methods
+# (direct_mcq, cyclic_permutation, two_stage, pride, cyclic_logprob) on
+# DummyBackend against the bundled toy dataset — no GPU, no API key.
 
 experiment:
   name: synthetic_verify

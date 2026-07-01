@@ -60,9 +60,12 @@ pip install -e ".[hf]"
 For API backends, copy `.env.example` to `.env` and add your keys:
 ```
 OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=...
 GEMINI_API_KEY=...
 GROQ_API_KEY=...
 TOGETHER_API_KEY=...
+# Optional for local vLLM; defaults to "vllm" if unset.
+VLLM_API_KEY=
 ```
 
 ### Run the toy experiment (no GPU, no API key needed)
@@ -100,8 +103,8 @@ The CSV filename encodes `<run_id>_<method>_<model>_<benchmark>`. Each result CS
 
 ### Prepare MMLU or ARC-Challenge
 
-The bundled toy CSV needs no setup. For the built-in HuggingFace benchmarks,
-normalize them once before running experiments:
+The bundled toy CSV needs no setup. For example, to prepare MMLU or
+ARC-Challenge, normalize them once before running experiments:
 
 ```bash
 python scripts/prepare_data.py --hf-path cais/mmlu --hf-subset all
@@ -149,14 +152,14 @@ models:                         # one or more; every model runs every benchmark
       do_sample: false
 
   - backend: api                # API-backed model; no GPU required
-    provider: openai            # required for api; key in CLIENT_REGISTRY
+    provider: openai            # "anthropic" | "openai" | "gemini" | "groq" | "together" | "vllm"
     model_name_or_path: gpt-4.1-mini
     generation_kwargs:
       max_new_tokens: 512
       temperature: 0.0
 
 benchmarks:                     # a non-empty list (one entry per benchmark)
-  - name: mmlu                  # "mmlu" | "arc_challenge" | "toy" | "huggingface"
+  - name: mmlu                  # "mmlu" | "arc_challenge" | "mmlu_pro" | "hellaswag" | "truthful_qa" | "toy" | "huggingface"
     split: test                 # split name (benchmark-specific)
     n_samples: 100              # null = full split; positive int = random subsample
     subject_filter: null        # null | list of MMLU subject strings
@@ -169,8 +172,9 @@ methods:
     # params:
     #   fallback_on_parse_failure: true
   # A logprob method like pride can only be listed if EVERY model above is
-  # logprob-capable (huggingface/dummy). With the api model present, including
-  # it would fail config validation — so it's commented out here:
+  # logprob-capable (huggingface/dummy, or backend: api with provider: vllm).
+  # With the OpenAI api model present, including it would fail config
+  # validation — so it's commented out here:
   # - name: pride
   #   requires_logprobs: true   # schema-validated; rejects non-logprob backends
 
@@ -268,9 +272,9 @@ scripts/             — entry points (run_experiment.py, evaluate_run.py, prepa
 src/choicebench/
   config/            — schema validation, paths, provider defaults
   registry.py        — METHOD_REGISTRY and CLIENT_REGISTRY (single registration point)
-  benchmarks/        — benchmark loaders (MMLU, ARC-Challenge, toy)
+  benchmarks/        — benchmark normalizers (MMLU, ARC-Challenge, MMLU-Pro, HellaSwag, TruthfulQA)
   backends/          — inference backends (HuggingFace, API, Dummy)
-  clients/           — API provider clients (OpenAI, Gemini, Groq, Together)
+  clients/           — API provider clients (Anthropic, OpenAI, Gemini, Groq, Together, vLLM)
   methods/
     base.py          — ExperimentRunner ABC (shared infra: backend calls, result assembly)
     library/         — built-in method implementations
@@ -376,10 +380,12 @@ capture model weights, so two local checkpoints sharing a basename
 
 | Provider key | Notes |
 |---|---|
+| `anthropic` | Anthropic Messages API (Claude models) |
 | `openai` | OpenAI API (gpt-4.1-mini, gpt-4.1, etc.) |
 | `gemini` | Google Gemini API (gemini-2.5-flash, gemini-2.5-pro) |
 | `groq` | Groq API (Llama, Mixtral models) |
 | `together` | Together AI (Qwen, Llama, and other open-weight models) |
+| `vllm` | Local vLLM OpenAI-compatible server; configure `base_url`, no hosted API key required, supports logprob methods |
 
 ### Benchmarks
 
@@ -387,6 +393,9 @@ capture model weights, so two local checkpoints sharing a basename
 |---|---|---|
 | `mmlu` | HuggingFace `cais/mmlu` | 57-subject, 14k questions; run `prepare_data.py` first |
 | `arc_challenge` | HuggingFace `allenai/ai2_arc` | 1172-question subset; run `prepare_data.py` first |
+| `mmlu_pro` | HuggingFace `TIGER-Lab/MMLU-Pro` | Normalized to first four options; rows whose answer is outside A-D are skipped |
+| `hellaswag` | HuggingFace `Rowan/hellaswag` | Use the `validation` split; test labels are unavailable |
+| `truthful_qa` | HuggingFace `truthful_qa`, subset `multiple_choice` | Uses `mc1_targets`; rows whose answer is outside the first four choices are skipped |
 | `toy` | Bundled synthetic CSV | 10 questions; no setup needed |
 | `huggingface` | User-specified HuggingFace dataset | Requires a registered `@benchmark` normalizer module (see **Add a benchmark**) |
 

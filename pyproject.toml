@@ -6,6 +6,8 @@ build-backend = "setuptools.build_meta"
 name = "choicebench"
 version = "0.1.0"
 description = "A lightweight framework for MCQ evaluation-method research"
+readme = "README.md"
+authors = [{name = "Karl Hanna"}]
 license = {text = "MIT"}
 requires-python = ">=3.10"
 dependencies = [

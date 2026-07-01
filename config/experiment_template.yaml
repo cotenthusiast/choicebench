@@ -36,7 +36,8 @@ models:
     model_name_or_path: Qwen/Qwen2.5-7B-Instruct
 
     # Required when backend: api — must match a key in CLIENT_REGISTRY
-    # ("anthropic" | "openai" | "gemini" | "groq" | "together"). Omit for other backends.
+    # ("anthropic" | "openai" | "gemini" | "groq" | "together" | "vllm").
+    # Omit for other backends.
     # provider: openai
 
   # Anthropic API example:
@@ -53,8 +54,7 @@ models:
   # vLLM requires no additional Python packages; it runs as a separate server.
   # Unlike other API backends, vLLM supports logprob methods (e.g. pride)
   # because it exposes per-token log probabilities via its OpenAI-compatible API.
-  # - name: meta-llama/Llama-3.1-8B-Instruct  # must match the model loaded in your vLLM server
-  #   model_name_or_path: meta-llama/Llama-3.1-8B-Instruct
+  # - model_name_or_path: meta-llama/Llama-3.1-8B-Instruct  # must match the model loaded in your vLLM server
   #   provider: vllm
   #   backend: api
   #   base_url: http://localhost:8000/v1        # your vLLM server address

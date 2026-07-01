@@ -7,7 +7,15 @@ import pandas as pd
 # Tried longest-first so arc_challenge is matched before a hypothetical
 # benchmark whose name is a suffix of it.
 _KNOWN_BENCHMARKS = sorted(
-    ["arc_challenge", "mmlu", "huggingface", "toy"],
+    [
+        "arc_challenge",
+        "truthful_qa",
+        "hellaswag",
+        "mmlu_pro",
+        "mmlu",
+        "huggingface",
+        "toy",
+    ],
     key=len,
     reverse=True,
 )

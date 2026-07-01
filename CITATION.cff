@@ -5,7 +5,6 @@ title: "ChoiceBench: A lightweight framework for MCQ evaluation-method research"
 authors:
   - family-names: "Hanna"
     given-names: "Karl"
-    orcid: ""
 repository-code: "https://github.com/cotenthusiast/choicebench"
 url: "https://github.com/cotenthusiast/choicebench"
 license: MIT

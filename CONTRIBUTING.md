@@ -69,22 +69,28 @@ python scripts/run_experiment.py --config config/toy_experiment.yaml --yes
 
 1. Create `src/choicebench/benchmarks/my_benchmark.py` with a `build_normalized_dataframe()` function. Output schema must match the canonical normalized columns: `question_id`, `subject`, `question_text`, `choice_a`, `choice_b`, `choice_c`, `choice_d`, `correct_option`, `correct_answer_text`.
 
-2. Add the benchmark path to `src/choicebench/config/paths.py`:
+2. Decorate the normalizer with `@benchmark(...)`:
    ```python
-   MY_BENCHMARK_NORMALIZED_PATH = PROCESSED_DIR / "my_benchmark_normalized.csv"
+   from choicebench.benchmarks.registry import benchmark
+
+   @benchmark(
+       name="my_benchmark",
+       hf_path="org/my-benchmark",
+       hf_subset="default",
+       default_split="test",
+   )
+   def build_normalized_dataframe(df):
+       ...
    ```
 
-3. Add a branch to `load_benchmark()` in `scripts/run_experiment.py`:
+3. Import the module in `src/choicebench/benchmarks/__init__.py` so the decorator runs:
    ```python
-   elif name == "my_benchmark":
-       questions = read_benchmark(MY_BENCHMARK_NORMALIZED_PATH)
+   from choicebench.benchmarks import my_benchmark
    ```
 
-4. Add the name string to `VALID_BENCHMARKS` in `src/choicebench/config/schema.py`.
+4. Run `python scripts/prepare_data.py --hf-path org/my-benchmark --hf-subset default`. Registered HuggingFace paths default to the registry name for the normalized CSV stem, so `name: my_benchmark` in YAML will load `data/processed/my_benchmark_normalized.csv`.
 
-If the benchmark should be prepared from HuggingFace, also add a normalizer
-branch to `scripts/prepare_data.py` and document the exact command needed to
-create its `data/processed/*_normalized.csv` file.
+Every HuggingFace dataset needs a registered normalizer first. If you use `name: huggingface` in YAML for an unregistered dataset, `prepare_data.py` cannot normalize it.
 
 ## Submitting a PR
 
