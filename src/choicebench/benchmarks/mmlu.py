@@ -1,14 +1,13 @@
 # src/choicebench/benchmarks/mmlu.py
 
 import ast
-import hashlib
 from collections.abc import Iterable
 
 import pandas as pd
 
 from choicebench.benchmarks.base import build_normalized_dataframe as _build_normalized_dataframe
+from choicebench.benchmarks.base import make_normalized_row
 from choicebench.benchmarks.registry import benchmark
-from choicebench.constants import MCQ_ANSWER_MAP
 
 
 def _parse_choices(choices: object) -> list[str]:
@@ -50,38 +49,20 @@ def normalize_row(row: dict[str, object]) -> dict[str, object]:
             - question_id
             - subject
             - question_text
-            - choice_a
-            - choice_b
-            - choice_c
-            - choice_d
+            - choices_json
+            - correct_index
             - correct_option
             - correct_answer_text
+            - n_choices
     """
     subject, question, choices, answer = row["subject"], row["question"], row["choices"], row["answer"]
     parsed_choices = _parse_choices(choices)
-    choice_a, choice_b, choice_c, choice_d = parsed_choices[0], parsed_choices[1], parsed_choices[2], parsed_choices[3]
-    answer = MCQ_ANSWER_MAP[answer]
-    content = f"{subject}|{question}|{choice_a}|{choice_b}|{choice_c}|{choice_d}"
-    question_id = hashlib.sha256(content.encode("utf-8")).hexdigest()[:16]
-    if answer == "A":
-        correct_answer_text = choice_a
-    elif answer == "B":
-        correct_answer_text = choice_b
-    elif answer == "C":
-        correct_answer_text = choice_c
-    else:
-        correct_answer_text = choice_d
-    return ({
-        "question_id": question_id,
-        "subject": subject,
-        "question_text": question,
-        "choice_a": choice_a,
-        "choice_b": choice_b,
-        "choice_c": choice_c,
-        "choice_d": choice_d,
-        "correct_option": answer,
-        "correct_answer_text": correct_answer_text,
-    })
+    return make_normalized_row(
+        subject=str(subject),
+        question_text=str(question),
+        choices=parsed_choices,
+        correct_index=int(answer),
+    )
 
 
 @benchmark(

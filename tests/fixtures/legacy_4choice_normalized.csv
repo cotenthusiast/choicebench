@@ -1,0 +1,4 @@
+question_id,subject,question_text,choice_a,choice_b,choice_c,choice_d,correct_option,correct_answer_text
+leg_001,demo,Which is a primary color?,Green,Blue,Orange,Purple,B,Blue
+leg_002,demo,What is 10 divided by 2?,3,4,5,,C,5
+leg_003,demo,Capital of Japan?,Seoul,Beijing,Tokyo,Bangkok,C,Tokyo

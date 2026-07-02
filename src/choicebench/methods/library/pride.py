@@ -34,12 +34,12 @@ from typing import Any, Sequence
 import numpy as np
 
 from choicebench.clients.types import FAILURE_STATUS, SUCCESS_STATUS
+from choicebench.constants import letters_for
 from choicebench.parsing.types import PARSE_OK, ParseResult
 from choicebench.pipeline.prompt_builder import build_direct_mcq_prompt
 from choicebench.methods.base import ExperimentRunner
 from choicebench.methods.library.permutation import PermutationRunner
 from choicebench.methods.library.pride_math import (
-    OPTION_LETTERS,
     CalibrationState,
     apply_debiased_choice_from_defaults,
     average_prior_probability_vectors,
@@ -96,6 +96,10 @@ class PriDeRunner(ExperimentRunner):
     """
 
     requires_score_options: bool = True
+    # This runner has a global calibration step, so it is subject to the
+    # modal-k compatibility gate (see choicebench.pride_gate). The orchestrator
+    # checks this flag; per-question methods leave it False.
+    applies_modal_k_gate: bool = True
 
     def __init__(
             self,
@@ -117,6 +121,8 @@ class PriDeRunner(ExperimentRunner):
             calibration_runs_dir: Path | None = None,
             calibration_questions: list[dict] | None = None,
             preflight_questions: list[dict] | None = None,
+            modal_k: int = 4,
+            gate_summary: dict | None = None,
     ) -> None:
         # Precedence: calibration_questions > preflight_questions > uniform prior.
         # calibration_questions is the explicit API; preflight_questions is the
@@ -159,8 +165,15 @@ class PriDeRunner(ExperimentRunner):
         self._calibration_runs_dir = Path(calibration_runs_dir or Path("."))
         self._calibration_questions: list[dict] = list(calibration_questions or [])
 
+        # PriDe operates on a single option count (enforced upstream by the
+        # modal-k gate). All calibration and evaluation questions must have
+        # exactly this many options; the letter set is derived from it.
+        self._modal_k = int(modal_k)
+        self._modal_letters: tuple[str, ...] = tuple(letters_for(self._modal_k))
+        self._gate_summary = dict(gate_summary) if gate_summary else None
+
         self._calibration_ready: bool = False
-        self._calibration_state: CalibrationState = calibration_state_uniform()
+        self._calibration_state: CalibrationState = calibration_state_uniform(self._modal_letters)
         # PF-4: count permutation rollouts that fell back to a uniform
         # distribution during calibration. PriDe's per-eval-row score is a
         # single score_options call (no per-row permutations), so the
@@ -193,8 +206,20 @@ class PriDeRunner(ExperimentRunner):
         if self._calibration_ready:
             return
 
+        # Only calibrate on questions that have exactly the modal option count,
+        # so the per-question Eq.(7) priors are all the same length and average
+        # cleanly. The gate guarantees the *evaluation* set is modal-k, but the
+        # calibration split is separate, so filter it here too.
+        eligible = [r for r in self._calibration_questions if self._has_modal_k_options(r)]
+        dropped = len(self._calibration_questions) - len(eligible)
+        if dropped:
+            logger.info(
+                "PriDe calibration: dropped %d/%d calibration question(s) whose "
+                "option count != modal k=%d.",
+                dropped, len(self._calibration_questions), self._modal_k,
+            )
         cal_qids, cal_rows = _pick_calibration_rows(
-            self._calibration_questions,
+            eligible,
             self._calibration_n,
             self._calibration_seed,
         )
@@ -215,8 +240,10 @@ class PriDeRunner(ExperimentRunner):
                     and blob.get("temperature") == self.temperature
                     and blob.get("max_tokens") == self.max_tokens
                     and blob.get("prompt_version") == self.prompt_version
+                    # A prior fit at a different option count is not reusable.
+                    and int(blob.get("n_options", -1)) == self._modal_k
                 ):
-                    self._calibration_state = calibration_state_from_sidecar(blob)
+                    self._calibration_state = calibration_state_from_sidecar(blob, self._modal_letters)
                     self._calibration_ready = True
                     logger.info(
                         "PriDe loaded sidecar (K=%d) → %s",
@@ -231,10 +258,10 @@ class PriDeRunner(ExperimentRunner):
             logger.warning(
                 "PriDe: no calibration questions available — using uniform prior."
             )
-            self._calibration_state = calibration_state_uniform()
+            self._calibration_state = calibration_state_uniform(self._modal_letters)
         else:
             for row in cal_rows:
-                self._require_four_options(row)
+                self._require_modal_k_options(row)
             prior_vectors: list[np.ndarray] = []
             for row in cal_rows:
                 roll_mat = self._cyclic_rollout_prob_matrix(row)
@@ -243,8 +270,8 @@ class PriDeRunner(ExperimentRunner):
             pep_global = average_prior_probability_vectors(prior_vectors)
             self._calibration_state = CalibrationState(
                 peprior_probs={
-                    OPTION_LETTERS[i]: float(pep_global[i])
-                    for i in range(len(OPTION_LETTERS))
+                    self._modal_letters[i]: float(pep_global[i])
+                    for i in range(len(self._modal_letters))
                 },
                 epsilon=1e-12,
                 estimation_question_ids=tuple(sorted_ids),
@@ -262,11 +289,11 @@ class PriDeRunner(ExperimentRunner):
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
             "prompt_version": self.prompt_version,
-            "n_options": len(OPTION_LETTERS),
+            "n_options": len(self._modal_letters),
             "calibration_question_ids": list(sorted_ids),
             "peprior_probs": {
                 L: float(self._calibration_state.peprior_probs.get(L, 0.0))
-                for L in OPTION_LETTERS
+                for L in self._modal_letters
             },
             "epsilon": self._calibration_state.epsilon,
         }
@@ -335,7 +362,7 @@ class PriDeRunner(ExperimentRunner):
         self._ensure_calibration()
 
         options = self._build_options(question_row)
-        self._require_four_options(question_row)
+        self._require_modal_k_options(question_row)
         letters = list(options.keys())
         prompt = self._build_prompt(question_row)
 
@@ -416,6 +443,7 @@ class PriDeRunner(ExperimentRunner):
             row["score_status"] = score_adjusted.status
             row["is_correct"] = score_adjusted.is_correct
 
+        self._stamp_gate(row)
         return row
 
     def _build_prompt(self, question_row: Any) -> str:
@@ -425,14 +453,33 @@ class PriDeRunner(ExperimentRunner):
             options=self._build_options(question_row),
         )
 
-    def _require_four_options(self, question_row: Any) -> None:
+    def _require_modal_k_options(self, question_row: Any) -> None:
         options = self._build_options(question_row)
-        if list(options.keys()) != list(OPTION_LETTERS):
+        if list(options.keys()) != list(self._modal_letters):
             raise ValueError(
-                "PriDe requires four valid A-D options in v0.1; "
-                f"question {question_row.get('question_id', '<unknown>')!r} "
-                f"has valid options {list(options)}."
+                f"PriDe requires exactly {self._modal_k} valid options "
+                f"({list(self._modal_letters)}); question "
+                f"{question_row.get('question_id', '<unknown>')!r} has valid "
+                f"options {list(options)}. The modal-k gate should have excluded "
+                "this question before the run."
             )
+
+    def _has_modal_k_options(self, question_row: Any) -> bool:
+        """True if the row resolves to exactly the modal option count."""
+        try:
+            options = self._build_options(question_row)
+        except ValueError:
+            return False
+        return list(options.keys()) == list(self._modal_letters)
+
+    def _stamp_gate(self, row: dict) -> None:
+        """Record the modal-k gate accounting on a result row, if gated."""
+        if not self._gate_summary:
+            return
+        row["gate_modal_k"] = self._gate_summary.get("modal_k")
+        row["gate_n_total"] = self._gate_summary.get("n_total")
+        row["gate_n_evaluated"] = self._gate_summary.get("n_evaluated")
+        row["gate_n_excluded"] = self._gate_summary.get("n_excluded")
 
     async def run_many_async(self, question_rows: Sequence[Any]) -> list[dict]:
         """Async inference path for PriDe.
@@ -466,7 +513,7 @@ class PriDeRunner(ExperimentRunner):
         self._ensure_calibration()
 
         options = self._build_options(question_row)
-        self._require_four_options(question_row)
+        self._require_modal_k_options(question_row)
         letters = list(options.keys())
         prompt = self._build_prompt(question_row)
 
@@ -547,6 +594,7 @@ class PriDeRunner(ExperimentRunner):
             row["score_status"] = score_adjusted.status
             row["is_correct"] = score_adjusted.is_correct
 
+        self._stamp_gate(row)
         return row
 
     async def _cyclic_rollout_prob_matrix_async(

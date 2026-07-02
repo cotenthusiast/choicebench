@@ -16,6 +16,9 @@ from pathlib import Path
 
 import pandas as pd
 
+from choicebench.benchmarks.base import make_normalized_row
+from choicebench.stats import compute_benchmark_stats, stats_path_for, write_stats
+
 _SEED = 42
 
 _OUTPUT_PATH = Path(__file__).resolve().parents[1] / "data" / "processed" / "toy_normalized.csv"
@@ -61,17 +64,18 @@ def _build_row(index: int, question_text: str, correct_text: str, distractors: l
     for letter, text in zip(remaining_letters, shuffled_distractors):
         slot_for[letter] = text
 
-    return {
-        "question_id": question_id,
-        "subject": "toy",
-        "question_text": question_text,
-        "choice_a": slot_for["A"],
-        "choice_b": slot_for["B"],
-        "choice_c": slot_for["C"],
-        "choice_d": slot_for["D"],
-        "correct_option": correct_letter,
-        "correct_answer_text": correct_text,
-    }
+    choices = [slot_for[letter] for letter in _LETTERS]
+    correct_index = _LETTERS.index(correct_letter)
+
+    row = make_normalized_row(
+        subject="toy",
+        question_text=question_text,
+        choices=choices,
+        correct_index=correct_index,
+    )
+    # Keep the stable, human-readable toy ids rather than a content hash.
+    row["question_id"] = question_id
+    return row
 
 
 def main() -> None:
@@ -84,6 +88,7 @@ def main() -> None:
     df = pd.DataFrame(rows)
     _OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(_OUTPUT_PATH, index=False)
+    write_stats(compute_benchmark_stats(df, benchmark="toy"), stats_path_for(_OUTPUT_PATH))
     print(f"Wrote {len(df)} rows to data/processed/toy_normalized.csv")
 
 

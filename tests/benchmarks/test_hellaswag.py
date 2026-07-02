@@ -4,18 +4,22 @@ import pytest
 import pandas as pd
 
 from choicebench.benchmarks.hellaswag import normalize_row, build_normalized_dataframe
+from choicebench.pipeline.options import build_option_map
 
 _SCHEMA_COLS = {
     "question_id",
     "subject",
     "question_text",
-    "choice_a",
-    "choice_b",
-    "choice_c",
-    "choice_d",
+    "choices_json",
+    "correct_index",
     "correct_option",
     "correct_answer_text",
+    "n_choices",
 }
+
+
+def _opts(row) -> dict:
+    return build_option_map(row if isinstance(row, dict) else row.to_dict())
 
 _ROW_LABEL_1 = {
     "ind": "1",
@@ -56,11 +60,11 @@ class TestNormalizeRow:
         assert normalize_row(_ROW_LABEL_1)["question_text"] == _ROW_LABEL_1["ctx"]
 
     def test_choices_are_endings(self):
-        result = normalize_row(_ROW_LABEL_1)
-        assert result["choice_a"] == "left it cold."
-        assert result["choice_b"] == "heated it on the stove."
-        assert result["choice_c"] == "put it in the fridge."
-        assert result["choice_d"] == "ate it raw."
+        opts = _opts(normalize_row(_ROW_LABEL_1))
+        assert opts["A"] == "left it cold."
+        assert opts["B"] == "heated it on the stove."
+        assert opts["C"] == "put it in the fridge."
+        assert opts["D"] == "ate it raw."
 
     def test_correct_option_derived_from_label(self):
         assert normalize_row(_ROW_LABEL_1)["correct_option"] == "B"
@@ -79,10 +83,10 @@ class TestNormalizeRow:
         assert result["correct_option"] == expected_option
 
     def test_correct_answer_text_matches_selected_choice(self):
-        for label, field in [(0, "choice_a"), (1, "choice_b"), (2, "choice_c"), (3, "choice_d")]:
+        for label, letter in [(0, "A"), (1, "B"), (2, "C"), (3, "D")]:
             row = {**_ROW_LABEL_1, "label": label}
             result = normalize_row(row)
-            assert result["correct_answer_text"] == result[field]
+            assert result["correct_answer_text"] == _opts(result)[letter]
 
     def test_question_id_is_16_char_hex_string(self):
         qid = normalize_row(_ROW_LABEL_1)["question_id"]
@@ -150,6 +154,6 @@ class TestBuildNormalizedDataframe:
         row = result.iloc[0]
         assert row["subject"] == "Cooking"
         assert row["question_text"] == "She poured water into the pot and"
-        assert row["choice_b"] == "heated it on the stove."
+        assert _opts(row)["B"] == "heated it on the stove."
         assert row["correct_option"] == "B"
         assert row["correct_answer_text"] == "heated it on the stove."

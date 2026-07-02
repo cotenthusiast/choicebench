@@ -205,12 +205,18 @@ def average_prior_probability_dicts(
     return {L: uni for L in letters}
 
 
-def dict_probs_to_ordered(prob_map: Mapping[str, float]) -> np.ndarray:
-    return np.array([float(prob_map.get(L, 0.0)) for L in OPTION_LETTERS], dtype=np.float64)
+def dict_probs_to_ordered(
+        prob_map: Mapping[str, float],
+        letters: tuple[str, ...] = OPTION_LETTERS,
+) -> np.ndarray:
+    return np.array([float(prob_map.get(L, 0.0)) for L in letters], dtype=np.float64)
 
 
-def ordered_probs_to_dict(vec: np.ndarray) -> dict[str, float]:
-    return {L: float(vec[i]) for i, L in enumerate(OPTION_LETTERS)}
+def ordered_probs_to_dict(
+        vec: np.ndarray,
+        letters: tuple[str, ...] = OPTION_LETTERS,
+) -> dict[str, float]:
+    return {L: float(vec[i]) for i, L in enumerate(letters)}
 
 
 @dataclass(frozen=True, slots=True)
@@ -224,22 +230,27 @@ class CalibrationState:
     version: str = "v2-pride-iclr2024"
 
 
-def calibration_state_uniform() -> CalibrationState:
-    uni = float(1.0 / len(OPTION_LETTERS))
+def calibration_state_uniform(
+        letters: tuple[str, ...] = OPTION_LETTERS,
+) -> CalibrationState:
+    uni = float(1.0 / len(letters))
     return CalibrationState(
-        peprior_probs={L: uni for L in OPTION_LETTERS},
+        peprior_probs={L: uni for L in letters},
         estimation_question_ids=(),
     )
 
 
-def calibration_state_from_sidecar(blob: Mapping[str, Any]) -> CalibrationState:
+def calibration_state_from_sidecar(
+        blob: Mapping[str, Any],
+        letters: tuple[str, ...] = OPTION_LETTERS,
+) -> CalibrationState:
     probs = blob.get("peprior_probs")
     if not isinstance(probs, Mapping):
-        return calibration_state_uniform()
-    pmap = {L: float(probs[L]) for L in OPTION_LETTERS if L in probs}
-    for L in OPTION_LETTERS:
+        return calibration_state_uniform(letters)
+    pmap = {L: float(probs[L]) for L in letters if L in probs}
+    for L in letters:
         pmap.setdefault(L, 1e-6)
-    vec = dict_probs_to_ordered(pmap)
+    vec = dict_probs_to_ordered(pmap, letters)
     vec = vec / vec.sum()
     ids = blob.get("calibration_question_ids") or blob.get("estimation_question_ids")
     if ids is None:
@@ -249,7 +260,7 @@ def calibration_state_from_sidecar(blob: Mapping[str, Any]) -> CalibrationState:
     else:
         ids_tuple = ()
     return CalibrationState(
-        peprior_probs=ordered_probs_to_dict(vec),
+        peprior_probs=ordered_probs_to_dict(vec, letters),
         epsilon=float(blob.get("epsilon", 1e-12)),
         estimation_question_ids=ids_tuple,
         version=str(blob.get("version", "v2-pride-iclr2024")),

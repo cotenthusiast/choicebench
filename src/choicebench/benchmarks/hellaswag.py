@@ -1,12 +1,10 @@
 # src/choicebench/benchmarks/hellaswag.py
 
-import hashlib
-
 import pandas as pd
 
 from choicebench.benchmarks.base import build_normalized_dataframe as _build_normalized_dataframe
+from choicebench.benchmarks.base import make_normalized_row
 from choicebench.benchmarks.registry import benchmark
-from choicebench.constants import MCQ_ANSWER_MAP
 
 
 def normalize_row(row: dict[str, object]) -> dict[str, object]:
@@ -33,32 +31,15 @@ def normalize_row(row: dict[str, object]) -> dict[str, object]:
     """
     activity_label = str(row["activity_label"])
     ctx = str(row["ctx"])
-    endings = list(row["endings"])
+    endings = [str(e) for e in row["endings"]]
     label = int(row["label"])
 
-    choice_a = str(endings[0])
-    choice_b = str(endings[1])
-    choice_c = str(endings[2])
-    choice_d = str(endings[3])
-
-    correct_option = MCQ_ANSWER_MAP[label]
-    correct_texts = {"A": choice_a, "B": choice_b, "C": choice_c, "D": choice_d}
-    correct_answer_text = correct_texts[correct_option]
-
-    content = f"{activity_label}|{ctx}|{choice_a}|{choice_b}|{choice_c}|{choice_d}"
-    question_id = hashlib.sha256(content.encode("utf-8")).hexdigest()[:16]
-
-    return {
-        "question_id": question_id,
-        "subject": activity_label,
-        "question_text": ctx,
-        "choice_a": choice_a,
-        "choice_b": choice_b,
-        "choice_c": choice_c,
-        "choice_d": choice_d,
-        "correct_option": correct_option,
-        "correct_answer_text": correct_answer_text,
-    }
+    return make_normalized_row(
+        subject=activity_label,
+        question_text=ctx,
+        choices=endings,
+        correct_index=label,
+    )
 
 
 @benchmark(

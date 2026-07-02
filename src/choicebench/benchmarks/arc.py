@@ -1,15 +1,13 @@
 # src/choicebench/benchmarks/arc.py
 
-import hashlib
-
 import pandas as pd
 
 from choicebench.benchmarks.base import build_normalized_dataframe as _build_normalized_dataframe
+from choicebench.benchmarks.base import make_normalized_row
 from choicebench.benchmarks.registry import benchmark
-from choicebench.constants import MCQ_OPTIONS
 
 _ARC_SUBJECT = "arc_challenge"
-_VALID_LABELS = set(MCQ_OPTIONS)
+_NUM_TO_LETTER = {"1": "A", "2": "B", "3": "C", "4": "D", "5": "E"}
 
 
 def normalize_row(row: dict[str, object]) -> dict[str, object]:
@@ -21,58 +19,36 @@ def normalize_row(row: dict[str, object]) -> dict[str, object]:
       - choices:    dict with "text" (list[str]) and "label" (list[str])
       - answerKey:  "A", "B", "C", or "D"  (occasionally "1"-"4" in older splits)
 
-    The output schema matches the MMLU normalized schema so that all downstream
-    runners, parsers, and evaluation code can handle both benchmarks identically.
+    Choices are kept in their source order; render labels (A, B, C, ...) are
+    re-derived from that order. Most ARC items have 4 options but some have 3
+    or 5 — all are preserved.
 
     Args:
         row: Dictionary with the raw ARC fields listed above.
 
     Returns:
-        Dictionary with the normalized question fields:
-            question_id, subject, question_text,
-            choice_a, choice_b, choice_c, choice_d,
-            correct_option, correct_answer_text
+        Dictionary with the normalized (variable-choice) schema fields.
     """
-    question_id_raw = str(row["id"])
     question = str(row["question"])
     choices_raw = row["choices"]
 
-    labels: list[str] = list(choices_raw["label"])
-    texts: list[str] = list(choices_raw["text"])
+    labels: list[str] = [str(x).strip().upper() for x in choices_raw["label"]]
+    texts: list[str] = [str(x) for x in choices_raw["text"]]
 
-    label_to_text: dict[str, str] = dict(zip(labels, texts))
-
-    # Normalize numeric labels ("1"-"4") to letter labels if present.
-    _num_to_letter = {"1": "A", "2": "B", "3": "C", "4": "D"}
-    if not _VALID_LABELS.intersection(label_to_text):
-        label_to_text = {
-            _num_to_letter.get(k, k): v for k, v in label_to_text.items()
-        }
-
-    choice_a = label_to_text.get("A", "")
-    choice_b = label_to_text.get("B", "")
-    choice_c = label_to_text.get("C", "")
-    choice_d = label_to_text.get("D", "")
+    # Normalize numeric labels ("1"-"5") to letters for matching answerKey.
+    norm_labels = [_NUM_TO_LETTER.get(lbl, lbl) for lbl in labels]
 
     answer_key = str(row["answerKey"]).strip().upper()
-    answer_key = _num_to_letter.get(answer_key, answer_key)
+    answer_key = _NUM_TO_LETTER.get(answer_key, answer_key)
 
-    correct_answer_text = label_to_text.get(answer_key, "")
+    correct_index = norm_labels.index(answer_key)
 
-    content = f"{_ARC_SUBJECT}|{question}|{choice_a}|{choice_b}|{choice_c}|{choice_d}"
-    question_id = hashlib.sha256(content.encode("utf-8")).hexdigest()[:16]
-
-    return {
-        "question_id": question_id,
-        "subject": _ARC_SUBJECT,
-        "question_text": question,
-        "choice_a": choice_a,
-        "choice_b": choice_b,
-        "choice_c": choice_c,
-        "choice_d": choice_d,
-        "correct_option": answer_key,
-        "correct_answer_text": correct_answer_text,
-    }
+    return make_normalized_row(
+        subject=_ARC_SUBJECT,
+        question_text=question,
+        choices=texts,
+        correct_index=correct_index,
+    )
 
 
 @benchmark(

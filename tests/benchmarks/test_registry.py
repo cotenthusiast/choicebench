@@ -113,13 +113,13 @@ def test_get_benchmark_path_returns_correct_path(name):
 
 
 # ---------------------------------------------------------------------------
-# Normalizers produce the 9-column schema
+# Normalizers produce the variable-choice schema
 # ---------------------------------------------------------------------------
 
 _NORMALIZED_COLS = {
     "question_id", "subject", "question_text",
-    "choice_a", "choice_b", "choice_c", "choice_d",
-    "correct_option", "correct_answer_text",
+    "choices_json", "correct_index", "correct_option",
+    "correct_answer_text", "n_choices",
 }
 
 
@@ -191,7 +191,7 @@ def _make_truthful_qa_df() -> pd.DataFrame:
     ("hellaswag",     _make_hellaswag_df),
     ("truthful_qa",   _make_truthful_qa_df),
 ])
-def test_normalizer_produces_9_column_schema(name, make_df):
+def test_normalizer_produces_normalized_schema(name, make_df):
     entry = BENCHMARK_REGISTRY[name]
     result = entry.normalizer(make_df())
     assert not result.empty
@@ -213,9 +213,17 @@ def _load_run_experiment():
 
 @pytest.mark.parametrize("name,hf_path,hf_subset,default_split", _EXPECTED_BENCHMARKS)
 def test_load_benchmark_missing_csv_generates_correct_command(
-    tmp_path, name, hf_path, hf_subset, default_split
+    tmp_path, monkeypatch, name, hf_path, hf_subset, default_split
 ):
     run_exp = _load_run_experiment()
+
+    # Hermetic: resolve the normalized-CSV path into an empty tmp dir so the
+    # "missing CSV" branch is exercised regardless of whatever the developer
+    # has prepared under data/processed locally.
+    monkeypatch.setattr(
+        run_exp, "get_benchmark_path",
+        lambda bench_name: tmp_path / f"{bench_name}_normalized.csv",
+    )
 
     from choicebench.config.schema import BenchmarkConfig
 
@@ -299,12 +307,16 @@ def test_normalize_to_schema_raises_not_implemented_for_unknown():
 
 def test_mmlu_normalizer_accepts_hf_list_format():
     """MMLU normalizer must handle choices as a Python list (HuggingFace native)."""
+    import json
+
     entry = BENCHMARK_REGISTRY["mmlu"]
     result = entry.normalizer(_make_mmlu_df_hf_format())
     assert not result.empty
     assert set(result.columns) == _NORMALIZED_COLS
-    assert result.iloc[0]["choice_a"] == "1"
+    choices = json.loads(result.iloc[0]["choices_json"])
+    assert [c["text"] for c in choices] == ["1", "2", "3", "4"]
     assert result.iloc[0]["correct_option"] == "D"
+    assert result.iloc[0]["correct_answer_text"] == "4"
 
 
 def test_registering_new_benchmark_adds_to_registry_and_valid_benchmarks():

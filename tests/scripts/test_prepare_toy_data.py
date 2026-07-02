@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from choicebench.pipeline.options import build_option_map, correct_option_for_row
+
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -31,7 +33,7 @@ def test_build_row_includes_correct_answer_text():
     )
 
     assert row["correct_option"] == "A"
-    assert row["choice_a"] == "4"
+    assert build_option_map(row)["A"] == "4"
     assert row["correct_answer_text"] == "4"
 
 
@@ -40,5 +42,6 @@ def test_committed_toy_csv_matches_canonical_schema():
 
     assert "correct_answer_text" in df.columns
     for _, row in df.iterrows():
-        option_key = f"choice_{row['correct_option'].lower()}"
-        assert row["correct_answer_text"] == row[option_key]
+        options = build_option_map(row.to_dict())
+        correct = correct_option_for_row(row.to_dict())
+        assert row["correct_answer_text"] == options[correct]

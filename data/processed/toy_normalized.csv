@@ -1,11 +1,11 @@
-question_id,subject,question_text,choice_a,choice_b,choice_c,choice_d,correct_option,correct_answer_text
-toy_001,toy,What is 2 + 2?,4,5,3,6,A,4
-toy_002,toy,What color is the sky on a clear day?,Green,Blue,Red,Purple,B,Blue
-toy_003,toy,How many days are in a week?,6,7,8,5,B,7
-toy_004,toy,What is the capital of France?,Madrid,Rome,Berlin,Paris,D,Paris
-toy_005,toy,Which animal says 'moo'?,Horse,Dog,Cat,Cow,D,Cow
-toy_006,toy,What is the freezing point of water in Celsius?,-10,0,100,10,B,0
-toy_007,toy,How many legs does a spider have?,6,8,4,10,B,8
-toy_008,toy,What is the opposite of 'hot'?,Cold,Mild,Warm,Humid,A,Cold
-toy_009,toy,Which planet is known as the Red Planet?,Mars,Venus,Jupiter,Saturn,A,Mars
-toy_010,toy,What is the chemical symbol for water?,CO2,H2O,NaCl,O2,B,H2O
+question_id,subject,question_text,choices_json,correct_index,correct_option,correct_answer_text,n_choices
+toy_001,toy,What is 2 + 2?,"[{""text"": ""4"", ""source_index"": 0}, {""text"": ""5"", ""source_index"": 1}, {""text"": ""3"", ""source_index"": 2}, {""text"": ""6"", ""source_index"": 3}]",0,A,4,4
+toy_002,toy,What color is the sky on a clear day?,"[{""text"": ""Green"", ""source_index"": 0}, {""text"": ""Blue"", ""source_index"": 1}, {""text"": ""Red"", ""source_index"": 2}, {""text"": ""Purple"", ""source_index"": 3}]",1,B,Blue,4
+toy_003,toy,How many days are in a week?,"[{""text"": ""6"", ""source_index"": 0}, {""text"": ""7"", ""source_index"": 1}, {""text"": ""8"", ""source_index"": 2}, {""text"": ""5"", ""source_index"": 3}]",1,B,7,4
+toy_004,toy,What is the capital of France?,"[{""text"": ""Madrid"", ""source_index"": 0}, {""text"": ""Rome"", ""source_index"": 1}, {""text"": ""Berlin"", ""source_index"": 2}, {""text"": ""Paris"", ""source_index"": 3}]",3,D,Paris,4
+toy_005,toy,Which animal says 'moo'?,"[{""text"": ""Horse"", ""source_index"": 0}, {""text"": ""Dog"", ""source_index"": 1}, {""text"": ""Cat"", ""source_index"": 2}, {""text"": ""Cow"", ""source_index"": 3}]",3,D,Cow,4
+toy_006,toy,What is the freezing point of water in Celsius?,"[{""text"": ""-10"", ""source_index"": 0}, {""text"": ""0"", ""source_index"": 1}, {""text"": ""100"", ""source_index"": 2}, {""text"": ""10"", ""source_index"": 3}]",1,B,0,4
+toy_007,toy,How many legs does a spider have?,"[{""text"": ""6"", ""source_index"": 0}, {""text"": ""8"", ""source_index"": 1}, {""text"": ""4"", ""source_index"": 2}, {""text"": ""10"", ""source_index"": 3}]",1,B,8,4
+toy_008,toy,What is the opposite of 'hot'?,"[{""text"": ""Cold"", ""source_index"": 0}, {""text"": ""Mild"", ""source_index"": 1}, {""text"": ""Warm"", ""source_index"": 2}, {""text"": ""Humid"", ""source_index"": 3}]",0,A,Cold,4
+toy_009,toy,Which planet is known as the Red Planet?,"[{""text"": ""Mars"", ""source_index"": 0}, {""text"": ""Venus"", ""source_index"": 1}, {""text"": ""Jupiter"", ""source_index"": 2}, {""text"": ""Saturn"", ""source_index"": 3}]",0,A,Mars,4
+toy_010,toy,What is the chemical symbol for water?,"[{""text"": ""CO2"", ""source_index"": 0}, {""text"": ""H2O"", ""source_index"": 1}, {""text"": ""NaCl"", ""source_index"": 2}, {""text"": ""O2"", ""source_index"": 3}]",1,B,H2O,4

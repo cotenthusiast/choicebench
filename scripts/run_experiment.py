@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import importlib
+import json
 import logging
 import shutil
 from datetime import datetime, timezone
@@ -46,7 +47,9 @@ from choicebench.infra.checkpoint import CheckpointManager
 from choicebench.io.readers import read_benchmark
 from choicebench.io.writers import write_run_results
 from choicebench.preflight import load_preflight
+from choicebench.pride_gate import apply_modal_k_gate
 from choicebench.registry import CLIENT_REGISTRY, METHOD_REGISTRY
+from choicebench.stats import compute_benchmark_stats, read_stats, stats_path_for
 
 # ---------------------------------------------------------------------------
 # Errors
@@ -212,6 +215,62 @@ def load_benchmark(benchmark: BenchmarkConfig, run_seed: int) -> pd.DataFrame:
     return questions
 
 
+def _normalized_csv_path(benchmark_cfg: BenchmarkConfig) -> Path:
+    """Return the expected normalized CSV path for a benchmark config.
+
+    Mirrors load_benchmark()'s path resolution (toy / huggingface / registry)
+    without the existence checks, so the modal-k gate can locate the stats
+    sidecar next to the same CSV.
+    """
+    name = benchmark_cfg.name
+    if name == BENCHMARK_TOY:
+        return TOY_BENCHMARK_PATH
+    if name == BENCHMARK_HUGGINGFACE:
+        return PROCESSED_DIR / f"{benchmark_normalized_stem(benchmark_cfg)}_normalized.csv"
+    if name in BENCHMARK_REGISTRY:
+        return get_benchmark_path(name)
+    raise ValueError(f"Unknown benchmark: {name!r}")
+
+
+def resolve_modal_k(benchmark_cfg: BenchmarkConfig) -> int:
+    """Resolve a benchmark's precomputed modal choice count.
+
+    Prefers the persisted stats sidecar (written by prepare_data.py). Falls back
+    to computing modal k from the normalized CSV if the sidecar is absent.
+    """
+    csv_path = _normalized_csv_path(benchmark_cfg)
+    sidecar = stats_path_for(csv_path)
+    if sidecar.exists():
+        k = read_stats(sidecar).get("modal_k")
+        if k is not None:
+            return int(k)
+    if csv_path.exists():
+        logger.warning(
+            "No stats sidecar for %s — computing modal k from the CSV.", csv_path
+        )
+        stats = compute_benchmark_stats(read_benchmark(csv_path))
+        if stats["modal_k"] is None:
+            raise ValueError(f"Cannot compute modal k for empty benchmark {csv_path}.")
+        return int(stats["modal_k"])
+    raise FileNotFoundError(
+        f"Cannot resolve modal k: neither a stats sidecar nor the normalized "
+        f"CSV exists at {csv_path}. Run scripts/prepare_data.py first."
+    )
+
+
+def _resolve_runner_cls(method_name: str):
+    """Look up a runner class by method name (built-in or importable)."""
+    runner_cls = METHOD_REGISTRY.get(method_name)
+    if runner_cls is None and ":" in method_name:
+        module_path, class_name = method_name.rsplit(":", 1)
+        try:
+            module = importlib.import_module(module_path)
+            runner_cls = getattr(module, class_name)
+        except (ImportError, AttributeError):
+            runner_cls = None
+    return runner_cls
+
+
 def instantiate_runner(
     config: ExperimentConfig,
     model_config: ModelConfig,
@@ -220,6 +279,7 @@ def instantiate_runner(
     run_id: str,
     benchmark_cfg: BenchmarkConfig,
     preflight_questions: list[dict] | None = None,
+    extra_runtime_kwargs: dict | None = None,
 ):
     """Look up and instantiate the runner for a given method name.
 
@@ -258,6 +318,14 @@ def instantiate_runner(
     runner_params = inspect.signature(runner_cls.__init__).parameters
     if "calibration_runs_dir" in runner_params and "calibration_runs_dir" not in method_params:
         extra_kwargs["calibration_runs_dir"] = RUNS_DIR
+
+    # Runtime-resolved kwargs (e.g. modal_k / gate_summary from the modal-k
+    # gate). Only forwarded to runners whose constructor accepts them and that
+    # the user did not already set in YAML params, so non-PriDe runners are
+    # unaffected.
+    for key, value in (extra_runtime_kwargs or {}).items():
+        if key in runner_params and key not in method_params:
+            extra_kwargs[key] = value
 
     try:
         return runner_cls(
@@ -435,6 +503,28 @@ async def _run_model(
     # datasets collide on the CSV filename / checkpoint key (FCD-3 / MF-C).
     write_label = benchmark_write_label(benchmark_cfg)
 
+    # Modal-k compatibility gate (PriDe only). Runs before calibration so a
+    # heterogeneous-option benchmark fails fast, and so PriDe calibrates and
+    # evaluates on a single option count. Per-question methods skip this.
+    eval_questions = questions
+    extra_runtime_kwargs: dict = {}
+    runner_cls = _resolve_runner_cls(method.name)
+    if getattr(runner_cls, "applies_modal_k_gate", False):
+        modal_k = resolve_modal_k(benchmark_cfg)
+        eval_questions, gate_report = apply_modal_k_gate(
+            questions, modal_k, config.pride.modal_k_threshold, write_label,
+        )
+        logger.info(
+            "[%s] modal-k gate: k=%d, %d/%d evaluated (%s).",
+            method.name, gate_report.modal_k, gate_report.n_evaluated,
+            gate_report.n_total, gate_report.reason,
+        )
+        safe_model = model_config.model_name_or_path.replace("/", "_")
+        gate_path = output_dir / f"pride_modal_k_gate__{safe_model}__{write_label}.json"
+        gate_path.parent.mkdir(parents=True, exist_ok=True)
+        gate_path.write_text(json.dumps(gate_report.as_dict(), indent=2))
+        extra_runtime_kwargs = {"modal_k": modal_k, "gate_summary": gate_report.as_dict()}
+
     checkpoint_mgr = CheckpointManager(
         checkpoint_dir=checkpoint_dir,
         run_id=run_id,
@@ -445,11 +535,12 @@ async def _run_model(
     runner = instantiate_runner(
         config, model_config, method, backend, run_id, benchmark_cfg,
         preflight_questions=preflight_questions,
+        extra_runtime_kwargs=extra_runtime_kwargs,
     )
     await run_method(
         method_name=method.name,
         runner=runner,
-        questions=questions,
+        questions=eval_questions,
         checkpoint_mgr=checkpoint_mgr,
         output_dir=output_dir,
         checkpoint_every_n=config.run.checkpoint_every_n,

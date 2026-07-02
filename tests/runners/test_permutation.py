@@ -1,7 +1,12 @@
 # tests/runners/test_permutation.py
 
+import math
 from pathlib import Path
 
+import pytest
+
+from choicebench.benchmarks.base import make_normalized_row
+from choicebench.constants import letters_for
 from choicebench.methods.library.permutation import PermutationRunner
 from choicebench.pipeline.prompt_builder import load_prompt_templates
 
@@ -62,6 +67,23 @@ class TestGeneratePermutations:
         assert len(perms) == 3
         assert list(perms[0]) == ["A", "B", "C"]
         assert perms[1] == {"A": "HTTP", "B": "HTTPS", "C": "FTP"}
+
+    @pytest.mark.parametrize("n", [2, 5, 6, 10])
+    def test_rotation_count_equals_choice_count_not_fixed_or_factorial(self, n):
+        options = {label: f"text_{i}" for i, label in enumerate(letters_for(n))}
+        perms = PermutationRunner._generate_permutations(options)
+
+        # Exactly n rotations — not a hardcoded 4 ...
+        assert len(perms) == n
+        # ... and not the full factorial n! set of orderings.
+        if n > 2:
+            assert len(perms) < math.factorial(n)
+        # Every rotation is a distinct cyclic shift of the option texts.
+        values = list(options.values())
+        assert [list(p.values()) for p in perms] == [
+            values[i:] + values[:i] for i in range(n)
+        ]
+        assert len({tuple(p.values()) for p in perms}) == n
 
 
 class TestBuildPermutedPrompt:
@@ -287,6 +309,31 @@ class TestPermutationRunnerRunOne:
         assert "D." not in result["prompt"]
         assert result["parsed_choice"] == "C"
         assert result["score_status"] == SCORE_CORRECT
+
+    def test_six_option_question_makes_six_api_calls(self):
+        # A variable-choice (new schema) 6-option question rotates exactly 6
+        # times end-to-end — the runner derives the count from len(choices).
+        row = make_normalized_row(
+            subject="net",
+            question_text="Which protocol is used to securely browse websites?",
+            choices=["FTP", "HTTP", "HTTPS", "SMTP", "SNMP", "POP3"],
+            correct_index=2,
+        )
+        backend = MockBackend(responses=["A"] * 6)
+        runner = PermutationRunner(
+            backend=backend,
+            method_name="cyclic_permutation",
+            split_name="robustness",
+            prompt_version="v1",
+            prompts_dir=_PROMPTS_DIR,
+            run_id="test_run_6opt",
+        )
+
+        result = runner.run_one(row, sample_index=0)
+
+        assert len(backend.requests_received) == 6
+        assert "E. SNMP" in result["prompt"]
+        assert "F. POP3" in result["prompt"]
 
     def test_result_row_has_metadata(self, runner_question_row):
         """Result row should carry trace metadata."""

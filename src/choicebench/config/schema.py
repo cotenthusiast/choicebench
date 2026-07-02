@@ -104,6 +104,20 @@ class RunConfig:
 
 
 @dataclass
+class PriDeConfig:
+    """PriDe-specific settings.
+
+    modal_k_threshold: minimum proportion of evaluation questions that must
+    share the benchmark's modal choice count for a PriDe run to proceed. PriDe
+    has a global calibration step that assumes a single option count, so a
+    benchmark with heterogeneous option counts is rejected before the run.
+    Must lie in (0, 1].
+    """
+
+    modal_k_threshold: float = 0.95
+
+
+@dataclass
 class ExperimentConfig:
     """Top-level validated experiment config.
 
@@ -118,6 +132,7 @@ class ExperimentConfig:
     methods: list[MethodConfig]
     metrics: list[str]
     run: RunConfig
+    pride: PriDeConfig = field(default_factory=PriDeConfig)
 
 
 def _require(d: Mapping, key: str, where: str) -> Any:
@@ -296,6 +311,22 @@ def _build_run(raw: dict | None) -> RunConfig:
     )
 
 
+def _build_pride(raw: dict | None) -> PriDeConfig:
+    raw = raw or {}
+    threshold = raw.get("modal_k_threshold", 0.95)
+    try:
+        threshold = float(threshold)
+    except (TypeError, ValueError):
+        raise ConfigError(
+            f"pride.modal_k_threshold must be a number in (0, 1]; got {threshold!r}."
+        )
+    if not (0.0 < threshold <= 1.0):
+        raise ConfigError(
+            f"pride.modal_k_threshold must be in (0, 1]; got {threshold}."
+        )
+    return PriDeConfig(modal_k_threshold=threshold)
+
+
 def model_supports_logprobs(model: ModelConfig) -> bool:
     """Single source of truth: does this model's backend expose score_options()?
 
@@ -374,6 +405,7 @@ def load_config(path: str) -> ExperimentConfig:
         methods=_build_methods(raw.get("methods")),
         metrics=_build_metrics(raw.get("metrics")),
         run=_build_run(raw.get("run")),
+        pride=_build_pride(raw.get("pride")),
     )
     _validate_cross_field(config)
     return config

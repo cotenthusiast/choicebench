@@ -209,7 +209,7 @@ class TestPriDeRunnerIntegration:
             calibration_questions=[],
         )
 
-        with pytest.raises(ValueError, match="PriDe requires four valid A-D options"):
+        with pytest.raises(ValueError, match="PriDe requires exactly 4 valid options"):
             runner.run_one(row, sample_index=0)
 
     def test_no_calibration_questions_uses_uniform_prior(

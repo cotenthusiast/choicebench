@@ -4,24 +4,28 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from choicebench.benchmarks.base import make_normalized_row
 from choicebench.benchmarks.mmlu import build_normalized_dataframe, normalize_row
+from choicebench.pipeline.options import build_option_map
 
 
 class TestNormalizeRow:
     """Tests for normalize_row."""
 
     def test_normalize_row(self, sample_raw_row):
-        assert normalize_row(sample_raw_row) == {
-            "question_id": "4865890d7f0efae8",
-            "subject": "computer_security",
-            "question_text": "Which protocol is primarily used to securely browse websites?",
-            "choice_a": "FTP",
-            "choice_b": "HTTP",
-            "choice_c": "HTTPS",
-            "choice_d": "SMTP",
-            "correct_option": "C",
-            "correct_answer_text": "HTTPS",
-        }
+        result = normalize_row(sample_raw_row)
+        # question_id stays stable: a 4-choice row hashes the same content as
+        # the legacy choice_a..choice_d format.
+        assert result["question_id"] == "4865890d7f0efae8"
+        assert result["subject"] == "computer_security"
+        assert result["question_text"] == (
+            "Which protocol is primarily used to securely browse websites?"
+        )
+        assert result["correct_option"] == "C"
+        assert result["correct_index"] == 2
+        assert result["correct_answer_text"] == "HTTPS"
+        assert result["n_choices"] == 4
+        assert build_option_map(result) == {"A": "FTP", "B": "HTTP", "C": "HTTPS", "D": "SMTP"}
 
     def test_normalize_row_accepts_numpy_choices_array(self):
         row = {
@@ -33,10 +37,7 @@ class TestNormalizeRow:
 
         result = normalize_row(row)
 
-        assert result["choice_a"] == "0"
-        assert result["choice_b"] == "4"
-        assert result["choice_c"] == "2"
-        assert result["choice_d"] == "6"
+        assert build_option_map(result) == {"A": "0", "B": "4", "C": "2", "D": "6"}
         assert result["correct_option"] == "B"
         assert result["correct_answer_text"] == "4"
 
@@ -75,28 +76,18 @@ class TestBuildNormalizedDataframe:
 
     def test_build_normalize_dataframe(self, sample_raw_dataframe):
         expected_raw = [
-            {
-                "question_id": "4865890d7f0efae8",
-                "subject": "computer_security",
-                "question_text": "Which protocol is primarily used to securely browse websites?",
-                "choice_a": "FTP",
-                "choice_b": "HTTP",
-                "choice_c": "HTTPS",
-                "choice_d": "SMTP",
-                "correct_option": "C",
-                "correct_answer_text": "HTTPS",
-            },
-            {
-                "question_id": "5e9876049bf053f9",
-                "subject": "high_school_physics",
-                "question_text": "What is the SI unit of force?",
-                "choice_a": "Joule",
-                "choice_b": "Newton",
-                "choice_c": "Watt",
-                "choice_d": "Pascal",
-                "correct_option": "B",
-                "correct_answer_text": "Newton",
-            },
+            make_normalized_row(
+                subject="computer_security",
+                question_text="Which protocol is primarily used to securely browse websites?",
+                choices=["FTP", "HTTP", "HTTPS", "SMTP"],
+                correct_index=2,
+            ),
+            make_normalized_row(
+                subject="high_school_physics",
+                question_text="What is the SI unit of force?",
+                choices=["Joule", "Newton", "Watt", "Pascal"],
+                correct_index=1,
+            ),
         ]
         df = pd.DataFrame(expected_raw)
         pd.testing.assert_frame_equal(build_normalized_dataframe(sample_raw_dataframe), df)

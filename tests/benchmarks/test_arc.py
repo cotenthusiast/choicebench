@@ -4,6 +4,23 @@ import pytest
 import pandas as pd
 
 from choicebench.benchmarks.arc import normalize_row, build_normalized_dataframe
+from choicebench.pipeline.options import build_option_map
+
+_SCHEMA_COLS = {
+    "question_id",
+    "subject",
+    "question_text",
+    "choices_json",
+    "correct_index",
+    "correct_option",
+    "correct_answer_text",
+    "n_choices",
+}
+
+
+def _opts(row) -> dict:
+    """Label -> text map for a normalized row (new variable-choice schema)."""
+    return build_option_map(row if isinstance(row, dict) else row.to_dict())
 
 # ---------------------------------------------------------------------------
 # Representative raw rows
@@ -43,18 +60,7 @@ _ROW_NUMERIC_KEYS = {
 class TestNormalizeRow:
     def test_returns_all_schema_keys(self):
         result = normalize_row(_ROW_LETTER_KEYS)
-        expected_keys = {
-            "question_id",
-            "subject",
-            "question_text",
-            "choice_a",
-            "choice_b",
-            "choice_c",
-            "choice_d",
-            "correct_option",
-            "correct_answer_text",
-        }
-        assert set(result.keys()) == expected_keys
+        assert set(result.keys()) == _SCHEMA_COLS
 
     def test_subject_is_arc_challenge(self):
         assert normalize_row(_ROW_LETTER_KEYS)["subject"] == "arc_challenge"
@@ -64,11 +70,11 @@ class TestNormalizeRow:
         assert result["question_text"] == _ROW_LETTER_KEYS["question"]
 
     def test_choices_mapped_correctly_with_letter_labels(self):
-        result = normalize_row(_ROW_LETTER_KEYS)
-        assert result["choice_a"] == "taking a shower in cold water"
-        assert result["choice_b"] == "having a flu virus in the body"
-        assert result["choice_c"] == "smoking cigarettes"
-        assert result["choice_d"] == "eating salted crackers"
+        opts = _opts(normalize_row(_ROW_LETTER_KEYS))
+        assert opts["A"] == "taking a shower in cold water"
+        assert opts["B"] == "having a flu virus in the body"
+        assert opts["C"] == "smoking cigarettes"
+        assert opts["D"] == "eating salted crackers"
 
     def test_correct_option_letter_label(self):
         assert normalize_row(_ROW_LETTER_KEYS)["correct_option"] == "B"
@@ -78,11 +84,11 @@ class TestNormalizeRow:
         assert result["correct_answer_text"] == "having a flu virus in the body"
 
     def test_numeric_labels_converted_to_letters(self):
-        result = normalize_row(_ROW_NUMERIC_KEYS)
-        assert result["choice_a"] == "soil nutrients"
-        assert result["choice_b"] == "the sun"
-        assert result["choice_c"] == "decomposers"
-        assert result["choice_d"] == "producers"
+        opts = _opts(normalize_row(_ROW_NUMERIC_KEYS))
+        assert opts["A"] == "soil nutrients"
+        assert opts["B"] == "the sun"
+        assert opts["C"] == "decomposers"
+        assert opts["D"] == "producers"
 
     def test_correct_option_numeric_label_converted(self):
         assert normalize_row(_ROW_NUMERIC_KEYS)["correct_option"] == "B"
@@ -127,7 +133,7 @@ class TestNormalizeRow:
         assert result["correct_option"] == answer_key
 
     def test_correct_answer_text_matches_selected_choice(self):
-        for letter, field in [("A", "choice_a"), ("B", "choice_b"), ("C", "choice_c"), ("D", "choice_d")]:
+        for letter in ["A", "B", "C", "D"]:
             row = {
                 "id": f"test_{letter}",
                 "question": "Test?",
@@ -138,7 +144,7 @@ class TestNormalizeRow:
                 "answerKey": letter,
             }
             result = normalize_row(row)
-            assert result["correct_answer_text"] == result[field]
+            assert result["correct_answer_text"] == _opts(result)[letter]
 
     def test_numeric_answer_key_converted(self):
         for num, letter in [("1", "A"), ("2", "B"), ("3", "C"), ("4", "D")]:
@@ -173,18 +179,7 @@ class TestBuildNormalizedDataframe:
     def test_output_has_all_schema_columns(self):
         df_raw = pd.DataFrame([_ROW_LETTER_KEYS])
         result = build_normalized_dataframe(df_raw)
-        expected_cols = {
-            "question_id",
-            "subject",
-            "question_text",
-            "choice_a",
-            "choice_b",
-            "choice_c",
-            "choice_d",
-            "correct_option",
-            "correct_answer_text",
-        }
-        assert expected_cols.issubset(set(result.columns))
+        assert _SCHEMA_COLS.issubset(set(result.columns))
 
     def test_all_subjects_are_arc_challenge(self):
         df_raw = pd.DataFrame([_ROW_LETTER_KEYS, _ROW_NUMERIC_KEYS])
@@ -195,8 +190,9 @@ class TestBuildNormalizedDataframe:
         df_raw = pd.DataFrame([_ROW_LETTER_KEYS])
         result = build_normalized_dataframe(df_raw)
         row = result.iloc[0]
-        assert row["choice_a"] == "taking a shower in cold water"
-        assert row["choice_b"] == "having a flu virus in the body"
+        opts = _opts(row)
+        assert opts["A"] == "taking a shower in cold water"
+        assert opts["B"] == "having a flu virus in the body"
         assert row["correct_option"] == "B"
         assert row["correct_answer_text"] == "having a flu virus in the body"
 

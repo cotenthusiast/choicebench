@@ -18,7 +18,12 @@ from choicebench.clients.types import (
 from choicebench.config.providers import MAX_TOKENS, SEED, TEMPERATURE
 from choicebench.parsing.parser import parse_model_answer
 from choicebench.parsing.types import ParseResult
-from choicebench.pipeline.options import build_option_map
+from choicebench.pipeline.options import (
+    build_choices,
+    build_option_map,
+    correct_option_for_row,
+    serialize_choices,
+)
 from choicebench.pipeline.prompt_builder import load_prompt_templates
 from choicebench.scoring.scorer import score_prediction
 from choicebench.scoring.types import ScoreResult
@@ -34,6 +39,10 @@ class ExperimentRunner(ABC):
     """
 
     requires_score_options: bool = False
+    # Whether this runner is subject to the PriDe modal-k compatibility gate.
+    # Only methods with a global calibration step (PriDe) set this True; per-
+    # question methods (direct_mcq, cyclic_permutation, ...) leave it False.
+    applies_modal_k_gate: bool = False
 
     def __init__(
             self,
@@ -217,11 +226,7 @@ class ExperimentRunner(ABC):
             "seed": self.seed,
             # --- question content ---
             "question_text": question_row["question_text"],
-            "choice_a": question_row["choice_a"],
-            "choice_b": question_row["choice_b"],
-            "choice_c": question_row["choice_c"],
-            "choice_d": question_row["choice_d"],
-            "correct_option": question_row["correct_option"],
+            **self._question_choice_fields(question_row),
             # --- prompt ---
             "prompt": prompt,
             # --- model output ---
@@ -309,3 +314,24 @@ class ExperimentRunner(ABC):
             Mapping from canonical answer letters to their text.
         """
         return build_option_map(question_row)
+
+    @staticmethod
+    def _question_choice_fields(question_row: Any) -> dict[str, Any]:
+        """Build the variable-choice content fields written to a result row.
+
+        Emits the schema-agnostic representation (``choices_json``,
+        ``correct_index``, ``correct_option``, ``n_choices``) for either a
+        new-schema or a legacy choice_a..choice_d question row, so a result CSV
+        faithfully records questions with any number of options and stays
+        reparseable via build_option_map().
+        """
+        choices = build_choices(question_row)
+        labels = [c["label"] for c in choices]
+        correct_option = correct_option_for_row(question_row)
+        correct_index = labels.index(correct_option) if correct_option in labels else None
+        return {
+            "choices_json": serialize_choices(choices),
+            "correct_index": correct_index,
+            "correct_option": correct_option,
+            "n_choices": len(choices),
+        }

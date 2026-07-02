@@ -1,23 +1,28 @@
 # tests/benchmarks/test_mmlu_pro.py
 
-import pytest
 import pandas as pd
+import pytest
 
 from choicebench.benchmarks.mmlu_pro import normalize_row, build_normalized_dataframe
+from choicebench.pipeline.options import build_option_map
 
 _SCHEMA_COLS = {
     "question_id",
     "subject",
     "question_text",
-    "choice_a",
-    "choice_b",
-    "choice_c",
-    "choice_d",
+    "choices_json",
+    "correct_index",
     "correct_option",
     "correct_answer_text",
+    "n_choices",
 }
 
-# Correct answer is options[2] → answer_index=2 → "C"
+
+def _opts(row) -> dict:
+    return build_option_map(row if isinstance(row, dict) else row.to_dict())
+
+
+# 6 options; correct is options[2] → answer_index=2 → "C"
 _ROW_VALID = {
     "question": "What is 2 + 2?",
     "options": ["1", "2", "4", "3", "5", "6"],
@@ -27,7 +32,7 @@ _ROW_VALID = {
     "src": "test_src",
 }
 
-# Correct answer is options[0] → answer_index=0 → "A"
+# 4 options; correct is options[0] → answer_index=0 → "A"
 _ROW_VALID_A = {
     "question": "What color is the sky?",
     "options": ["blue", "red", "green", "yellow"],
@@ -37,8 +42,8 @@ _ROW_VALID_A = {
     "src": "test_src",
 }
 
-# Correct answer is options[4] → answer_index=4 → must be skipped
-_ROW_SKIP = {
+# 6 options; correct is options[4] → answer_index=4 → "E" (previously dropped).
+_ROW_CORRECT_BEYOND_D = {
     "question": "What is 3 + 3?",
     "options": ["1", "2", "4", "3", "6", "7"],
     "answer": "E",
@@ -47,11 +52,20 @@ _ROW_SKIP = {
     "src": "test_src",
 }
 
+# A full 10-option MMLU-Pro-style question with the answer at index 9 ("J").
+_ROW_TEN_OPTIONS = {
+    "question": "Which is the ninth option?",
+    "options": ["o0", "o1", "o2", "o3", "o4", "o5", "o6", "o7", "o8", "o9"],
+    "answer": "J",
+    "answer_index": 9,
+    "category": "logic",
+    "src": "test_src",
+}
+
 
 class TestNormalizeRow:
     def test_returns_all_schema_keys(self):
-        result = normalize_row(_ROW_VALID)
-        assert set(result.keys()) == _SCHEMA_COLS
+        assert set(normalize_row(_ROW_VALID).keys()) == _SCHEMA_COLS
 
     def test_subject_is_category(self):
         assert normalize_row(_ROW_VALID)["subject"] == "math"
@@ -59,57 +73,52 @@ class TestNormalizeRow:
     def test_question_text_preserved(self):
         assert normalize_row(_ROW_VALID)["question_text"] == _ROW_VALID["question"]
 
-    def test_choices_are_first_four_options(self):
-        result = normalize_row(_ROW_VALID)
-        assert result["choice_a"] == "1"
-        assert result["choice_b"] == "2"
-        assert result["choice_c"] == "4"
-        assert result["choice_d"] == "3"
+    def test_all_options_preserved(self):
+        opts = _opts(normalize_row(_ROW_VALID))
+        assert opts == {"A": "1", "B": "2", "C": "4", "D": "3", "E": "5", "F": "6"}
+
+    def test_n_choices_matches_option_count(self):
+        assert normalize_row(_ROW_VALID)["n_choices"] == 6
 
     def test_correct_option_derived_from_answer_index(self):
         assert normalize_row(_ROW_VALID)["correct_option"] == "C"
+        assert normalize_row(_ROW_VALID)["correct_index"] == 2
 
     def test_correct_answer_text_matches_option(self):
-        result = normalize_row(_ROW_VALID)
-        assert result["correct_answer_text"] == "4"
+        assert normalize_row(_ROW_VALID)["correct_answer_text"] == "4"
 
     @pytest.mark.parametrize("answer_index,expected_option", [
-        (0, "A"), (1, "B"), (2, "C"), (3, "D"),
+        (0, "A"), (1, "B"), (2, "C"), (3, "D"), (4, "E"), (5, "F"),
     ])
     def test_all_valid_answer_indices(self, answer_index, expected_option):
         row = {**_ROW_VALID, "answer_index": answer_index}
         result = normalize_row(row)
         assert result["correct_option"] == expected_option
 
-    def test_correct_answer_text_matches_selected_choice(self):
-        for idx, field in [(0, "choice_a"), (1, "choice_b"), (2, "choice_c"), (3, "choice_d")]:
-            row = {**_ROW_VALID, "answer_index": idx}
-            result = normalize_row(row)
-            assert result["correct_answer_text"] == result[field]
+    def test_answer_beyond_d_is_preserved_not_skipped(self):
+        result = normalize_row(_ROW_CORRECT_BEYOND_D)
+        assert result is not None
+        assert result["correct_option"] == "E"
+        assert result["correct_answer_text"] == "6"
+        assert result["n_choices"] == 6
+
+    def test_ten_option_question_normalizes_with_full_choice_set(self):
+        result = normalize_row(_ROW_TEN_OPTIONS)
+        assert result["n_choices"] == 10
+        assert result["correct_option"] == "J"
+        assert result["correct_index"] == 9
+        assert result["correct_answer_text"] == "o9"
+        opts = _opts(result)
+        assert len(opts) == 10
+        assert opts["J"] == "o9"
 
     def test_question_id_is_16_char_hex_string(self):
         qid = normalize_row(_ROW_VALID)["question_id"]
         assert len(qid) == 16
         int(qid, 16)
 
-    def test_question_id_is_deterministic(self):
-        assert normalize_row(_ROW_VALID)["question_id"] == normalize_row(_ROW_VALID)["question_id"]
-
     def test_different_questions_produce_different_ids(self):
-        r1 = normalize_row(_ROW_VALID)
-        r2 = normalize_row(_ROW_VALID_A)
-        assert r1["question_id"] != r2["question_id"]
-
-    def test_skips_when_answer_index_greater_than_3(self):
-        assert normalize_row(_ROW_SKIP) is None
-
-    def test_skips_answer_index_4(self):
-        row = {**_ROW_VALID, "answer_index": 4}
-        assert normalize_row(row) is None
-
-    def test_skips_answer_index_9(self):
-        row = {**_ROW_VALID, "answer_index": 9}
-        assert normalize_row(row) is None
+        assert normalize_row(_ROW_VALID)["question_id"] != normalize_row(_ROW_VALID_A)["question_id"]
 
 
 class TestBuildNormalizedDataframe:
@@ -122,20 +131,17 @@ class TestBuildNormalizedDataframe:
         result = build_normalized_dataframe(df_raw)
         assert _SCHEMA_COLS.issubset(set(result.columns))
 
-    def test_valid_rows_are_kept(self):
-        df_raw = pd.DataFrame([_ROW_VALID, _ROW_VALID_A])
+    def test_no_rows_are_dropped(self):
+        # Every row survives — including one whose answer is beyond D, which the
+        # old adapter would have silently skipped.
+        df_raw = pd.DataFrame([_ROW_VALID, _ROW_CORRECT_BEYOND_D, _ROW_VALID_A, _ROW_TEN_OPTIONS])
         result = build_normalized_dataframe(df_raw)
-        assert len(result) == 2
+        assert len(result) == 4
 
-    def test_skipped_rows_are_dropped(self):
-        df_raw = pd.DataFrame([_ROW_VALID, _ROW_SKIP, _ROW_VALID_A])
+    def test_full_choice_sets_survive_normalization(self):
+        df_raw = pd.DataFrame([_ROW_VALID, _ROW_TEN_OPTIONS])
         result = build_normalized_dataframe(df_raw)
-        assert len(result) == 2
-
-    def test_all_skipped_produces_empty(self):
-        df_raw = pd.DataFrame([_ROW_SKIP])
-        result = build_normalized_dataframe(df_raw)
-        assert len(result) == 0
+        assert set(result["n_choices"]) == {6, 10}
 
     def test_empty_input_produces_empty_output(self):
         df_raw = pd.DataFrame(columns=["question", "options", "answer", "answer_index", "category", "src"])
@@ -143,17 +149,10 @@ class TestBuildNormalizedDataframe:
         assert isinstance(result, pd.DataFrame)
         assert len(result) == 0
 
-    def test_correct_option_is_always_abcd(self):
-        df_raw = pd.DataFrame([_ROW_VALID, _ROW_VALID_A])
+    def test_correct_option_can_exceed_d(self):
+        df_raw = pd.DataFrame([_ROW_VALID, _ROW_CORRECT_BEYOND_D, _ROW_TEN_OPTIONS])
         result = build_normalized_dataframe(df_raw)
-        assert result["correct_option"].isin(["A", "B", "C", "D"]).all()
-
-    def test_question_ids_are_16_char_hex(self):
-        df_raw = pd.DataFrame([_ROW_VALID, _ROW_VALID_A])
-        result = build_normalized_dataframe(df_raw)
-        for qid in result["question_id"]:
-            assert len(qid) == 16
-            int(qid, 16)
+        assert set(result["correct_option"]) == {"C", "E", "J"}
 
     def test_question_ids_are_unique(self):
         df_raw = pd.DataFrame([_ROW_VALID, _ROW_VALID_A])

@@ -15,6 +15,7 @@ import pandas as pd
 
 from choicebench.benchmarks.registry import get_by_hf_path
 from choicebench.config.paths import PROCESSED_DIR, ensure_dirs
+from choicebench.stats import compute_benchmark_stats, stats_path_for, write_stats
 
 logging.basicConfig(
     level=logging.INFO,
@@ -107,6 +108,19 @@ def _resolve_output_stem(
     return hf_path.rsplit("/", 1)[-1].lower().replace("-", "_")
 
 
+def _write_stats(df: pd.DataFrame, output_path, stem: str) -> None:
+    """Compute and persist dataset-level stats (modal k, distribution)."""
+    stats = compute_benchmark_stats(df, benchmark=stem)
+    path = write_stats(stats, stats_path_for(output_path))
+    logger.info(
+        "Stats: modal k=%s over %d questions (%s%% share) → %s",
+        stats["modal_k"],
+        stats["n_questions"],
+        f"{stats['modal_k_proportion'] * 100:.1f}" if stats["modal_k_proportion"] is not None else "n/a",
+        path,
+    )
+
+
 def main() -> None:
     ensure_dirs()
     args = parse_args()
@@ -115,7 +129,12 @@ def main() -> None:
     output_path = PROCESSED_DIR / f"{stem}_normalized.csv"
 
     if output_path.exists():
-        logger.info("Normalized file already exists: %s — skipping.", output_path)
+        logger.info("Normalized file already exists: %s — skipping download.", output_path)
+        # Backfill the stats sidecar if it is missing (e.g. a CSV prepared
+        # before stats existed), so the modal-k gate has data to read.
+        if not stats_path_for(output_path).exists():
+            logger.info("Stats sidecar missing — computing from existing CSV.")
+            _write_stats(pd.read_csv(output_path), output_path, stem)
         return
 
     df_raw = download_from_huggingface(args.hf_path, args.hf_subset, args.split)
@@ -126,6 +145,7 @@ def main() -> None:
 
     df_normalized.to_csv(output_path, index=False)
     logger.info("Saved → %s", output_path)
+    _write_stats(df_normalized, output_path, stem)
 
 
 if __name__ == "__main__":
