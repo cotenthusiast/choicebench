@@ -30,6 +30,7 @@ from choicebench.config.paths import (
     TOY_BENCHMARK_PATH,
     ensure_dirs,
     get_benchmark_path,
+    safe_reset_run_dir,
 )
 from choicebench.config.schema import (
     BENCHMARK_HUGGINGFACE,
@@ -606,6 +607,14 @@ def parse_args() -> argparse.Namespace:
         "--yes", action="store_true",
         help="Skip the confirmation prompt.",
     )
+    parser.add_argument(
+        "--reset-run", action="store_true",
+        help=(
+            "Clear the run directory before running (fresh run, no resume). "
+            "Without this flag, an existing run-id is reused: results are "
+            "merged in and checkpoints resumed."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -665,6 +674,13 @@ def main() -> None:
     run_id = args.run_id or datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     output_dir = RUNS_DIR / run_id
     checkpoint_dir = output_dir / "checkpoints"
+
+    # Default: reuse an existing run-id in place (config.yaml overwritten,
+    # matching CSVs overwritten, checkpoints resumed when run.resume is set).
+    # --reset-run opts into clearing the directory first for a clean run.
+    if args.reset_run:
+        safe_reset_run_dir(output_dir)
+        logger.info("Cleared run directory (--reset-run): %s", output_dir)
 
     output_dir.mkdir(parents=True, exist_ok=True)
     shutil.copy2(args.config, output_dir / "config.yaml")
