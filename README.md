@@ -304,7 +304,7 @@ src/choicebench/
 | `direct_mcq` | Single-pass: prompt → parse → score | 1 |
 | `cyclic_permutation` | Runs one cyclic permutation per available option, takes majority vote | N options, normally 4 |
 | `two_stage` | Stage 1: free-form answer; Stage 2: map to option letter | 2, or 3 if fallback is enabled |
-| `pride` | PriDe Eq. 8 logprob debiasing. Note: YAML-driven runs use a uniform prior in v0.1 unless a preflight calibration block is configured. Without preflight, this is logprob argmax only — not calibration-fitted debiasing from Zheng et al., ICLR 2024. | 1 score_options call per eval row; +4K calibration calls per run if K calibration rows are supplied |
+| `pride` | PriDe Eq. 8 logprob debiasing. Note: YAML-driven runs use a uniform prior in v0.1 unless a preflight calibration block is configured. Without preflight, this is logprob argmax only — not calibration-fitted debiasing from Zheng et al., ICLR 2024. Subject to the [modal-k gate](#method-compatibility--known-limitations). | 1 score_options call per eval row; +4K calibration calls per run if K calibration rows are supplied |
 | `cyclic_logprob` | Eq. 1 logprob averaging: score every cyclic permutation via `score_options`, average probability mass back to canonical slots, argmax | N options, normally 4 score_options calls |
 
 #### Authoritative answer column per method
@@ -393,20 +393,83 @@ capture model weights, so two local checkpoints sharing a basename
 |---|---|---|
 | `mmlu` | HuggingFace `cais/mmlu` | 57-subject, 14k questions; run `prepare_data.py` first |
 | `arc_challenge` | HuggingFace `allenai/ai2_arc` | 1172-question subset; run `prepare_data.py` first |
-| `mmlu_pro` | HuggingFace `TIGER-Lab/MMLU-Pro` | Normalized to first four options; rows whose answer is outside A-D are skipped |
+| `mmlu_pro` | HuggingFace `TIGER-Lab/MMLU-Pro` | All options preserved (up to 10 per question); no rows dropped. Modal option count is 10 at 83.0% coverage, so PriDe fails the default 0.95 modal-k gate (see [Method Compatibility](#method-compatibility--known-limitations)) |
 | `hellaswag` | HuggingFace `Rowan/hellaswag` | Use the `validation` split; test labels are unavailable |
-| `truthful_qa` | HuggingFace `truthfulqa/truthful_qa`, subset `multiple_choice` | Uses `mc1_targets`; rows whose answer is outside the first four choices are skipped |
+| `truthful_qa` | HuggingFace `truthfulqa/truthful_qa`, subset `multiple_choice` | Uses `mc1_targets`; all raw mc1 choices are now kept (2–13 per question, no longer truncated to 4); no rows dropped. Heterogeneous option counts (modal k=4 at 26.8% coverage), so PriDe fails the default 0.95 modal-k gate |
 | `toy` | Bundled synthetic CSV | 10 questions; no setup needed |
 | `huggingface` | User-specified HuggingFace dataset | Requires a registered `@benchmark` normalizer module (see **Add a benchmark**) |
 
 ### Option Schema
 
-v0.1 uses a legacy normalized CSV schema with `choice_a` through `choice_d`
-columns. Generate-based methods build an option map from non-empty trailing
-choice columns, so they can tolerate rows with fewer than four options. PriDe
-is currently stricter: it requires exactly four valid A-D options. A full
-list-based variable-option schema, mixed-option-count PriDe calibration, and
-mixed-N subject metrics are v0.2 work.
+Normalized CSVs use a variable-choice schema: a `choices_json` column (an
+ordered list of `{text, source_index}` objects), a `correct_index` into that
+list, a derived `correct_option` letter, and `n_choices`. Render labels
+(A, B, C, …) are always re-derived from choice order — never trusted from the
+source dataset, which is inconsistent past J — while `source_index` preserves
+each option's original position for audit. This supports benchmarks with any
+number of options (e.g. MMLU-Pro's up to 10, A–J).
+
+Legacy `choice_a`–`choice_d` CSVs still load unchanged: the reader falls back
+to those columns when `choices_json` is absent, so previously prepared datasets
+do not need to be re-prepared.
+
+`prepare_data.py` also writes a `<name>_stats.json` sidecar recording the modal
+option count (k) and its coverage. PriDe consumes this via a modal-k
+compatibility gate (see [Method Compatibility](#method-compatibility--known-limitations)
+below); direct_mcq and cyclic_permutation handle mixed option counts directly
+and are not gated.
+
+---
+
+## Method Compatibility & Known Limitations
+
+### PriDe requires a fixed label-set size (the modal-k gate)
+
+PriDe estimates a single global positional-bias prior and applies it to every
+evaluation question (Zheng et al., ICLR 2024, Eq. 8). That calibration is only
+meaningful when the evaluation questions share **one** option count — i.e. a
+fixed label set A..k. PriDe cannot meaningfully calibrate one global prior
+across a benchmark whose questions have highly variable choice counts.
+
+To enforce this, PriDe runs behind a **modal-k compatibility gate**, configured
+by `pride.modal_k_threshold` (default `0.95`):
+
+- The benchmark's modal choice count *k* is read from the `<name>_stats.json`
+  sidecar written by `prepare_data.py`.
+- If at least a `modal_k_threshold` proportion of the loaded questions have
+  exactly *k* options, the run proceeds **on the modal-k subset only** — the
+  non-modal-k questions are excluded.
+- Otherwise PriDe refuses to run and raises a clear error naming the benchmark,
+  the modal *k*, the actual modal-k proportion, and the configured threshold.
+
+**What lowering `modal_k_threshold` does — and does *not* — do.** Lowering the
+threshold does **not** expand which questions PriDe scores. PriDe always
+evaluates only the modal-k subset, whatever the threshold is set to. Lowering
+the threshold only changes whether the run is *permitted to proceed at all* on a
+more heterogeneous benchmark — at the cost of a smaller `n_evaluated` relative
+to `n_total`. To see exactly what fraction you actually scored, consult the
+per-run gate report sidecar,
+`pride_modal_k_gate__<model>__<benchmark>.json` (written to the run directory),
+and its `n_evaluated` vs `n_total` accounting — the same figures are mirrored
+onto each result row as `gate_n_evaluated` / `gate_n_total`.
+
+**Only PriDe is gated.** `direct_mcq` and `cyclic_permutation` are *not* subject
+to this gate. They are per-question methods with no global calibration step, so
+they handle variable choice counts natively, question by question.
+
+**Benchmarks affected today.** Under the default `0.95` threshold, two of the
+bundled benchmarks fail the gate, so PriDe refuses to run on them as-is:
+
+| Benchmark | Modal *k* | Modal-k coverage | PriDe at default 0.95 |
+|---|---|---|---|
+| MMLU-Pro | 10 | 83.0% | rejected (coverage < 0.95) |
+| TruthfulQA | 4 | 26.8% | rejected (coverage < 0.95) |
+
+`mmlu`, `arc_challenge`, `hellaswag`, and `toy` are effectively homogeneous
+(≥99% of questions at k=4) and pass the gate. To run PriDe on MMLU-Pro or
+TruthfulQA you must lower `pride.modal_k_threshold`, accepting that PriDe will
+still only score the modal-k subset (9,981 of 12,032 for MMLU-Pro; 219 of 817
+for TruthfulQA) — check the gate report for the exact `n_evaluated`.
 
 ---
 
@@ -451,9 +514,8 @@ CONFIG=config/my_experiment.yaml sbatch scripts/slurm/submit_job.sh
 
 Planned v0.2 work:
 
-- **Variable-option schema** — first-class `choices` / `correct_index` columns replacing the legacy `choice_a`–`choice_d` layout, enabling benchmarks with 2, 3, or 5+ options per row.
-- **Mixed-option PriDe and MAD** — calibration and subject-level metrics that handle questions with different option counts in the same run.
 - **Config-driven PriDe calibration splits** — specify calibration rows directly in YAML rather than passing them via Python construction.
+- **Mixed-option PriDe calibration** — a single PriDe run that calibrates across questions with *different* option counts (rather than gating to the modal k, as it does today).
 - **Parallel orchestration across benchmark/method jobs** — v0.1 already runs API models concurrently (`asyncio.gather`) and questions concurrently under each model's `concurrency_limit`; benchmarks and methods still iterate serially, which this work would parallelize.
 - **Inspect AI adapter** — run ChoiceBench methods inside [Inspect](https://inspect.ai) workflows.
 - **Broader benchmark adapters and stronger script-level integration tests.**

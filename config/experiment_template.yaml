@@ -108,8 +108,9 @@ benchmarks:
 
   # MMLU-Pro (prepare first: python scripts/prepare_data.py
   #   --hf-path TIGER-Lab/MMLU-Pro)
-  # Note: questions with correct answer outside first 4 options
-  # are skipped during preparation.
+  # Note: all options are preserved (up to 10 per question); no rows are
+  # dropped. Its modal option count is 10, so PriDe is subject to the modal-k
+  # gate below (see the `pride:` section).
   # - name: mmlu_pro
   #   split: test
   #   n_samples: null
@@ -209,3 +210,20 @@ run:
   # This is the knob that prevents provider rate-limit (429) errors; lower it
   # for stricter providers. Ignored for huggingface/dummy backends.
   concurrency_limit: 10
+
+# ---------------------------------------------------------------------------
+# PriDe (optional)
+# ---------------------------------------------------------------------------
+# PriDe fits a single global positional-bias prior, so it only makes sense when
+# the evaluation questions share one option count. Before a PriDe run, the
+# benchmark's precomputed modal option count (k) is checked against the loaded
+# questions: if at least `modal_k_threshold` of them have k options the run
+# proceeds on that modal-k subset (non-modal-k questions are excluded and the
+# exclusion is reported in the run output); otherwise the run is refused with a
+# clear error. Only PriDe is gated — direct_mcq / cyclic_permutation are not.
+# Lowering this only lets a more heterogeneous benchmark run at all; it does NOT
+# enlarge the subset PriDe scores (still modal-k only, so n_evaluated shrinks
+# relative to n_total). See the gate-report sidecar for the exact counts.
+# Must be in (0, 1]. Default 0.95.
+pride:
+  modal_k_threshold: 0.95
