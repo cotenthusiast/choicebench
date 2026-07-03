@@ -524,9 +524,8 @@ def test_validate_pride_dummy_passes():
 def test_validate_pride_vllm_raises_configuration_error():
     """pride + vllm API backend → ConfigurationError.
 
-    vLLM's score_options is a top-20-logprob approximation (missing options
-    floored to -100.0), not a full-vocabulary logit like HuggingFace's, so it
-    is not accepted for config-driven logprob methods (see
+    vLLM's client is generate-only — it does not implement score_options —
+    so it is not accepted for config-driven logprob methods (see
     _LOGPROB_API_PROVIDERS in config/schema.py).
     """
     run_exp = _load_run_experiment()

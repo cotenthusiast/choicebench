@@ -4,16 +4,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
 
 import numpy as np
-import pandas as pd
 import pytest
 
 from choicebench.methods.library.cyclic_logprob import CyclicLogprobRunner
 from choicebench.methods.library.pride_math import equation1_cyclic_debiased_content_probs
 from choicebench.methods.library.permutation import PermutationRunner
-from choicebench.backends.base import BaseBackend
 
 from tests.runners.conftest import MockBackend
 
@@ -35,60 +32,6 @@ def _make_runner(backend, **kw) -> CyclicLogprobRunner:
         run_id="test_run",
         **kw,
     )
-
-
-class _MockVLLMRawClient:
-    """Simulates VLLMClient.score_options_async() with a queue of fixed responses."""
-
-    def __init__(self, responses: list) -> None:
-        self._responses = list(responses)
-        self._call_count = 0
-        self.calls_received: list[tuple[str, list[str]]] = []
-
-    async def score_options_async(
-        self, prompt: str, options: list[str]
-    ) -> dict[str, float]:
-        self.calls_received.append((prompt, options))
-        if self._call_count < len(self._responses):
-            resp = self._responses[self._call_count]
-            self._call_count += 1
-            if isinstance(resp, Exception):
-                raise resp
-            return resp
-        raise RuntimeError("_MockVLLMRawClient: no more queued responses")
-
-
-class _MockVLLMBackend(BaseBackend):
-    """Mock backend shaped like APIBackend(VLLMClient)."""
-
-    def __init__(
-        self,
-        score_async_responses: list | None = None,
-        supports_score_options_val: bool = True,
-    ) -> None:
-        self._raw_client = _MockVLLMRawClient(score_async_responses or [])
-        self._supports_val = supports_score_options_val
-
-    @property
-    def model_name(self) -> str:
-        return "mock-vllm-model"
-
-    @property
-    def provider(self) -> str:
-        return "vllm"
-
-    @property
-    def supports_logprobs(self) -> bool:
-        return True
-
-    def supports_score_options(self) -> bool:
-        return self._supports_val
-
-    def generate(self, prompt: str, **kwargs) -> str:
-        raise NotImplementedError
-
-    def score_options(self, prompt: str, options: list[str], **kwargs) -> list[float]:
-        raise NotImplementedError("use score_options_async")
 
 
 # ---------------------------------------------------------------------------
@@ -285,102 +228,15 @@ class TestEquation1VsMajorityVote:
 
 
 # ---------------------------------------------------------------------------
-# Tests: run_many_async
+# Tests: no async path (no API provider client implements score_options)
 # ---------------------------------------------------------------------------
 
-class TestCyclicLogprobRunManyAsync:
-    pytestmark = pytest.mark.asyncio
-
-    async def test_raises_not_implemented_when_no_score_options(
-        self, runner_question_row
-    ):
-        """run_many_async() must raise NotImplementedError when backend lacks score_options."""
-        backend = MockBackend(supports_logprobs=False)
-        runner = _make_runner(backend)
-        df = pd.DataFrame([runner_question_row])
-
-        with pytest.raises(NotImplementedError, match="score_options"):
-            await runner.run_many_async(df)
-
-    async def test_run_many_async_returns_one_result_per_question(
-        self, runner_question_row
-    ):
-        """run_many_async() must return exactly one result row per question."""
-        n_questions = 3
-        # 4 permutations × 3 questions = 12 async calls
-        resp = {"A": -0.1, "B": -2.0, "C": -3.0, "D": -4.0}
-        backend = _MockVLLMBackend(score_async_responses=[resp] * 12)
-        runner = _make_runner(backend)
-        df = pd.DataFrame([runner_question_row] * n_questions)
-
-        results = await runner.run_many_async(df)
-
-        assert len(results) == n_questions
-        assert backend._raw_client._call_count == n_questions * 4
-
-    async def test_run_many_async_result_has_extra_fields(self, runner_question_row):
-        """Each result row from run_many_async() must include the cyclic-specific fields."""
-        resp = {"A": -0.1, "B": -2.0, "C": -3.0, "D": -4.0}
-        backend = _MockVLLMBackend(score_async_responses=[resp] * 4)
-        runner = _make_runner(backend)
-        df = pd.DataFrame([runner_question_row])
-
-        results = await runner.run_many_async(df)
-        row = results[0]
-
-        assert row["cyclic_logprob_inference_mode"] == "eq1_averaging"
-        assert row["option_distributions_json"] is not None
-        mat = json.loads(row["option_distributions_json"])
-        assert len(mat) == 4 and len(mat[0]) == 4
-
-    async def test_run_many_async_scores_correct_answer(self, runner_question_row):
-        """With C having the highest logprob and uniform positional signal, is_correct=True."""
-        # correct_option is C; give C the highest logprob in the canonical permutation
-        # and distribute evenly in others so Eq.(1) still selects C.
-        canon = {"A": "FTP", "B": "HTTP", "C": "HTTPS", "D": "SMTP"}
-        perms = PermutationRunner._generate_permutations(canon)
-
-        async_responses = []
-        for perm in perms:
-            letters = list(perm.keys())
-            resp = {}
-            for letter in letters:
-                resp[letter] = -0.1 if perm[letter] == "HTTPS" else -5.0
-            async_responses.append(resp)
-
-        backend = _MockVLLMBackend(score_async_responses=async_responses)
-        runner = _make_runner(backend)
-        df = pd.DataFrame([runner_question_row])
-
-        results = await runner.run_many_async(df)
-
-        assert results[0]["is_correct"] is True
-        assert results[0]["parsed_choice"] == "C"
-
-    async def test_run_many_async_partial_failure_handled_gracefully(
-        self, runner_question_row
-    ):
-        """When some (not all) score_options_async calls fail, result is still produced."""
-        good = {"A": -0.1, "B": -2.0, "C": -3.0, "D": -4.0}
-        responses = [good, RuntimeError("timeout"), good, good]
-        backend = _MockVLLMBackend(score_async_responses=responses)
-        runner = _make_runner(backend)
-        df = pd.DataFrame([runner_question_row])
-
-        results = await runner.run_many_async(df)
-
-        assert len(results) == 1
-        assert results[0]["option_distributions_json"] is not None
-
-    async def test_run_many_async_cyclic_logprob_inference_mode(
-        self, runner_question_row
-    ):
-        """cyclic_logprob_inference_mode must be 'eq1_averaging' in async path."""
-        resp = {"A": -0.1, "B": -2.0, "C": -3.0, "D": -4.0}
-        backend = _MockVLLMBackend(score_async_responses=[resp] * 4)
-        runner = _make_runner(backend)
-        df = pd.DataFrame([runner_question_row])
-
-        results = await runner.run_many_async(df)
-
-        assert results[0]["cyclic_logprob_inference_mode"] == "eq1_averaging"
+class TestCyclicLogprobRunnerHasNoAsyncPath:
+    def test_does_not_override_run_many_async(self):
+        """CyclicLogprobRunner has no vLLM-specific async path anymore — no API
+        provider client implements score_options, so it inherits the base
+        ExperimentRunner.run_many_async(), which it can't satisfy either
+        (no _build_batch_prompt()). This is a deliberate fail-closed state,
+        not a bug: this runner only ever runs via the sync run_one() path.
+        """
+        assert "run_many_async" not in CyclicLogprobRunner.__dict__

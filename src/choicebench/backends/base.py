@@ -49,14 +49,6 @@ class BaseBackend(ABC):
             "score_options(). Check backend.supports_logprobs before calling."
         )
 
-    def supports_score_options(self) -> bool:
-        """Return True if this backend supports score_options_async() for async logprob inference.
-
-        Overridden by APIBackend when the underlying client is VLLMClient.
-        All other backends return False.
-        """
-        return False
-
     @property
     def supports_logprobs(self) -> bool:
         """Return True if this backend supports score_options."""

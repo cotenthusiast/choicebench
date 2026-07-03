@@ -339,28 +339,19 @@ meaning silently changed by method (transport success for `direct_mcq`/
 method. For a cross-method answer-presence filter, `answer_status == "success"`
 is now equivalent to `parsed_choice.notna()` (or `parse_status == "parse_ok"`).
 
-#### Logprob methods on vLLM vs HuggingFace
+#### Logprob methods (pride, cyclic_logprob)
 
 `pride` and `cyclic_logprob` read per-letter log-probabilities via
-`score_options`. The numerics differ by backend:
+`score_options`. Only **HuggingFace** (and `dummy`, for tests) implements it —
+it reads the true full-vocabulary logit for each option label (one forward
+pass). Option labels must be **single tokens** in the model's tokenizer; a
+multi-token label raises a `ValueError` naming the offending letter and
+suggesting the space-prefixed form.
 
-- **HuggingFace** reads the true full-vocabulary logit for each option label
-  (one forward pass). Option labels must be **single tokens** in the model's
-  tokenizer; a multi-token label raises a `ValueError` naming the offending
-  letter and suggesting the space-prefixed form.
-- **vLLM** reads the **top-20 generation logprobs**, so any option letter not in
-  that top-20 is **floored to `-100.0`** (treated as near-impossible). A model
-  that spreads probability mass thinly can have a real option silently floored,
-  so HF and vLLM runs of the "same" method can yield different priors/answers.
-
-Because of that gap, **config-driven runs (`config.yaml` + `load_config()`)
-reject `pride`/`cyclic_logprob` on an `api` backend with `provider: vllm`** —
-there is currently no API provider accepted for logprob methods; use
-`backend: huggingface` instead. The underlying capability is not deleted: if
-you specifically want the degraded top-20-logprob path anyway, you can still
-construct `PriDeRunner`/`CyclicLogprobRunner` directly in Python against an
-`APIBackend` wrapping a `VLLMClient` (bypassing `load_config()`'s guard) —
-`APIBackend.supports_logprobs` / `VLLMClient.score_options_async` are unchanged.
+No API provider client (OpenAI, Anthropic, Gemini, Groq, Together, vLLM)
+implements `score_options` — they are all generate-only. **Config-driven runs
+(`config.yaml` + `load_config()`) reject `pride`/`cyclic_logprob` on any `api`
+backend** — use `backend: huggingface` instead.
 
 Partially-degraded rows are flagged: `n_permutations_failed` / `n_permutations_total`
 record how many permutations fell back to a uniform distribution (for `pride`,
@@ -390,7 +381,7 @@ capture model weights, so two local checkpoints sharing a basename
 | `gemini` | Google Gemini API (gemini-2.5-flash, gemini-2.5-pro) |
 | `groq` | Groq API (Llama, Mixtral models) |
 | `together` | Together AI (Qwen, Llama, and other open-weight models) |
-| `vllm` | Local vLLM OpenAI-compatible server; configure `base_url`, no hosted API key required. Not accepted for `pride`/`cyclic_logprob` in config-driven runs — see [Logprob methods on vLLM vs HuggingFace](#logprob-methods-on-vllm-vs-huggingface) |
+| `vllm` | Local vLLM OpenAI-compatible server; configure `base_url`, no hosted API key required. Generate-only, like the other API clients — not accepted for `pride`/`cyclic_logprob`, see [Logprob methods](#logprob-methods-pride-cyclic_logprob) |
 
 ### Benchmarks
 

@@ -20,17 +20,11 @@ from choicebench.metrics import BUILTIN_METRICS
 DEFAULT_MAX_NEW_TOKENS = 512
 
 _VALID_BACKENDS = {"huggingface", "api", "dummy"}
-# No API provider is treated as logprob-capable for config-driven runs: vLLM's
-# score_options only sees the top-20 generation logprobs (missing options are
-# floored to -100.0), a degraded prior relative to HuggingFace's true
-# full-vocabulary logit, so pride/cyclic_logprob + api+vllm is rejected here
-# rather than silently producing debiased answers from a truncated
-# distribution. This is the only place api-provider logprob capability is
-# encoded. (The underlying capability — APIBackend.supports_logprobs /
-# VLLMClient.score_options_async — is untouched, so a PriDeRunner/
-# CyclicLogprobRunner built directly in Python, bypassing load_config(), can
-# still use it; see the README "Logprob methods on vLLM vs HuggingFace"
-# section.)
+# No API provider client implements score_options() — all of them (OpenAI,
+# Anthropic, Gemini, Groq, Together, vLLM) are generate-only. So no API
+# provider is ever logprob-capable; pride/cyclic_logprob require
+# backend=huggingface (or dummy, for tests). This is the only place
+# api-provider logprob capability is encoded.
 _LOGPROB_API_PROVIDERS: set[str] = set()
 # Non-api backend classes, consulted for their declared supports_logprobs so we
 # never maintain a second hardcoded "logprob-capable" name list (FCD-2 / PF-2).
@@ -369,8 +363,8 @@ def _validate_cross_field(config: ExperimentConfig) -> None:
                     f"but model.backend={model.backend!r} / provider={model.provider!r} "
                     f"does not support it. Logprob-capable options: "
                     f"{sorted(_NONAPI_BACKEND_CLASSES)} backends. No api provider "
-                    f"is accepted for config-driven runs (vLLM's score_options is a "
-                    f"top-20-logprob approximation, not a full-vocabulary logit). "
+                    f"is accepted for config-driven runs — all API provider clients "
+                    f"(including vLLM) are generate-only. "
                     f"Either drop this method or switch backends."
                 )
     seen_benchmark_keys: set[str] = set()

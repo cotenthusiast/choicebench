@@ -12,21 +12,15 @@ PermutationRunner, this method uses logprob arithmetic rather than text generati
 Reference: Zheng et al., ICLR 2024, "Large Language Models Are Not Robust
 Multiple Choice Selectors" (arXiv:2309.03882) — §2.2, Eq. (1).
 Backend requirements: score_options
-Logprob support required: yes
-
-vLLM-path caveat: on the vLLM backend, scores come from the top-20 generation
-logprobs, so any option letter not in that top-20 is floored to -100.0 (treated
-as near-impossible). A low-confidence-spread model can thus have a real option
-silently treated as impossible. The HuggingFace backend reads the true
-full-vocabulary logit and is not subject to this floor.
+Logprob support required: yes (HuggingFace or Dummy — no API provider exposes
+score_options; see config/schema.py's model_supports_logprobs()).
 """
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
-from typing import Any, Sequence
+from typing import Any
 
 import numpy as np
 
@@ -45,9 +39,9 @@ logger = logging.getLogger(__name__)
 class CyclicLogprobRunner(ExperimentRunner):
     """Logprob cyclic permutation via Eq. (1) averaging (Zheng et al., ICLR 2024).
 
-    Requires a backend that implements score_options() (e.g. HuggingFaceBackend
-    or APIBackend wrapping VLLMClient). Check backend.supports_logprobs before
-    constructing, or rely on the schema-layer requires_score_options guard.
+    Requires a backend that implements score_options() (e.g. HuggingFaceBackend).
+    Check backend.supports_logprobs before constructing, or rely on the
+    schema-layer requires_score_options guard.
     """
 
     requires_score_options: bool = True
@@ -130,121 +124,3 @@ class CyclicLogprobRunner(ExperimentRunner):
             row["score_status"] = score_result.status
 
         return row
-
-    async def run_many_async(self, question_rows: Sequence[Any]) -> list[dict]:
-        """Async inference path for CyclicLogprobRunner.
-
-        Fans out all N_questions × N_permutations score_options_async() calls in
-        one asyncio.gather(), then reassembles per-question results and applies
-        equation1_cyclic_debiased_content_probs(). Mirrors PriDeRunner.run_many_async()
-        but flattens across permutations as well as questions for maximum concurrency.
-
-        Raises:
-            NotImplementedError: if the backend does not support score_options_async().
-        """
-        if not self.backend.supports_score_options():
-            raise NotImplementedError(
-                f"CyclicLogprobRunner.run_many_async() requires a backend with "
-                f"score_options() support (e.g. vLLM). "
-                f"{self.backend.__class__.__name__} does not support it. "
-                "Check backend.supports_score_options() before calling."
-            )
-
-        rows = question_rows.to_dict(orient="records")
-
-        # Build per-question metadata and flatten prompts for the gather.
-        per_q: list[tuple[list[str], list[str]]] = []  # (letters, prompts)
-        all_tasks: list[tuple[str, list[str]]] = []
-
-        for row in rows:
-            canon = self._build_options(row)
-            letters = list(canon.keys())
-            perms = PermutationRunner._generate_permutations(canon)
-            q_prompts = [
-                PermutationRunner._build_permuted_prompt(
-                    row, perm, self._prompts["direct_mcq"]
-                )
-                for perm in perms
-            ]
-            per_q.append((letters, q_prompts))
-            for prompt in q_prompts:
-                all_tasks.append((prompt, letters))
-
-        from choicebench.clients.vllm_client import VLLMClient
-        raw: VLLMClient = self.backend._raw_client
-
-        all_logprob_results = await asyncio.gather(
-            *[raw.score_options_async(prompt, letters) for prompt, letters in all_tasks],
-            return_exceptions=True,
-        )
-
-        results: list[dict] = []
-        flat_idx = 0
-
-        for q_idx, (row, (letters, q_prompts)) in enumerate(zip(rows, per_q)):
-            n_perms = len(q_prompts)
-            n = len(letters)
-            uni = np.ones(n, dtype=np.float64) / n
-            dist_rows: list[np.ndarray] = []
-            n_success = 0
-            scoring_error: str | None = None
-
-            for _ in range(n_perms):
-                result = all_logprob_results[flat_idx]
-                flat_idx += 1
-                if isinstance(result, Exception):
-                    logger.warning(
-                        "CyclicLogprob: score_options_async failed — %s", result
-                    )
-                    dist_rows.append(uni.copy())
-                    if scoring_error is None:
-                        scoring_error = str(result)
-                else:
-                    lp_map = {opt: result.get(opt, -100.0) for opt in letters}
-                    dist_rows.append(
-                        logprob_map_to_label_distribution(lp_map, letters=letters)
-                    )
-                    n_success += 1
-
-            mat = np.stack(dist_rows, axis=0).astype(np.float64)
-            content_probs = equation1_cyclic_debiased_content_probs(mat)
-
-            final_letter: str | None = None
-            score_result = None
-            if n_success > 0:
-                final_letter = letters[int(np.argmax(content_probs))]
-                parse = ParseResult(
-                    final_choice=final_letter,
-                    status=PARSE_OK,
-                    raw_text=None,
-                    normalized_text=final_letter,
-                    reason="eq1_averaging",
-                )
-                score_result = self._score(parse, row["correct_option"])
-
-            result_row = self._build_result_row(
-                question_row=row,
-                prompt=q_prompts[0],
-                sample_index=q_idx,
-                model_response=None,
-                parsed_result=None,
-                score_result=None,
-                error=scoring_error,
-            )
-            result_row["cyclic_logprob_inference_mode"] = "eq1_averaging"
-            result_row["option_distributions_json"] = json.dumps(mat.tolist())
-            result_row["n_permutations_total"] = n_perms
-            result_row["n_permutations_failed"] = n_perms - n_success
-            if final_letter is not None:
-                result_row["parsed_choice"] = final_letter
-                result_row["parse_status"] = PARSE_OK
-            result_row["answer_status"] = (
-                SUCCESS_STATUS if final_letter is not None else FAILURE_STATUS
-            )
-            if score_result is not None:
-                result_row["is_correct"] = score_result.is_correct
-                result_row["score_status"] = score_result.status
-
-            results.append(result_row)
-
-        return results

@@ -380,7 +380,7 @@ def validate_logprob_compatibility(config: ExperimentConfig) -> None:
             raise ConfigurationError(
                 f"Method {method_cfg.name!r} requires logprob access (score_options) "
                 f"but provider {provider!r} does not support it. "
-                "Use a vLLM or HuggingFace backend for logprob-dependent methods."
+                "Use a HuggingFace backend for logprob-dependent methods."
             )
 
 

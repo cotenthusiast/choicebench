@@ -1,9 +1,8 @@
 # tests/clients/test_vllm_client.py
 
 import os
-from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import httpx
 import openai
@@ -16,8 +15,6 @@ from choicebench.clients.types import (
     ProviderCallError,
     ProviderConfigurationError,
 )
-from choicebench.backends.api_backend import APIBackend
-from choicebench.clients.openai_client import OpenAIClient
 
 
 # ---------------------------------------------------------------------------
@@ -46,20 +43,6 @@ def _make_chat_response(
         logprobs=None,
     )
     return SimpleNamespace(choices=[choice], usage=usage)
-
-
-def _make_logprob_response(logprob_entries: list[tuple[str, float]]):
-    """Build a fake chat completion response with top_logprobs data."""
-    top_lp = [
-        SimpleNamespace(token=token, logprob=lp) for token, lp in logprob_entries
-    ]
-    content_lp = [SimpleNamespace(top_logprobs=top_lp)]
-    choice = SimpleNamespace(
-        message=SimpleNamespace(content="A"),
-        finish_reason="stop",
-        logprobs=SimpleNamespace(content=content_lp),
-    )
-    return SimpleNamespace(choices=[choice], usage=None)
 
 
 # ---------------------------------------------------------------------------
@@ -196,90 +179,19 @@ class TestVLLMClientGenerate:
 
 
 # ---------------------------------------------------------------------------
-# score_options_async tests
+# VLLMClient mirrors TogetherAIClient: generate-only, no logprob capability.
 # ---------------------------------------------------------------------------
 
-class TestVLLMClientScoreOptionsAsync:
-    pytestmark = pytest.mark.asyncio
+class TestVLLMClientHasNoScoreOptions:
 
-    async def test_returns_dict_of_option_logprobs(self, vllm_client):
-        fake_response = _make_logprob_response([
-            ("A", -0.1),
-            ("B", -1.5),
-            ("C", -2.0),
-            ("D", -3.5),
-        ])
-        with patch.object(
-            vllm_client, "score_options_async",
-            new=AsyncMock(return_value={"A": -0.1, "B": -1.5, "C": -2.0, "D": -3.5}),
-        ):
-            result = await vllm_client.score_options_async(
-                "Which is the capital of France?", ["A", "B", "C", "D"]
-            )
-        assert result == {"A": -0.1, "B": -1.5, "C": -2.0, "D": -3.5}
+    def test_no_score_options_async_method(self, vllm_client):
+        assert not hasattr(vllm_client, "score_options_async")
 
-    async def test_floor_value_for_option_not_in_top_logprobs(self):
-        # Build a client, patch the inner AsyncOpenAI call
-        client = VLLMClient(model_name="test-model")
-        fake_response = _make_logprob_response([("A", -0.5), ("B", -1.0)])
+    def test_backend_supports_logprobs_false_for_vllm(self, tmp_path):
+        from choicebench.backends.api_backend import APIBackend
 
-        with patch("choicebench.clients.vllm_client.AsyncOpenAI") as mock_cls:
-            mock_instance = MagicMock()
-            mock_instance.chat.completions.create = AsyncMock(return_value=fake_response)
-            mock_instance.aclose = AsyncMock()
-            mock_cls.return_value = mock_instance
-
-            result = await client.score_options_async("prompt", ["A", "B", "C", "D"])
-
-        assert result["A"] == -0.5
-        assert result["B"] == -1.0
-        assert result["C"] == -100.0  # floor: not in top logprobs
-        assert result["D"] == -100.0
-
-    async def test_strips_space_prefixed_tokens(self):
-        # vLLM sometimes returns " A" (with leading space) for the option token.
-        client = VLLMClient(model_name="test-model")
-        fake_response = _make_logprob_response([(" A", -0.2), (" B", -1.8)])
-
-        with patch("choicebench.clients.vllm_client.AsyncOpenAI") as mock_cls:
-            mock_instance = MagicMock()
-            mock_instance.chat.completions.create = AsyncMock(return_value=fake_response)
-            mock_instance.aclose = AsyncMock()
-            mock_cls.return_value = mock_instance
-
-            result = await client.score_options_async("prompt", ["A", "B"])
-
-        assert result["A"] == -0.2
-        assert result["B"] == -1.8
-
-    async def test_raises_on_empty_logprob_content(self):
-        client = VLLMClient(model_name="test-model")
-        # Response with logprobs but empty content list
-        choice = SimpleNamespace(
-            message=SimpleNamespace(content="A"),
-            finish_reason="stop",
-            logprobs=SimpleNamespace(content=[]),
-        )
-        fake_response = SimpleNamespace(choices=[choice], usage=None)
-
-        with patch("choicebench.clients.vllm_client.AsyncOpenAI") as mock_cls:
-            mock_instance = MagicMock()
-            mock_instance.chat.completions.create = AsyncMock(return_value=fake_response)
-            mock_instance.aclose = AsyncMock()
-            mock_cls.return_value = mock_instance
-
-            with pytest.raises(ProviderResponseError):
-                await client.score_options_async("prompt", ["A", "B"])
-
-
-# ---------------------------------------------------------------------------
-# APIBackend.supports_score_options tests
-# ---------------------------------------------------------------------------
-
-class TestAPIBackendSupportsScoreOptions:
-
-    def _make_api_backend(self, client, tmp_path: Path) -> APIBackend:
-        return APIBackend(
+        client = VLLMClient(model_name="meta-llama/Llama-3.1-8B-Instruct")
+        backend = APIBackend(
             provider=client.provider,
             model_name=client.model_name,
             client=client,
@@ -288,41 +200,20 @@ class TestAPIBackendSupportsScoreOptions:
             max_tokens=512,
             seed=42,
         )
-
-    def test_supports_score_options_true_for_vllm(self, tmp_path):
-        client = VLLMClient(model_name="meta-llama/Llama-3.1-8B-Instruct")
-        backend = self._make_api_backend(client, tmp_path)
-        assert backend.supports_score_options() is True
-
-    def test_supports_score_options_false_for_openai(self, tmp_path):
-        client = OpenAIClient(model_name="gpt-4o-mini", api_key="test-key")
-        backend = self._make_api_backend(client, tmp_path)
-        assert backend.supports_score_options() is False
-
-    def test_supports_logprobs_true_for_vllm(self, tmp_path):
-        client = VLLMClient(model_name="meta-llama/Llama-3.1-8B-Instruct")
-        backend = self._make_api_backend(client, tmp_path)
-        assert backend.supports_logprobs is True
-
-    def test_supports_logprobs_false_for_openai(self, tmp_path):
-        client = OpenAIClient(model_name="gpt-4o-mini", api_key="test-key")
-        backend = self._make_api_backend(client, tmp_path)
         assert backend.supports_logprobs is False
 
-    def test_score_options_raises_for_non_vllm(self, tmp_path):
-        client = OpenAIClient(model_name="gpt-4o-mini", api_key="test-key")
-        backend = self._make_api_backend(client, tmp_path)
+    def test_backend_score_options_raises_not_implemented_for_vllm(self, tmp_path):
+        from choicebench.backends.api_backend import APIBackend
+
+        client = VLLMClient(model_name="meta-llama/Llama-3.1-8B-Instruct")
+        backend = APIBackend(
+            provider=client.provider,
+            model_name=client.model_name,
+            client=client,
+            cache_dir=tmp_path / "cache",
+            temperature=0.0,
+            max_tokens=512,
+            seed=42,
+        )
         with pytest.raises(NotImplementedError):
             backend.score_options("prompt", ["A", "B"])
-
-    def test_score_options_calls_score_options_async_for_vllm(self, tmp_path):
-        client = VLLMClient(model_name="meta-llama/Llama-3.1-8B-Instruct")
-        backend = self._make_api_backend(client, tmp_path)
-
-        async def _fake_async(prompt, options):
-            return {"A": -0.5, "B": -1.0, "C": -2.0, "D": -3.0}
-
-        with patch.object(client, "score_options_async", side_effect=_fake_async):
-            result = backend.score_options("some prompt", ["A", "B", "C", "D"])
-
-        assert result == [-0.5, -1.0, -2.0, -3.0]

@@ -13,19 +13,12 @@ logprob list.
 Reference: Zheng et al., ICLR 2024, "Large Language Models Are Not Robust
 Multiple Choice Selectors" (arXiv:2309.03882), §3, Eq. 1/7/8.
 Backend requirements: generate + score_options
-Logprob support required: yes
-
-vLLM-path caveat: on the vLLM backend, score_options is read from the top-20
-generation logprobs, so any option letter NOT present in that top-20 is floored
-to -100.0 (treated as near-impossible). For a model that spreads probability
-mass thinly, a real option can be silently floored and lose. The HuggingFace
-backend reads the true full-vocabulary logit and is not subject to this floor,
-so HF and vLLM "PriDe" runs can produce different priors / debiased answers.
+Logprob support required: yes (HuggingFace or Dummy — no API provider exposes
+score_options; see config/schema.py's model_supports_logprobs()).
 """
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 from pathlib import Path
@@ -392,13 +385,8 @@ class PriDeRunner(ExperimentRunner):
             lp_map: dict[str, float],
             scoring_error: str | None,
     ) -> dict:
-        """Shared row assembly for run_one() / _score_question_async().
-
-        Both inference paths differ only in *how* lp_map (this question's
-        per-letter logprobs) is obtained — sync backend.score_options() vs.
-        async score_options_async(). Everything downstream (Eq. 8 debiasing,
-        scoring, result-row assembly) is identical, so it lives here once
-        instead of twice.
+        """Row assembly shared by run_one()'s callers: Eq. 8 debiasing, scoring,
+        and result-row assembly, given an already-obtained per-letter lp_map.
         """
         adjusted_letter: str | None = None
         score_adjusted = None
@@ -497,102 +485,3 @@ class PriDeRunner(ExperimentRunner):
         row["gate_n_total"] = self._gate_summary.get("n_total")
         row["gate_n_evaluated"] = self._gate_summary.get("n_evaluated")
         row["gate_n_excluded"] = self._gate_summary.get("n_excluded")
-
-    async def run_many_async(self, question_rows: Sequence[Any]) -> list[dict]:
-        """Async inference path for PriDe.
-
-        Pattern for logprob-dependent methods:
-        1. Run any preflight/calibration synchronously before the async loop.
-           Concurrent calibration is a v0.2 item.
-        2. Check self.backend.supports_score_options() and fall back to
-           super().run_many_async() for backends that don't support logprobs.
-        3. Use score_options_async() directly on self.backend._raw_client
-           for the main inference loop.
-        4. Keep _score_question_async() signature identical to run_one()
-           so the output contract is preserved.
-        """
-        if not self.backend.supports_score_options():
-            return await super().run_many_async(question_rows)
-
-        self._ensure_calibration()
-
-        rows = question_rows.to_dict(orient="records")
-        results = await asyncio.gather(
-            *[self._score_question_async(row, i) for i, row in enumerate(rows)]
-        )
-        return list(results)
-
-    async def _score_question_async(
-        self,
-        question_row: Any,
-        sample_index: int,
-    ) -> dict:
-        self._ensure_calibration()
-
-        options = self._build_options(question_row)
-        self._require_modal_k_options(question_row)
-        letters = list(options.keys())
-        prompt = self._build_prompt(question_row)
-
-        lp_map: dict[str, float] = {}
-        scoring_error: str | None = None
-        try:
-            from choicebench.clients.vllm_client import VLLMClient
-            raw: VLLMClient = self.backend._raw_client
-            logprob_dict = await raw.score_options_async(prompt, letters)
-            scores = [logprob_dict.get(opt, -100.0) for opt in letters]
-            lp_map = dict(zip(letters, scores))
-        except Exception as exc:
-            scoring_error = str(exc)
-            logger.warning(
-                "PriDe: score_options_async failed for question %s — %s",
-                question_row["question_id"],
-                exc,
-            )
-
-        return self._build_debiased_row(
-            question_row, sample_index, prompt, letters, lp_map, scoring_error
-        )
-
-    async def _cyclic_rollout_prob_matrix_async(
-        self,
-        question_row: Any,
-    ) -> np.ndarray:
-        canon = self._build_options(question_row)
-        letters = list(canon.keys())
-        permutations = PermutationRunner._generate_permutations(canon)
-        prompts = [
-            PermutationRunner._build_permuted_prompt(
-                question_row,
-                perm,
-                self._prompts["direct_mcq"],
-            )
-            for perm in permutations
-        ]
-
-        from choicebench.clients.vllm_client import VLLMClient
-        raw: VLLMClient = self.backend._raw_client
-
-        async def _score_one(p: str) -> np.ndarray:
-            try:
-                logprob_dict = await raw.score_options_async(p, letters)
-                lp_map = {opt: logprob_dict.get(opt, -100.0) for opt in letters}
-                return logprob_map_to_label_distribution(lp_map, letters=letters)
-            except Exception as exc:
-                logger.warning("PriDe calibration: score_options_async failed — %s", exc)
-                return np.ones(len(letters), dtype=np.float64) / len(letters)
-
-        rows = await asyncio.gather(*[_score_one(p) for p in prompts])
-
-        n_success = sum(
-            1 for r in rows
-            if not np.allclose(r, np.ones(len(letters)) / len(letters))
-        )
-        if n_success == 0:
-            qid = question_row.get("question_id", "<unknown>")
-            raise RuntimeError(
-                f"PriDe calibration: score_options_async() failed for all "
-                f"{len(prompts)} permutations of calibration question {qid!r}."
-            )
-
-        return np.stack(rows, axis=0).astype(np.float64)

@@ -54,10 +54,9 @@ def test_dummy_is_logprob_capable():
 
 
 def test_no_api_provider_is_logprob_capable():
-    # vLLM's score_options is a top-20-logprob approximation (missing options
-    # floored to -100.0), not a full-vocabulary logit like HuggingFace's, so no
-    # api provider is accepted for config-driven logprob methods (see
-    # _LOGPROB_API_PROVIDERS in config/schema.py).
+    # No API provider client (including vLLM) implements score_options() — all
+    # are generate-only, so no api provider is accepted for config-driven
+    # logprob methods (see _LOGPROB_API_PROVIDERS in config/schema.py).
     assert model_supports_logprobs(
         ModelConfig(backend="api", model_name_or_path="m", provider="vllm")
     ) is False
@@ -94,9 +93,9 @@ def test_pride_openai_rejected_by_both_validators(tmp_path):
 
 
 def test_pride_vllm_rejected_by_both_validators(tmp_path):
-    # vLLM's score_options is a degraded (top-20 logprob) approximation, so
-    # config-driven pride/cyclic_logprob + api+vllm is rejected the same way
-    # as any other logprob-incapable api provider.
+    # vLLM is generate-only (no score_options), so config-driven
+    # pride/cyclic_logprob + api+vllm is rejected the same way as any other
+    # logprob-incapable api provider.
     data = _pride_dummy_config()
     data["models"] = [
         {"backend": "api", "model_name_or_path": "meta-llama/Llama-3.1-8B-Instruct", "provider": "vllm"}

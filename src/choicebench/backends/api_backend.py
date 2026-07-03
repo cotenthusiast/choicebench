@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import concurrent.futures
 from pathlib import Path
 
 from choicebench.backends.base import BaseBackend
@@ -36,7 +35,7 @@ class APIBackend(BaseBackend):
     ) -> None:
         self._provider = provider
         self._model_name = model_name
-        self._raw_client = client  # unwrapped; used for isinstance checks and score_options
+        self._raw_client = client  # unwrapped; exposed for introspection (e.g. client-level config)
         self._client = CachingClientWrapper(client, ResponseCache(cache_dir=cache_dir))
         self._temperature = temperature
         self._max_tokens = max_tokens
@@ -103,43 +102,3 @@ class APIBackend(BaseBackend):
     @property
     def model_name(self) -> str:
         return self._model_name
-
-    def supports_score_options(self) -> bool:
-        """Return True when the underlying client is a VLLMClient.
-
-        Only VLLMClient exposes score_options_async(); all other provider
-        clients (OpenAI, Anthropic, Gemini, …) are opaque and cannot return
-        per-token log probabilities.
-        """
-        from choicebench.clients.vllm_client import VLLMClient
-        return isinstance(self._raw_client, VLLMClient)
-
-    @property
-    def supports_logprobs(self) -> bool:
-        return self.supports_score_options()
-
-    def score_options(self, prompt: str, options: list[str], **kwargs) -> list[float]:
-        """Return log probabilities for each option via the vLLM scoring API.
-
-        Bridges sync→async by running score_options_async() in a dedicated
-        thread with its own event loop. This allows synchronous callers (e.g.
-        PriDeRunner) to use the vLLM logprob API without needing to be async.
-
-        Raises NotImplementedError if the underlying client is not a VLLMClient.
-        Check supports_score_options() before calling.
-        """
-        if not self.supports_score_options():
-            raise NotImplementedError(
-                "score_options() requires a VLLMClient backend. "
-                "Check backend.supports_score_options() before calling."
-            )
-        from choicebench.clients.vllm_client import VLLMClient
-        raw: VLLMClient = self._raw_client  # type: ignore[assignment]
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(
-                asyncio.run, raw.score_options_async(prompt, options)
-            )
-            logprob_dict: dict[str, float] = future.result()
-
-        return [logprob_dict.get(opt, -100.0) for opt in options]
