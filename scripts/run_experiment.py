@@ -14,6 +14,7 @@ import importlib
 import json
 import logging
 import shutil
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -551,6 +552,40 @@ async def _run_model(
     )
 
 
+def _job_label(method: MethodConfig, model_config: ModelConfig, benchmark_cfg: BenchmarkConfig) -> str:
+    return (
+        f"benchmark={benchmark_cfg.name} method={method.name} "
+        f"model={model_config.model_name_or_path} backend={model_config.backend}"
+    )
+
+
+async def _run_model_isolated(
+    method: MethodConfig,
+    model_config: ModelConfig,
+    benchmark_cfg: BenchmarkConfig,
+    questions: pd.DataFrame,
+    preflight_questions: list[dict] | None,
+    config: ExperimentConfig,
+    run_id: str,
+    output_dir: Path,
+    checkpoint_dir: Path,
+) -> tuple[str, Exception | None]:
+    """Run one model job, catching any exception so sibling jobs are unaffected.
+
+    Returns (job_label, exception_or_None) instead of raising, so a bug in one
+    model/method/benchmark combination can't abort jobs running concurrently
+    alongside it.
+    """
+    label = _job_label(method, model_config, benchmark_cfg)
+    try:
+        await _run_model(method, model_config, benchmark_cfg, questions, preflight_questions,
+                         config, run_id, output_dir, checkpoint_dir)
+        return label, None
+    except Exception as exc:  # noqa: BLE001 - intentionally broad: isolate any job failure
+        logger.error("Job failed [%s]: %s", label, exc, exc_info=True)
+        return label, exc
+
+
 async def run_models_concurrently(
     method: MethodConfig,
     benchmark_cfg: BenchmarkConfig,
@@ -561,26 +596,37 @@ async def run_models_concurrently(
     run_id: str,
     output_dir: Path,
     checkpoint_dir: Path,
-) -> None:
+) -> list[tuple[str, Exception]]:
     """Run all models for one (benchmark, method) combination.
 
     API models run concurrently via asyncio.gather(); HF and Dummy models
     run sequentially after, since their generate() is blocking and they have
-    no async machinery to parallelise across.
+    no async machinery to parallelise across. Each model's job is isolated:
+    one model's exception is logged and does not prevent its siblings from
+    completing. Returns the list of (job_label, exception) for jobs that failed.
     """
     api_models = [m for m in model_configs if m.backend == "api"]
     sync_models = [m for m in model_configs if m.backend != "api"]
 
+    failures: list[tuple[str, Exception]] = []
+
     if api_models:
-        await asyncio.gather(*[
-            _run_model(method, m, benchmark_cfg, questions, preflight_questions,
-                       config, run_id, output_dir, checkpoint_dir)
+        results = await asyncio.gather(*[
+            _run_model_isolated(method, m, benchmark_cfg, questions, preflight_questions,
+                                 config, run_id, output_dir, checkpoint_dir)
             for m in api_models
         ])
+        failures.extend((label, exc) for label, exc in results if exc is not None)
 
     for m in sync_models:
-        await _run_model(method, m, benchmark_cfg, questions, preflight_questions,
-                         config, run_id, output_dir, checkpoint_dir)
+        label, exc = await _run_model_isolated(
+            method, m, benchmark_cfg, questions, preflight_questions,
+            config, run_id, output_dir, checkpoint_dir,
+        )
+        if exc is not None:
+            failures.append((label, exc))
+
+    return failures
 
 
 # ---------------------------------------------------------------------------
@@ -623,8 +669,13 @@ async def _async_main(
     run_id: str,
     output_dir: Path,
     checkpoint_dir: Path,
-) -> None:
-    """Async body of the experiment: benchmark → method → concurrent models."""
+) -> list[tuple[str, Exception]]:
+    """Async body of the experiment: benchmark → method → concurrent models.
+
+    Returns the list of (job_label, exception) for any model job that failed;
+    an empty list means every job across every benchmark/method completed.
+    """
+    failures: list[tuple[str, Exception]] = []
     for benchmark_cfg in config.benchmarks:
         questions = load_benchmark(benchmark_cfg, config.run.seed)
         logger.info("Loaded %d questions from %s", len(questions), benchmark_cfg.name)
@@ -632,7 +683,7 @@ async def _async_main(
         for method in config.methods:
             preflight_questions = load_preflight(method, benchmark_cfg, config.run.seed)
 
-            await run_models_concurrently(
+            failures.extend(await run_models_concurrently(
                 method=method,
                 benchmark_cfg=benchmark_cfg,
                 model_configs=config.models,
@@ -642,7 +693,8 @@ async def _async_main(
                 run_id=run_id,
                 output_dir=output_dir,
                 checkpoint_dir=checkpoint_dir,
-            )
+            ))
+    return failures
 
 
 def main() -> None:
@@ -686,13 +738,22 @@ def main() -> None:
     shutil.copy2(args.config, output_dir / "config.yaml")
     logger.info("Run ID: %s  |  Output: %s", run_id, output_dir)
 
-    asyncio.run(_async_main(config, run_id, output_dir, checkpoint_dir))
+    failures = asyncio.run(_async_main(config, run_id, output_dir, checkpoint_dir))
 
     # --- Run summary ---
     logger.info("── Run complete ─────────────────────────────────")
     logger.info("  Run ID:     %s", run_id)
     logger.info("  Results in: %s", output_dir)
+    if failures:
+        logger.error("  Failed jobs: %d", len(failures))
+        for label, exc in failures:
+            logger.error("    - %s: %s", label, exc)
+    else:
+        logger.info("  Failed jobs: 0")
     logger.info("─────────────────────────────────────────────────")
+
+    if failures:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

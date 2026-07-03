@@ -442,6 +442,68 @@ async def test_run_models_concurrently_sync_models_run_sequentially(tmp_path):
     assert call_order == ["start:dummy_a", "end:dummy_a", "start:dummy_b", "end:dummy_b"]
 
 
+@pytest.mark.asyncio
+async def test_run_models_concurrently_isolates_failures(tmp_path):
+    """One API model raising must not prevent its sibling from completing.
+
+    Regression test: run_models_concurrently used to call asyncio.gather()
+    with the default return_exceptions=False, so one model's exception
+    aborted the whole gather() and could destroy the sibling's still-running
+    task before it finished.
+    """
+    run_exp = _load_run_experiment()
+
+    call_order: list[str] = []
+
+    async def fake_run_model(method, model_config, *args, **kwargs):
+        name = model_config.model_name_or_path
+        call_order.append(f"start:{name}")
+        if name == "model_broken":
+            await asyncio.sleep(0.01)
+            raise RuntimeError("boom: simulated failure in external method/metric")
+        await asyncio.sleep(0.03)
+        call_order.append(f"end:{name}")
+
+    import choicebench.config.schema as schema_mod
+    model_ok = schema_mod.ModelConfig(backend="api", model_name_or_path="model_ok", provider="openai")
+    model_broken = schema_mod.ModelConfig(backend="api", model_name_or_path="model_broken", provider="openai")
+
+    from choicebench.config.schema import BenchmarkConfig, ExperimentConfig, MethodConfig, RunConfig
+    method = MethodConfig(name="direct_mcq")
+    bench = BenchmarkConfig(name="toy")
+    config = ExperimentConfig(
+        name="test",
+        models=[model_ok, model_broken],
+        benchmarks=[bench],
+        methods=[method],
+        metrics=["accuracy"],
+        run=RunConfig(),
+    )
+
+    import unittest.mock as mock
+    with mock.patch.object(run_exp, "_run_model", side_effect=fake_run_model):
+        failures = await run_exp.run_models_concurrently(
+            method=method,
+            benchmark_cfg=bench,
+            model_configs=[model_ok, model_broken],
+            preflight_questions=None,
+            questions=pd.DataFrame(),
+            config=config,
+            run_id="rid",
+            output_dir=tmp_path,
+            checkpoint_dir=tmp_path / "checkpoints",
+        )
+
+    # The healthy sibling must have completed despite the other raising.
+    assert "end:model_ok" in call_order
+
+    # Exactly one failure reported, naming the broken model.
+    assert len(failures) == 1
+    label, exc = failures[0]
+    assert "model_broken" in label
+    assert isinstance(exc, RuntimeError)
+
+
 # ---------------------------------------------------------------------------
 # HuggingFace / Dummy backend: verify sync path not broken
 # ---------------------------------------------------------------------------
