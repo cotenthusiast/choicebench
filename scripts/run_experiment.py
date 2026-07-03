@@ -681,7 +681,10 @@ async def _async_main(
         logger.info("Loaded %d questions from %s", len(questions), benchmark_cfg.name)
 
         for method in config.methods:
-            preflight_questions = load_preflight(method, benchmark_cfg, config.run.seed)
+            preflight_questions = load_preflight(
+                method, benchmark_cfg, config.run.seed,
+                eval_question_ids=set(questions["question_id"]),
+            )
 
             failures.extend(await run_models_concurrently(
                 method=method,

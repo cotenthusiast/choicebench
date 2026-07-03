@@ -45,6 +45,7 @@ def load_preflight(
     method_config: MethodConfig,
     benchmark_cfg: BenchmarkConfig,
     run_seed: int,
+    eval_question_ids: set[str] | None = None,
 ) -> list[dict] | None:
     """Load preflight questions for a method config, or return None if not configured.
 
@@ -52,6 +53,11 @@ def load_preflight(
         method_config: The method's config, which may contain a preflight block.
         benchmark_cfg: The benchmark being evaluated (used when source is "benchmark").
         run_seed: Seed for reproducible sampling.
+        eval_question_ids: question_ids already selected for the evaluation sample.
+            When source is "benchmark", these are excluded from the calibration
+            pool before sampling — the split-label check alone does not
+            guarantee disjoint rows, since "benchmark" reloads the same
+            normalized CSV the eval sample was drawn from.
 
     Returns:
         A list of question dicts in the standard record schema, or None if the
@@ -74,6 +80,8 @@ def load_preflight(
                 f"from the evaluation set — use a different split (e.g. 'validation')."
             )
         df = _load_benchmark_df(benchmark_cfg)
+        if eval_question_ids:
+            df = df[~df["question_id"].isin(eval_question_ids)]
         n = max(0, min(cfg.n, len(df)))
         if n == 0:
             logger.warning(

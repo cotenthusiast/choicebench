@@ -94,6 +94,20 @@ class TestLoadPreflightBenchmarkSource:
 
         assert [r["question_id"] for r in first] == [r["question_id"] for r in second]
 
+    def test_excludes_eval_question_ids(self):
+        """eval_question_ids must never appear in the returned calibration sample."""
+        method = _make_method(PreflightConfig(source="benchmark", split="validation", n=15))
+        bench = _make_benchmark(split="test")
+        fake_df = _make_questions(20)
+        eval_ids = {f"q{i:03d}" for i in range(15)}  # same seed/pool would otherwise overlap
+
+        with patch("choicebench.preflight._load_benchmark_df", return_value=fake_df):
+            result = load_preflight(method, bench, run_seed=42, eval_question_ids=eval_ids)
+
+        returned_ids = {r["question_id"] for r in result}
+        assert returned_ids.isdisjoint(eval_ids)
+        assert returned_ids == {f"q{i:03d}" for i in range(15, 20)}
+
     def test_reproducibility_different_seeds_differ(self):
         """Different seeds should (almost always) return different samples."""
         method = _make_method(PreflightConfig(source="benchmark", split="validation", n=5))
