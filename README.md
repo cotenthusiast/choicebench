@@ -144,13 +144,6 @@ instead load a dataset via `name: huggingface`, pass `--output-name <stem>` to
 match the `output_name` you set in the config — but that dataset still needs
 the same registered normalizer first.
 
-First-run downloads come straight from HuggingFace: MMLU (14k questions, 57
-subjects) is on the order of a few hundred MB and takes a few minutes on a
-normal connection; ARC-Challenge is a few MB and finishes in well under a
-minute. Both are cached locally afterward, so subsequent runs are instant —
-if `prepare_data.py` appears to hang on first use, it's most likely still
-downloading, not stuck.
-
 ---
 
 ## Supported Benchmarks
