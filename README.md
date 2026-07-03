@@ -17,6 +17,16 @@ evaluation procedures typically reimplement the same experiment
 infrastructure from scratch, paper after paper. ChoiceBench is the 
 reusable framework built for exactly this problem.
 
+**Standout features:**
+
+- **Zero-friction modular extensibility.** Drop in a new evaluation method, register a custom dataset, or add a new prompting intervention by writing one clean Python class — methods, metrics, benchmarks, backends, and clients all register in a few steps, or plug in from an external package with zero changes to this repo.
+- **Configurable async concurrency.** Models run through a bounded async pipeline — each model's in-flight request count is capped by its own configurable `concurrency_limit`, so you can dial concurrency per provider or rate-limit without touching the run logic. Per-model failure isolation means one broken model or plugin can't take down the rest of a run.
+- **Single-command audits.** One `run_experiment.py` invocation runs the full grid — any combination of benchmarks, models, and methods from a single YAML config — instead of juggling per-condition launcher scripts. Every run is checkpointed and safely resumable.
+- **Dynamic variable-option handling.** Parsing and bias calculations scale natively past the standard four-choice (A–D) format up to ten choices (A–J), without manual dataset filtering or breaking on modern high-difficulty benchmarks.
+- **Native support for five canonical benchmarks.** MMLU, ARC-Challenge, MMLU-Pro, HellaSwag, and TruthfulQA are pre-registered and one `prepare_data.py` command away — no custom normalizer to write for the datasets most MCQ research already uses.
+- **A framework-level gate against invalid global calibration.** Any method that needs a single fixed option-count to compute a valid global statistic (PriDe's positional-bias prior is the bundled example) is protected by the modal-k compatibility gate, which blocks the run on a mismatched-option benchmark and reports exactly which questions were excluded — instead of silently producing a meaningless average.
+- **Statistics built for research, not a leaderboard number.** Exact 95% confidence intervals on accuracy, and a marginal-skew metric (MAD) kept deliberately separate from a causal order-bias metric (order-sensitivity).
+
 **vs. lm-evaluation-harness:** lm-eval is designed for model 
 benchmarking, answering "how does this model perform across 
 benchmarks?" ChoiceBench is designed for a different question: 
@@ -39,6 +49,19 @@ that question.
 on per-paper experiment code that works but is difficult to build 
 on. ChoiceBench aims to be the shared foundation that makes results 
 easier to reproduce and extend.
+
+---
+
+## Real Run Results
+
+> **TODO:** full grid run across all 5 bundled benchmarks (MMLU, ARC-Challenge,
+> MMLU-Pro, HellaSwag, TruthfulQA), `direct_mcq` + `cyclic_permutation` + `pride`,
+> Qwen-7B and Llama-8B, 10 questions per benchmark — one `run_experiment.py`
+> invocation. Replace this placeholder with the results table (accuracy + 95% CI
+> per cell), a short note on the modal-k gate correctly excluding PriDe on
+> TruthfulQA / MMLU-Pro (cite the real `n_evaluated`/`n_total` from the gate
+> report sidecar), and a one-line callout that this is a small-sample demo run,
+> not a benchmark claim.
 
 ---
 
