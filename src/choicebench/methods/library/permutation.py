@@ -76,7 +76,7 @@ class PermutationRunner(ExperimentRunner):
                 canonical_choices.append(None)
 
         # Majority vote across canonical answers
-        voted_letter = self._majority_vote(canonical_choices)
+        voted_letter = self._majority_vote(canonical_choices, canonical_options)
 
         # Build a synthetic ParseResult from the voted answer
         voted_parse = ParseResult(
@@ -158,7 +158,7 @@ class PermutationRunner(ExperimentRunner):
                 else:
                     canonical_choices.append(None)
 
-            voted_letter = self._majority_vote(canonical_choices)
+            voted_letter = self._majority_vote(canonical_choices, canonical_options)
             voted_parse = ParseResult(
                 final_choice=voted_letter,
                 status=PARSE_OK if voted_letter else PARSE_MISSING,
@@ -252,15 +252,23 @@ class PermutationRunner(ExperimentRunner):
         return None
 
     @staticmethod
-    def _majority_vote(choices: list[str | None]) -> str | None:
+    def _majority_vote(
+            choices: list[str | None],
+            canonical_options: dict[str, str],
+    ) -> str | None:
         """Determine the final answer by majority vote.
 
-        In the case of a tie, the first valid vote is used as the
-        tiebreaker, which corresponds to the canonical option ordering.
+        In the case of a tie, the canonically-earliest letter among the tied
+        candidates is used as the tiebreaker — not the first-encountered vote,
+        which is ordered by rotation/permutation index and would reintroduce
+        the positional correlation cyclic permutation exists to cancel.
 
         Args:
             choices: List of canonical letters from each permutation,
                 with None for any that failed to parse.
+            canonical_options: Canonical letter-to-text mapping for this
+                question, in canonical letter order (A, B, C, ...); used to
+                resolve ties by canonical index rather than vote order.
 
         Returns:
             The most frequent letter, or None if no valid votes exist.
@@ -269,7 +277,14 @@ class PermutationRunner(ExperimentRunner):
         if not cleaned:
             return None
 
-        top = collections.Counter(cleaned).most_common(2)
+        counts = collections.Counter(cleaned)
+        top = counts.most_common(2)
         if len(top) == 1 or top[0][1] != top[1][1]:
             return top[0][0]
-        return cleaned[0]
+
+        max_count = top[0][1]
+        tied_letters = {letter for letter, count in counts.items() if count == max_count}
+        for letter in canonical_options:
+            if letter in tied_letters:
+                return letter
+        return top[0][0]

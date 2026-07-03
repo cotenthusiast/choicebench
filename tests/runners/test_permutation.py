@@ -155,40 +155,57 @@ class TestUnpermuteChoice:
 class TestMajorityVote:
     """Tests for PermutationRunner._majority_vote."""
 
-    def test_unanimous(self):
+    def test_unanimous(self, canonical_options):
         """All votes agree — should return that letter."""
-        assert PermutationRunner._majority_vote(["C", "C", "C", "C"]) == "C"
+        assert PermutationRunner._majority_vote(["C", "C", "C", "C"], canonical_options) == "C"
 
-    def test_clear_majority(self):
+    def test_clear_majority(self, canonical_options):
         """Three-to-one — should return the majority."""
-        assert PermutationRunner._majority_vote(["A", "C", "C", "C"]) == "C"
+        assert PermutationRunner._majority_vote(["A", "C", "C", "C"], canonical_options) == "C"
 
-    def test_tie_uses_first_valid(self):
-        """Two-to-two tie — should return the first valid vote."""
-        result = PermutationRunner._majority_vote(["A", "B", "A", "B"])
+    def test_tie_uses_canonically_earliest_letter(self, canonical_options):
+        """Two-to-two tie — should return the canonically-earliest tied letter."""
+        result = PermutationRunner._majority_vote(["A", "B", "A", "B"], canonical_options)
         assert result == "A"
 
-    def test_all_none(self):
+    def test_all_none(self, canonical_options):
         """All votes failed — should return None."""
-        assert PermutationRunner._majority_vote([None, None, None, None]) is None
+        assert PermutationRunner._majority_vote([None, None, None, None], canonical_options) is None
 
-    def test_empty_list(self):
+    def test_empty_list(self, canonical_options):
         """Empty list — should return None."""
-        assert PermutationRunner._majority_vote([]) is None
+        assert PermutationRunner._majority_vote([], canonical_options) is None
 
-    def test_some_none(self):
+    def test_some_none(self, canonical_options):
         """Mix of valid and None — should vote among valid only."""
-        result = PermutationRunner._majority_vote([None, "B", "B", None])
+        result = PermutationRunner._majority_vote([None, "B", "B", None], canonical_options)
         assert result == "B"
 
-    def test_single_valid_vote(self):
+    def test_single_valid_vote(self, canonical_options):
         """Only one non-None — should return that vote."""
-        result = PermutationRunner._majority_vote([None, None, "D", None])
+        result = PermutationRunner._majority_vote([None, None, "D", None], canonical_options)
         assert result == "D"
 
-    def test_tie_with_none_first(self):
-        """First vote is None, tie among valid — should return first valid."""
-        result = PermutationRunner._majority_vote([None, "A", "B", "A"])
+    def test_tie_with_none_first(self, canonical_options):
+        """First vote is None, tie among valid — should return canonically-earliest tied letter."""
+        result = PermutationRunner._majority_vote([None, "A", "B", "A"], canonical_options)
+        assert result == "A"
+
+    def test_tie_across_non_adjacent_rotation_positions(self, canonical_options):
+        """Regression test: tie-break must use canonical letter order, not vote/rotation
+        order. Votes arrive as [C, A] (C from rotation 0, A from rotation 1) — a tie
+        between A and C where C was cast first. The canonically-earlier letter (A)
+        must win regardless of which rotation produced its vote first; the old
+        implementation returned cleaned[0] ("C") here, reintroducing positional
+        correlation into a method whose purpose is to cancel it.
+        """
+        result = PermutationRunner._majority_vote(["C", "A"], canonical_options)
+        assert result == "A"
+
+    def test_tie_break_ignores_rotation_order_for_three_way_tie(self, canonical_options):
+        """Three-way tie arriving in reverse canonical order — canonically-earliest
+        letter (A) must still win, not the first-encountered vote (D)."""
+        result = PermutationRunner._majority_vote(["D", "C", "A"], canonical_options)
         assert result == "A"
 
 
@@ -293,7 +310,19 @@ class TestPermutationRunnerRunOne:
 
     def test_missing_trailing_option_makes_three_api_calls(self, runner_question_row):
         row = dict(runner_question_row, choice_d="", correct_option="C")
-        backend = MockBackend(responses=["C"] * 3)
+        canonical = {"A": "FTP", "B": "HTTP", "C": "HTTPS"}
+        perms = PermutationRunner._generate_permutations(canonical)
+        # Respond with whichever letter holds "HTTPS" in each rotation, so all
+        # three permutations unanimously vote for canonical C — this exercises
+        # the "exactly 3 calls for a 3-option question" behavior without
+        # depending on tie-break resolution.
+        responses = []
+        for perm in perms:
+            for letter, text in perm.items():
+                if text == "HTTPS":
+                    responses.append(letter)
+                    break
+        backend = MockBackend(responses=responses)
         runner = PermutationRunner(
             backend=backend,
             method_name="cyclic_permutation",
