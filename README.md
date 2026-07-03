@@ -111,12 +111,22 @@ python scripts/prepare_data.py --hf-path cais/mmlu --hf-subset all
 python scripts/prepare_data.py --hf-path allenai/ai2_arc --hf-subset ARC-Challenge
 ```
 
-For a registered benchmark, `prepare_data.py` writes to the stem the config
-expects automatically (e.g. `arc_challenge_normalized.csv`), so `--output-name`
-is unnecessary — these commands match the **Supported Benchmarks** table below.
-Pass `--output-name <stem>` when you load a dataset via `name: huggingface`, to
-match the `output_name` you set in the config — the dataset must still have a
-registered `@benchmark` normalizer (see **Add a benchmark**).
+Every HuggingFace dataset needs a registered `@benchmark` normalizer before
+`prepare_data.py` can process it — there is no code-free path (see **Add a
+benchmark**). For the benchmarks in the table below this is already done, so
+`prepare_data.py` writes to the stem the config expects automatically (e.g.
+`arc_challenge_normalized.csv`) and `--output-name` is unnecessary — the two
+commands above match the **Supported Benchmarks** table below as-is. If you
+instead load a dataset via `name: huggingface`, pass `--output-name <stem>` to
+match the `output_name` you set in the config — but that dataset still needs
+the same registered normalizer first.
+
+First-run downloads come straight from HuggingFace: MMLU (14k questions, 57
+subjects) is on the order of a few hundred MB and takes a few minutes on a
+normal connection; ARC-Challenge is a few MB and finishes in well under a
+minute. Both are cached locally afterward, so subsequent runs are instant —
+if `prepare_data.py` appears to hang on first use, it's most likely still
+downloading, not stuck.
 
 ---
 
@@ -483,6 +493,26 @@ Editable templates are in `examples/hpc/`:
 - `run_choicebench.sbatch` - minimal Slurm example using the toy config and no
   GPU by default.
 
+These two mechanisms apply at different layers, and both are real:
+
+- `CHOICEBENCH_BASE` / `CHOICEBENCH_REPO` / `CHOICEBENCH_PYTHON_MODULE` (plus
+  `CHOICEBENCH_VENV`, `PYTHON_BIN`) are **environment variables** read by
+  `setup_hpc.sh` and `env_hpc.sh` (`${VAR:-default}`) — set them before running
+  either script to control paths, the HF cache location, and which `module
+  load` (if any) is used. No template editing is needed for these.
+- `#SBATCH` resource directives (partition, GPU, time, memory, CPUs) inside
+  `run_choicebench.sbatch` are **not** environment-variable-driven — `sbatch`
+  parses `#SBATCH` lines as literal text before the script body ever runs, so
+  exporting a shell variable cannot change them. To change these, edit the
+  `#SBATCH` lines in `run_choicebench.sbatch` directly for your site (e.g.
+  uncomment and set `#SBATCH --partition=...` / `#SBATCH --gres=gpu:1`).
+
+`run_choicebench.sbatch` automatically `source`s `env_hpc.sh` itself — you do
+not need to source it manually before `sbatch`. It also reads
+`CHOICEBENCH_CONFIG` and `CHOICEBENCH_RUN_ID` env vars (falling back to the
+toy config / an auto-generated run id) if you want to point it at a real
+experiment without editing the file.
+
 Example:
 
 ```bash
@@ -493,16 +523,66 @@ bash examples/hpc/setup_hpc.sh
 sbatch examples/hpc/run_choicebench.sbatch
 ```
 
-Module names, partitions, GPU requests, and scratch paths are cluster-specific;
-edit the templates for your site. These examples are convenience starting points,
-not a guarantee that every HPC environment works unchanged.
+These examples are convenience starting points, not a guarantee that every
+HPC environment works unchanged.
 
 There are also compact submission helpers in `scripts/slurm/` for users who
-already have a virtualenv and know the resources they want:
+already have a virtualenv and know the resources they want.
+`scripts/slurm/submit_job.sh` does **not** read `CHOICEBENCH_*` env vars — its
+virtualenv path (`VENV_DIR`) and its `#SBATCH` resources are hardcoded in the
+script and must be edited directly for your cluster:
 
 ```bash
+# Edit these lines in scripts/slurm/submit_job.sh for your site:
+#   VENV_DIR="$HOME/venvs/choicebench"   -> your venv path
+#   #SBATCH --partition=gpu              -> your GPU partition name
+#   #SBATCH --gres=gpu:1                 -> e.g. gpu:a100:2
+#   #SBATCH --time=24:00:00              -> your wall-clock budget
+
 CONFIG=config/my_experiment.yaml sbatch scripts/slurm/submit_job.sh
 ```
+
+`CONFIG` and `RUN_ID` *are* read as env vars by the script body (not
+`#SBATCH` directives), so those two can stay as shown without editing the
+file. To override resources per-submission instead of editing the file,
+`sbatch` command-line flags take precedence over the script's `#SBATCH`
+lines:
+
+```bash
+CONFIG=config/my_experiment.yaml sbatch --partition=mypartition \
+    --gres=gpu:a100:2 --time=12:00:00 scripts/slurm/submit_job.sh
+```
+
+---
+
+## Troubleshooting
+
+**CUDA out-of-memory on the HuggingFace backend.** The HF backend loads
+weights in `fp16` onto the device(s) given by `device:` in your config. If a
+model doesn't fit, either switch to a smaller `model_name_or_path`, set
+`device: auto` to shard across all visible GPUs, reduce
+`generation_kwargs.max_new_tokens`, or move the model to a node/partition with
+more GPU memory — there is no built-in quantization to fall back on in v0.1.
+
+**A model works everywhere except this run, and it's a `ProviderConfigurationError`.**
+API clients (`src/choicebench/clients/`) raise
+`choicebench.clients.types.ProviderConfigurationError` — not retried, unlike
+transient errors — when the provider rejects the request as unfixable by
+retrying: a missing/empty API key, an invalid key, or a malformed request
+(HTTP 400/401/404/422). Check that the corresponding `*_API_KEY` is set in
+`.env` (see **Installation**) and actually valid for the `provider` named in
+your config.
+
+**Is this a stale/corrupt checkpoint or a fresh run?** Re-running the same
+`--run-id` reuses that run directory: `config.yaml` and matching result CSVs
+are overwritten, and any checkpoint under `runs/<run_id>/checkpoints/` is
+resumed (when `run.resume: true`) rather than restarted. If a run directory
+was left in a bad state (e.g. killed mid-write, or you changed the config in a
+way that makes the old checkpoint inconsistent), pass `--reset-run` to clear
+the run directory first and start clean — see the flag's `--help` text in
+`scripts/run_experiment.py` for the exact behavior. Checkpoints are otherwise
+auto-deleted on successful completion, so a checkpoints directory surviving
+after a run claims to have finished is itself a sign something went wrong.
 
 ---
 
