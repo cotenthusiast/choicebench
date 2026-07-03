@@ -20,10 +20,18 @@ from choicebench.metrics import BUILTIN_METRICS
 DEFAULT_MAX_NEW_TOKENS = 512
 
 _VALID_BACKENDS = {"huggingface", "api", "dummy"}
-# An API backend is logprob-capable iff its provider is vLLM, mirroring
-# APIBackend.supports_logprobs (True only when wrapping VLLMClient). This is the
-# only place api-provider logprob capability is encoded.
-_LOGPROB_API_PROVIDERS = {"vllm"}
+# No API provider is treated as logprob-capable for config-driven runs: vLLM's
+# score_options only sees the top-20 generation logprobs (missing options are
+# floored to -100.0), a degraded prior relative to HuggingFace's true
+# full-vocabulary logit, so pride/cyclic_logprob + api+vllm is rejected here
+# rather than silently producing debiased answers from a truncated
+# distribution. This is the only place api-provider logprob capability is
+# encoded. (The underlying capability — APIBackend.supports_logprobs /
+# VLLMClient.score_options_async — is untouched, so a PriDeRunner/
+# CyclicLogprobRunner built directly in Python, bypassing load_config(), can
+# still use it; see the README "Logprob methods on vLLM vs HuggingFace"
+# section.)
+_LOGPROB_API_PROVIDERS: set[str] = set()
 # Non-api backend classes, consulted for their declared supports_logprobs so we
 # never maintain a second hardcoded "logprob-capable" name list (FCD-2 / PF-2).
 _NONAPI_BACKEND_CLASSES = {
@@ -334,7 +342,8 @@ def model_supports_logprobs(model: ModelConfig) -> bool:
     this one function, so the two can never drift apart (FCD-2 / PF-2). Capability
     is read from the backends' own declared ``supports_logprobs`` rather than a
     hardcoded name list:
-      - api backends are capable iff the provider is vLLM (see _LOGPROB_API_PROVIDERS).
+      - api backends are capable iff the provider is in _LOGPROB_API_PROVIDERS
+        (currently empty — no API provider is accepted for config-driven runs).
       - dummy / huggingface report their class capability directly; constructing
         them here is cheap (no weights are loaded until .load()).
     """
@@ -359,8 +368,9 @@ def _validate_cross_field(config: ExperimentConfig) -> None:
                     f"Method {m.name!r} requires score_options() / logprobs, "
                     f"but model.backend={model.backend!r} / provider={model.provider!r} "
                     f"does not support it. Logprob-capable options: "
-                    f"{sorted(_NONAPI_BACKEND_CLASSES)} backends, or "
-                    f"backend=api with provider=vllm. "
+                    f"{sorted(_NONAPI_BACKEND_CLASSES)} backends. No api provider "
+                    f"is accepted for config-driven runs (vLLM's score_options is a "
+                    f"top-20-logprob approximation, not a full-vocabulary logit). "
                     f"Either drop this method or switch backends."
                 )
     seen_benchmark_keys: set[str] = set()

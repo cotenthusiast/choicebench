@@ -355,7 +355,7 @@ class TestPermutationRunnerRunOne:
 
     def test_first_call_fails_but_vote_succeeds_is_not_failure(self, runner_question_row):
         """PF-3 / FSF-5: if only the first permutation call fails but the vote
-        still produces a valid answer, the row must not be model_status=failure
+        still produces a valid answer, the row must not be answer_status=failure
         while carrying a valid scored parsed_choice."""
         canonical = {"A": "FTP", "B": "HTTP", "C": "HTTPS", "D": "SMTP"}
         perms = PermutationRunner._generate_permutations(canonical)
@@ -381,11 +381,11 @@ class TestPermutationRunnerRunOne:
         result = runner.run_one(runner_question_row, sample_index=0)
 
         assert result["parsed_choice"] == "C"
-        assert result["model_status"] != "failure"
-        assert result["model_status"] == "success"
+        assert result["answer_status"] != "failure"
+        assert result["answer_status"] == "success"
 
-    def test_all_fail_marks_model_status_failure(self, runner_question_row):
-        """When the vote yields nothing, the row is model_status=failure."""
+    def test_all_fail_marks_answer_status_failure(self, runner_question_row):
+        """When the vote yields nothing, the row is answer_status=failure."""
         responses = [ProviderTimeoutError("timeout") for _ in range(4)]
         backend = MockBackend(responses=responses)
         runner = PermutationRunner(
@@ -400,4 +400,4 @@ class TestPermutationRunnerRunOne:
         result = runner.run_one(runner_question_row, sample_index=0)
 
         assert result["parsed_choice"] is None
-        assert result["model_status"] == "failure"
+        assert result["answer_status"] == "failure"

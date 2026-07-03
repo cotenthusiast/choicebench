@@ -53,10 +53,14 @@ def test_dummy_is_logprob_capable():
     ) is True
 
 
-def test_vllm_api_is_logprob_capable_but_openai_is_not():
+def test_no_api_provider_is_logprob_capable():
+    # vLLM's score_options is a top-20-logprob approximation (missing options
+    # floored to -100.0), not a full-vocabulary logit like HuggingFace's, so no
+    # api provider is accepted for config-driven logprob methods (see
+    # _LOGPROB_API_PROVIDERS in config/schema.py).
     assert model_supports_logprobs(
         ModelConfig(backend="api", model_name_or_path="m", provider="vllm")
-    ) is True
+    ) is False
     assert model_supports_logprobs(
         ModelConfig(backend="api", model_name_or_path="m", provider="openai")
     ) is False
@@ -82,6 +86,24 @@ def test_pride_openai_rejected_by_both_validators(tmp_path):
     # Validator 2 also rejects: build a config without requires_logprobs so it
     # passes schema, then the runtime gate (keyed on requires_score_options)
     # must still reject pride on an openai backend.
+    data["methods"] = [{"name": "pride"}]
+    cfg = load_config(_write(tmp_path, data))
+    run_exp = _load_run_experiment()
+    with pytest.raises(run_exp.ConfigurationError):
+        run_exp.validate_logprob_compatibility(cfg)
+
+
+def test_pride_vllm_rejected_by_both_validators(tmp_path):
+    # vLLM's score_options is a degraded (top-20 logprob) approximation, so
+    # config-driven pride/cyclic_logprob + api+vllm is rejected the same way
+    # as any other logprob-incapable api provider.
+    data = _pride_dummy_config()
+    data["models"] = [
+        {"backend": "api", "model_name_or_path": "meta-llama/Llama-3.1-8B-Instruct", "provider": "vllm"}
+    ]
+    with pytest.raises(ConfigError):
+        load_config(_write(tmp_path, data))
+
     data["methods"] = [{"name": "pride"}]
     cfg = load_config(_write(tmp_path, data))
     run_exp = _load_run_experiment()

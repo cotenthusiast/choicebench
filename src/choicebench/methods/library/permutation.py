@@ -19,7 +19,6 @@ Logprob support required: no
 import collections
 from typing import Any, Sequence
 
-from choicebench.clients.types import FAILURE_STATUS, SUCCESS_STATUS
 from choicebench.parsing.types import ParseResult, PARSE_OK, PARSE_MISSING
 from choicebench.pipeline.prompt_builder import build_direct_mcq_prompt
 from choicebench.methods.base import ExperimentRunner
@@ -93,10 +92,12 @@ class PermutationRunner(ExperimentRunner):
         if voted_letter:
             score_result = self._score(voted_parse, question_row["correct_option"])
 
-        # Use the first permutation's trace for the result row, but report
-        # model_status by the *voted* outcome, not responses[0] (FSF-5 / PF-3):
-        # a row must not be marked "failure" while carrying a valid voted answer
-        # just because the first rotation's call failed.
+        # Use the first permutation's trace for the result row. answer_status
+        # is derived by _build_result_row from voted_parse (the *voted*
+        # outcome), not responses[0] (FSF-5 / PF-3): a row must not be marked
+        # answer-failure while carrying a valid voted answer just because the
+        # first rotation's call failed. transport_status, in contrast, does
+        # reflect responses[0] — it's a transport-only signal.
         row = self._build_result_row(
             question_row=question_row,
             prompt=prompts[0],
@@ -105,7 +106,6 @@ class PermutationRunner(ExperimentRunner):
             parsed_result=voted_parse,
             score_result=score_result,
         )
-        row["model_status"] = SUCCESS_STATUS if voted_letter else FAILURE_STATUS
         return row
 
     async def run_many_async(self, question_rows: Sequence[Any]) -> list[dict]:
@@ -179,7 +179,6 @@ class PermutationRunner(ExperimentRunner):
                 parsed_result=voted_parse,
                 score_result=score_result,
             )
-            result_row["model_status"] = SUCCESS_STATUS if voted_letter else FAILURE_STATUS
             results.append(result_row)
 
         return results

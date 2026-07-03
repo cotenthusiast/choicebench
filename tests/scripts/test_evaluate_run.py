@@ -22,7 +22,7 @@ def _load_evaluate_run():
     return module
 
 
-def _row(method, parse_reason, raw_text, parsed_choice, model_status="success"):
+def _row(method, parse_reason, raw_text, parsed_choice, transport_status="success"):
     return {
         "method_name": method,
         "parse_reason": parse_reason,
@@ -32,7 +32,7 @@ def _row(method, parse_reason, raw_text, parsed_choice, model_status="success"):
         "normalized_text": "",
         "score_status": "scored",
         "is_correct": parsed_choice == "C",
-        "model_status": model_status,
+        "transport_status": transport_status,
         "correct_option": "C",
         "choice_a": "alpha",
         "choice_b": "bravo",

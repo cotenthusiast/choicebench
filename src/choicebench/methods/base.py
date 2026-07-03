@@ -230,7 +230,22 @@ class ExperimentRunner(ABC):
             # --- prompt ---
             "prompt": prompt,
             # --- model output ---
-            "model_status": model_response.status if model_response else None,
+            # transport_status: did the backend call return (regardless of
+            # whether the output was parseable)? None if no call was made
+            # (e.g. logprob-only methods that never call generate()).
+            "transport_status": model_response.status if model_response else None,
+            # answer_status: was a final answer actually produced, uniformly
+            # across every method — SUCCESS iff parsed_result carries a
+            # non-None final_choice. Previously this "answer produced"
+            # meaning was folded into model_status for some methods (and
+            # transport meaning for others); the two are now always separate
+            # columns. See the README "Authoritative answer column per
+            # method" table.
+            "answer_status": (
+                SUCCESS_STATUS
+                if parsed_result and parsed_result.final_choice is not None
+                else FAILURE_STATUS
+            ),
             "raw_text": model_response.raw_text if model_response else None,
             "finish_reason": model_response.finish_reason if model_response else None,
             "latency_seconds": model_response.latency_seconds if model_response else None,

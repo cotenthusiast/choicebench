@@ -159,8 +159,8 @@ class TestCyclicLogprobRunnerRunOne:
 
         assert row["parsed_choice"] == "C"
         assert row["is_correct"] is True
-        # PF-3: success rows carry a non-None model_status despite never calling generate().
-        assert row["model_status"] == "success"
+        # PF-3: success rows carry a non-None answer_status despite never calling generate().
+        assert row["answer_status"] == "success"
 
     @pytest.mark.parametrize(
         "n_failed",
@@ -207,7 +207,7 @@ class TestCyclicLogprobRunnerRunOne:
 
         assert row["parsed_choice"] is None
         assert row["is_correct"] is None
-        assert row["model_status"] == "failure"
+        assert row["answer_status"] == "failure"
 
     def test_run_one_makes_n_score_options_calls(self, runner_question_row):
         """run_one() must call score_options() exactly N times (once per permutation)."""

@@ -63,10 +63,10 @@ class TestPriDeMetricsIntegration:
         # Every row must carry parsed_choice == its debiased answer.
         assert df["parsed_choice"].notna().all()
 
-        # PF-3: success rows must carry a non-None model_status even though
+        # PF-3: success rows must carry a non-None answer_status even though
         # PriDe never calls generate().
-        assert df["model_status"].notna().all()
-        assert (df["model_status"] == "success").all()
+        assert df["answer_status"].notna().all()
+        assert (df["answer_status"] == "success").all()
 
         actual_correct_rate = df["is_correct"].mean()
         acc = Accuracy().compute(df)

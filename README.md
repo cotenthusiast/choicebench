@@ -172,7 +172,7 @@ methods:
     # params:
     #   fallback_on_parse_failure: true
   # A logprob method like pride can only be listed if EVERY model above is
-  # logprob-capable (huggingface/dummy, or backend: api with provider: vllm).
+  # logprob-capable (huggingface/dummy — no api provider is accepted).
   # With the OpenAI api model present, including it would fail config
   # validation — so it's commented out here:
   # - name: pride
@@ -324,30 +324,25 @@ metrics (`accuracy`, `mad`) read that column. This is uniform across all methods
 `option_distributions_json`, but these are diagnostics — `parsed_choice` is the
 single authoritative column for scoring and for any user `groupby`.
 
-Each method also sets a non-`None` `model_status` (`"success"`/`"failure"`) on
-every row, but **what `model_status` means is not uniform across methods** — so a
-`model_status == "success"` filter does *not* behave identically for all five.
-There are two camps:
+Every row also carries two separate status columns, each with a single,
+uniform meaning across all five methods:
 
-| Method | `model_status` reflects | What `"success"` means |
+| Column | Meaning | `"success"` means |
 |---|---|---|
-| `direct_mcq` | transport success | the backend call returned — even if the output was unparseable, so `parsed_choice` may be `None` |
-| `two_stage` | transport success | the backend call(s) returned — even if unparseable, so `parsed_choice` may be `None` |
-| `cyclic_permutation` | answer produced | a majority-vote answer was produced (`parsed_choice` is set) |
-| `cyclic_logprob` | answer produced | a final argmax answer was produced (`parsed_choice` is set) |
-| `pride` | answer produced | a debiased answer was produced (`parsed_choice` is set) |
+| `transport_status` | Did the backend call return? | The backend call returned — even if the output was unparseable, so `parsed_choice` may still be `None`. `None` for methods that never call `generate()` (`cyclic_logprob`, `pride` — they only call `score_options`), since there is no transport event to report. |
+| `answer_status` | Was a final answer produced? | `parsed_choice` ended up set, by whatever method-specific process produces it (single-call parse, majority vote, or logprob argmax/debiasing). Always non-`None`. |
 
-So for `direct_mcq`/`two_stage` a responded-but-unparseable row is `success` with
-`parsed_choice == None`, whereas for the other three the same situation is
-`failure`. If you need an answer-presence filter that is consistent across all
-five methods, filter on `parsed_choice.notna()` (or `parse_status == "parse_ok"`)
-rather than on `model_status`.
+These used to be folded into a single overloaded `model_status` column whose
+meaning silently changed by method (transport success for `direct_mcq`/
+`two_stage`, answer-produced for the other three) — `transport_status` and
+`answer_status` replace it so a filter behaves identically regardless of
+method. For a cross-method answer-presence filter, `answer_status == "success"`
+is now equivalent to `parsed_choice.notna()` (or `parse_status == "parse_ok"`).
 
 #### Logprob methods on vLLM vs HuggingFace
 
 `pride` and `cyclic_logprob` read per-letter log-probabilities via
-`score_options`. The numerics differ by backend, and the config does not name the
-difference:
+`score_options`. The numerics differ by backend:
 
 - **HuggingFace** reads the true full-vocabulary logit for each option label
   (one forward pass). Option labels must be **single tokens** in the model's
@@ -357,6 +352,15 @@ difference:
   that top-20 is **floored to `-100.0`** (treated as near-impossible). A model
   that spreads probability mass thinly can have a real option silently floored,
   so HF and vLLM runs of the "same" method can yield different priors/answers.
+
+Because of that gap, **config-driven runs (`config.yaml` + `load_config()`)
+reject `pride`/`cyclic_logprob` on an `api` backend with `provider: vllm`** —
+there is currently no API provider accepted for logprob methods; use
+`backend: huggingface` instead. The underlying capability is not deleted: if
+you specifically want the degraded top-20-logprob path anyway, you can still
+construct `PriDeRunner`/`CyclicLogprobRunner` directly in Python against an
+`APIBackend` wrapping a `VLLMClient` (bypassing `load_config()`'s guard) —
+`APIBackend.supports_logprobs` / `VLLMClient.score_options_async` are unchanged.
 
 Partially-degraded rows are flagged: `n_permutations_failed` / `n_permutations_total`
 record how many permutations fell back to a uniform distribution (for `pride`,
@@ -373,8 +377,9 @@ capture model weights, so two local checkpoints sharing a basename
 
 | Name | Description |
 |---|---|
-| `accuracy` | Fraction of questions answered correctly |
-| `mad` | Mean absolute deviation between the model's letter-selection distribution and the gold answer distribution — measures answer-order bias |
+| `accuracy` | Fraction of questions answered correctly (`accuracy`/`accuracy_conditional`), each with a 95% Clopper-Pearson confidence interval (`*_ci_low`/`*_ci_high`) |
+| `mad` | Mean absolute deviation between the model's letter-selection distribution and the gold answer distribution, both computed over the same scored subset — a marginal answer-letter skew indicator, *not* a measure of causal answer-order bias |
+| `order_sensitivity` | Causal order-bias signal from per-rotation data (`order_rstd`, `order_flip_rate`) — currently only populated for `cyclic_logprob`, since it's the only method that persists per-rotation logprobs; NaN for other methods |
 
 ### Clients (API backends)
 
@@ -385,7 +390,7 @@ capture model weights, so two local checkpoints sharing a basename
 | `gemini` | Google Gemini API (gemini-2.5-flash, gemini-2.5-pro) |
 | `groq` | Groq API (Llama, Mixtral models) |
 | `together` | Together AI (Qwen, Llama, and other open-weight models) |
-| `vllm` | Local vLLM OpenAI-compatible server; configure `base_url`, no hosted API key required, supports logprob methods |
+| `vllm` | Local vLLM OpenAI-compatible server; configure `base_url`, no hosted API key required. Not accepted for `pride`/`cyclic_logprob` in config-driven runs — see [Logprob methods on vLLM vs HuggingFace](#logprob-methods-on-vllm-vs-huggingface) |
 
 ### Benchmarks
 

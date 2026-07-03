@@ -521,10 +521,17 @@ def test_validate_pride_dummy_passes():
     run_exp.validate_logprob_compatibility(_cfg("pride", "dummy"))
 
 
-def test_validate_pride_vllm_passes():
-    """pride + vllm API backend → no error."""
+def test_validate_pride_vllm_raises_configuration_error():
+    """pride + vllm API backend → ConfigurationError.
+
+    vLLM's score_options is a top-20-logprob approximation (missing options
+    floored to -100.0), not a full-vocabulary logit like HuggingFace's, so it
+    is not accepted for config-driven logprob methods (see
+    _LOGPROB_API_PROVIDERS in config/schema.py).
+    """
     run_exp = _load_run_experiment()
-    run_exp.validate_logprob_compatibility(_cfg("pride", "api", provider="vllm"))
+    with pytest.raises(run_exp.ConfigurationError, match="provider 'vllm'"):
+        run_exp.validate_logprob_compatibility(_cfg("pride", "api", provider="vllm"))
 
 
 def test_validate_pride_huggingface_passes():

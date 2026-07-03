@@ -46,3 +46,15 @@ def test_deterministic_bootstrap_std():
     second = MAD().compute(_df(rows))
     assert first["mad"] == second["mad"]
     assert first["mad_std"] == second["mad_std"]  # seeded bootstrap → reproducible
+
+
+def test_gold_and_predicted_percentages_share_the_scored_denominator():
+    # 2 scored rows (gold A, B; both predicted A) + 2 unparsed rows (gold C, D).
+    # gt_pct must be computed over the scored subset (denominator 2), not all
+    # 4 rows — otherwise a benchmark's parse-failure rate would confound MAD.
+    rows = [("A", "A"), ("B", "A"), ("C", None), ("D", None)]
+    out = MAD().compute(_df(rows))
+    # gt%% (scored-only): A=50, B=50, C=0, D=0. pred%%: A=100, B=0, C=0, D=0.
+    # deviations: 50, 50, 0, 0 -> mean 25.0. (The pre-fix bug divided gt%% by
+    # all 4 rows instead of the 2 scored ones, giving 37.5.)
+    assert out["mad"] == 25.0

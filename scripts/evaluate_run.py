@@ -92,7 +92,7 @@ def reparse_run(run_df: pd.DataFrame) -> pd.DataFrame:
     run_df = run_df.copy()
     skipped: dict[str, int] = {}
     for idx, row in run_df.iterrows():
-        if row.get("model_status") == "failure":
+        if row.get("transport_status") == "failure":
             continue
         if not _is_reparseable_row(row):
             method = row.get("method_name") or "<unknown>"

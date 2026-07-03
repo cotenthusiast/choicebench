@@ -366,11 +366,8 @@ class PriDeRunner(ExperimentRunner):
         letters = list(options.keys())
         prompt = self._build_prompt(question_row)
 
-        adjusted_letter: str | None = None
-        score_adjusted = None
         lp_map: dict[str, float] = {}
         scoring_error: str | None = None
-
         try:
             scores = self.backend.score_options(prompt, letters)
             lp_map = dict(zip(letters, scores))
@@ -381,6 +378,30 @@ class PriDeRunner(ExperimentRunner):
                 question_row["question_id"],
                 exc,
             )
+
+        return self._build_debiased_row(
+            question_row, sample_index, prompt, letters, lp_map, scoring_error
+        )
+
+    def _build_debiased_row(
+            self,
+            question_row: Any,
+            sample_index: int,
+            prompt: str,
+            letters: list[str],
+            lp_map: dict[str, float],
+            scoring_error: str | None,
+    ) -> dict:
+        """Shared row assembly for run_one() / _score_question_async().
+
+        Both inference paths differ only in *how* lp_map (this question's
+        per-letter logprobs) is obtained — sync backend.score_options() vs.
+        async score_options_async(). Everything downstream (Eq. 8 debiasing,
+        scoring, result-row assembly) is identical, so it lives here once
+        instead of twice.
+        """
+        adjusted_letter: str | None = None
+        score_adjusted = None
 
         if not lp_map:
             logger.warning(
@@ -428,17 +449,13 @@ class PriDeRunner(ExperimentRunner):
         if adjusted_letter is not None:
             row["parsed_choice"] = adjusted_letter
             row["parse_status"] = PARSE_OK
-        # PriDe never calls generate(), so model_status would otherwise stay
-        # None even on full success. Set it explicitly (FC-4 / PF-3) to
-        # answer-produced semantics: success when a debiased answer was
-        # produced, failure when score_options yielded nothing to debias.
-        # NOTE: this is NOT the same meaning as direct_mcq/two_stage, where
-        # model_status reflects transport success (the call returned) even when
-        # the output is unparseable. model_status is therefore not uniform
-        # across methods; for a cross-method answer-presence filter use
-        # parsed_choice.notna(). See the README "Authoritative answer column
-        # per method" table.
-        row["model_status"] = SUCCESS_STATUS if adjusted_letter is not None else FAILURE_STATUS
+        # PriDe never calls generate(), so _build_result_row's transport_status
+        # defaults to None (no call was made). answer_status is set explicitly
+        # here (FC-4 / PF-3) since parsed_result=None was passed above (the row
+        # is patched with parsed_choice/parse_status directly instead) —
+        # success when a debiased answer was produced, failure when
+        # score_options yielded nothing to debias.
+        row["answer_status"] = SUCCESS_STATUS if adjusted_letter is not None else FAILURE_STATUS
         if score_adjusted is not None:
             row["score_status"] = score_adjusted.status
             row["is_correct"] = score_adjusted.is_correct
@@ -517,11 +534,8 @@ class PriDeRunner(ExperimentRunner):
         letters = list(options.keys())
         prompt = self._build_prompt(question_row)
 
-        adjusted_letter: str | None = None
-        score_adjusted = None
         lp_map: dict[str, float] = {}
         scoring_error: str | None = None
-
         try:
             from choicebench.clients.vllm_client import VLLMClient
             raw: VLLMClient = self.backend._raw_client
@@ -536,66 +550,9 @@ class PriDeRunner(ExperimentRunner):
                 exc,
             )
 
-        if not lp_map:
-            logger.warning(
-                "PriDe: empty logprobs for question %s — skipping debiasing.",
-                question_row["question_id"],
-            )
-        else:
-            adjusted_letter = apply_debiased_choice_from_defaults(
-                self._calibration_state,
-                lp_map,
-                letters=tuple(letters),
-                eps_prob=1e-12,
-            )
-            adj_parse = ParseResult(
-                final_choice=adjusted_letter,
-                status=PARSE_OK,
-                raw_text=None,
-                normalized_text=adjusted_letter,
-                reason="pride_eq8",
-            )
-            score_adjusted = self._score(adj_parse, question_row["correct_option"])
-
-        row = self._build_result_row(
-            question_row=question_row,
-            prompt=prompt,
-            sample_index=sample_index,
-            model_response=None,
-            parsed_result=None,
-            score_result=None,
-            error=scoring_error,
+        return self._build_debiased_row(
+            question_row, sample_index, prompt, letters, lp_map, scoring_error
         )
-        row["pride_inference_mode"] = "eq8_transfer"
-        row["pride_adjusted_choice"] = adjusted_letter
-        row["peprior_json"] = json.dumps(self._calibration_state.peprior_probs)
-        row["option_logprob_json"] = json.dumps(lp_map) if lp_map else None
-        # PF-4: calibration-rollout permutation failures (see __init__ note).
-        row["n_permutations_total"] = self._calibration_n_perm_total
-        row["n_permutations_failed"] = self._calibration_n_perm_failed
-        # Mirror cyclic_logprob.py: the debiased letter is PriDe's authoritative
-        # answer, so it must populate parsed_choice — the column both built-in
-        # metrics (Accuracy, MAD) read. Without this PriDe reports 0.0 / NaN.
-        if adjusted_letter is not None:
-            row["parsed_choice"] = adjusted_letter
-            row["parse_status"] = PARSE_OK
-        # PriDe never calls generate(), so model_status would otherwise stay
-        # None even on full success. Set it explicitly (FC-4 / PF-3) to
-        # answer-produced semantics: success when a debiased answer was
-        # produced, failure when score_options yielded nothing to debias.
-        # NOTE: this is NOT the same meaning as direct_mcq/two_stage, where
-        # model_status reflects transport success (the call returned) even when
-        # the output is unparseable. model_status is therefore not uniform
-        # across methods; for a cross-method answer-presence filter use
-        # parsed_choice.notna(). See the README "Authoritative answer column
-        # per method" table.
-        row["model_status"] = SUCCESS_STATUS if adjusted_letter is not None else FAILURE_STATUS
-        if score_adjusted is not None:
-            row["score_status"] = score_adjusted.status
-            row["is_correct"] = score_adjusted.is_correct
-
-        self._stamp_gate(row)
-        return row
 
     async def _cyclic_rollout_prob_matrix_async(
         self,
