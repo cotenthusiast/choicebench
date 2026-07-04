@@ -1,0 +1,79 @@
+# examples/pride_reproduction.yaml
+#
+# Single-cell reproduction of Zheng et al., ICLR 2024 (arXiv:2309.03882),
+# Table 3, MMLU block, llama-13B row, 0-shot. See
+# examples/pride_reproduction_targets.json for the official numbers this
+# run's metrics should land near.
+#
+# huggyllama/llama-13b is LLaMA-1 (NOT Llama-2) — the paper's "llama-13B".
+#
+# PriDe itself is deliberately NOT a method below. PriDe (every alpha/seed)
+# is recomputed offline from the option_distributions_json this run persists
+# for direct_logprob/cyclic_logprob — see the (separate) offline recompute
+# script. Running PriDe here would waste GPU time re-deriving what the
+# offline script already gets from these two methods' logprobs.
+#
+# Prerequisite — prepare the permutation-filtered MMLU CSV first:
+#   python scripts/prepare_data.py --hf-path cais/mmlu --hf-subset all \
+#       --filter-permutation-unsafe --output-name mmlu_filtered
+# This writes data/processed/mmlu_filtered_normalized.csv (~13,592 of 14,042
+# rows survive per the paper's ~3.2% exclusion) plus a
+# mmlu_filtered_permutation_filter.json accounting sidecar.
+
+experiment:
+  name: pride_reproduction_mmlu_llama13b_0shot
+
+models:
+  - backend: huggingface
+    model_name_or_path: huggyllama/llama-13b
+    # revision: <PIN_BEFORE_RUN>  # pin the exact HF commit SHA before submitting the sbatch job
+    device: cuda
+
+    # Zheng et al. do not prepend BOS for open-source models (Figure 6
+    # caption, arXiv:2309.03882) — the HuggingFaceBackend default is True
+    # (add BOS), so this must be set explicitly for a faithful reproduction.
+    add_bos_token: false
+
+    # direct_logprob/cyclic_logprob never call generate() — they only use
+    # score_options() (single forward pass, no sampling) — so
+    # generation_kwargs below is unused by this run; left at safe defaults.
+    generation_kwargs:
+      max_new_tokens: 1
+      temperature: 0.0
+      do_sample: false
+
+# fp16 is HuggingFaceBackend's fixed load() dtype (torch_dtype=torch.float16),
+# not a config knob — see examples/hpc/run_pride_reproduction.sbatch for the
+# VRAM sizing that assumes it.
+
+benchmarks:
+  # NOTE: name: huggingface (not name: mmlu) — a registered benchmark name's
+  # CSV path is hardcoded to "<name>_normalized.csv" and ignores output_name,
+  # which would silently point this run at the *unfiltered* mmlu_normalized.csv.
+  # The generic huggingface path is the only one that honors output_name.
+  - name: huggingface
+    hf_path: cais/mmlu
+    hf_subset: all
+    split: test
+    output_name: mmlu_filtered
+    n_samples: null
+    subject_filter: null
+
+methods:
+  - name: direct_logprob
+    requires_logprobs: true
+  - name: cyclic_logprob
+    requires_logprobs: true
+
+metrics:
+  - accuracy
+  - recall_rstd
+  - mad
+
+run:
+  seed: 42
+  resume: true
+  dry_run: false
+  checkpoint_every_n: 50
+  prompt_version: "pride_repro"
+  concurrency_limit: 10
