@@ -226,6 +226,7 @@ class PermutationRunner(ExperimentRunner):
             template=template,
             question=question_row["question_text"],
             options=permuted_options,
+            subject=question_row["subject"],
         )
 
     @staticmethod

@@ -143,3 +143,25 @@ class TestOptionDistributionsRoundTrip:
 
         round_tripped = json.loads(reloaded.loc[0, "option_distributions_json"])[0]
         assert round_tripped == expected
+
+
+class TestDirectLogprobPrideReproPrompt:
+    def _make_pride_repro_runner(self, backend):
+        return DirectLogprobRunner(
+            backend=backend,
+            method_name="direct_logprob",
+            split_name="test",
+            prompt_version="pride_repro",
+            prompts_dir=_PROMPTS_DIR,
+            run_id="test_run",
+        )
+
+    def test_prompt_uses_formatted_subject_and_ends_at_answer(self, runner_question_row):
+        from tests.runners.conftest import MockBackend
+
+        backend = MockBackend(score_responses=[[-0.1, -2.0, -3.0, -4.0]], supports_logprobs=True)
+        row = self._make_pride_repro_runner(backend).run_one(runner_question_row, sample_index=0)
+
+        # runner_question_row["subject"] == "computer_security"
+        assert "about computer security." in row["prompt"]
+        assert row["prompt"].endswith("Answer:")

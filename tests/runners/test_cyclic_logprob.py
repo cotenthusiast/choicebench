@@ -23,11 +23,11 @@ _PROMPTS_DIR = REPO_ROOT / "prompts"
 # ---------------------------------------------------------------------------
 
 def _make_runner(backend, **kw) -> CyclicLogprobRunner:
+    kw.setdefault("prompt_version", "v1")
     return CyclicLogprobRunner(
         backend=backend,
         method_name="cyclic_logprob",
         split_name="test",
-        prompt_version="v1",
         prompts_dir=_PROMPTS_DIR,
         run_id="test_run",
         **kw,
@@ -240,3 +240,17 @@ class TestCyclicLogprobRunnerHasNoAsyncPath:
         not a bug: this runner only ever runs via the sync run_one() path.
         """
         assert "run_many_async" not in CyclicLogprobRunner.__dict__
+
+
+class TestCyclicLogprobPrideReproPrompt:
+    def test_prompt_uses_formatted_subject_and_ends_at_answer(self, runner_question_row):
+        backend = MockBackend(
+            score_responses=[[-0.1, -2.0, -3.0, -4.0]] * 4,
+            supports_logprobs=True,
+        )
+        runner = _make_runner(backend, prompt_version="pride_repro")
+        row = runner.run_one(runner_question_row, sample_index=0)
+
+        # runner_question_row["subject"] == "computer_security"
+        assert "about computer security." in row["prompt"]
+        assert row["prompt"].endswith("Answer:")

@@ -56,18 +56,30 @@ def build_direct_mcq_prompt(
     template: str,
     question: str,
     options: dict[str, str],
+    subject: str | None = None,
 ) -> str:
-    """Format the direct MCQ template with question and option text.
+    """Format the direct MCQ template with question, option text, and subject.
 
     Args:
         template: Raw template string from load_prompt_templates.
         question: Question stem to present to the model.
         options: Mapping from answer label to option text.
+        subject: Optional subject/category label (e.g. MMLU's per-question
+            subject). Underscores are replaced with spaces before
+            substitution, matching the paper's reference implementation
+            convention (e.g. "abstract_algebra" -> "abstract algebra"). Only
+            templates with a {subject} placeholder need this (v1's does not);
+            omitted entirely from .format()'s kwargs when None, so a template
+            that does reference {subject} without one being supplied raises
+            KeyError rather than silently rendering the literal word "None".
 
     Returns:
         Fully formatted prompt string.
     """
-    return template.format(question=question, options=_build_options_block(options))
+    format_kwargs = {"question": question, "options": _build_options_block(options)}
+    if subject is not None:
+        format_kwargs["subject"] = subject.replace("_", " ")
+    return template.format(**format_kwargs)
 
 
 def build_free_text_prompt(template: str, question: str) -> str:

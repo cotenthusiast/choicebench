@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from choicebench.pipeline.prompt_builder import (
     build_direct_mcq_prompt,
     build_free_text_prompt,
@@ -81,3 +83,42 @@ class TestBuildOptionMatchingPrompt:
         assert prompt.index("B. two") < prompt.index("C. three")
         assert prompt.index("C. three") < prompt.index("D. four")
         assert free_response in prompt
+
+
+class TestBuildDirectMcqPromptSubject:
+    """Tests for the optional subject parameter (pride_repro template)."""
+
+    _PRIDE_REPRO_TEMPLATES = load_prompt_templates("pride_repro", _PROMPTS_DIR)
+
+    def test_subject_underscores_become_spaces(self):
+        prompt = build_direct_mcq_prompt(
+            self._PRIDE_REPRO_TEMPLATES["direct_mcq"],
+            question="Q?",
+            options={"A": "one", "B": "two"},
+            subject="abstract_algebra",
+        )
+        assert "about abstract algebra." in prompt
+        assert "abstract_algebra" not in prompt
+
+    def test_prompt_ends_exactly_at_answer_colon(self):
+        prompt = build_direct_mcq_prompt(
+            self._PRIDE_REPRO_TEMPLATES["direct_mcq"],
+            question="Q?",
+            options={"A": "one", "B": "two"},
+            subject="anatomy",
+        )
+        assert prompt.endswith("Answer:")
+
+    def test_v1_template_ignores_absent_subject(self):
+        # v1's direct_mcq.txt has no {subject} placeholder; omitting subject
+        # (the default) must not raise and must not alter existing behavior.
+        prompt = build_direct_mcq_prompt(
+            _TEMPLATES["direct_mcq"], "Q?", {"A": "one", "B": "two"}
+        )
+        assert "Q?" in prompt
+
+    def test_pride_repro_template_without_subject_raises_keyerror(self):
+        with pytest.raises(KeyError):
+            build_direct_mcq_prompt(
+                self._PRIDE_REPRO_TEMPLATES["direct_mcq"], "Q?", {"A": "one", "B": "two"}
+            )
