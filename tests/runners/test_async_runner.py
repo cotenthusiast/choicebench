@@ -505,6 +505,63 @@ async def test_run_models_concurrently_isolates_failures(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Level 2.5 — backend_cache reuse across (benchmark, method) combinations
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_run_model_reuses_cached_backend_across_calls(tmp_path):
+    """A model already built for one (benchmark, method) must not be rebuilt.
+
+    Regression test: build_backend() used to be called fresh on every
+    (benchmark, method) pair, reloading full model weights from disk each
+    time instead of loading once and reusing across the whole run.
+    """
+    run_exp = _load_run_experiment()
+
+    build_calls: list[str] = []
+
+    def fake_build_backend(model_config, run_id, run_seed, default_concurrency_limit=10):
+        build_calls.append(model_config.model_name_or_path)
+        return object()
+
+    async def fake_run_method(**kwargs):
+        return None
+
+    import unittest.mock as mock
+    import choicebench.config.schema as schema_mod
+    from choicebench.config.schema import BenchmarkConfig, ExperimentConfig, MethodConfig, RunConfig
+
+    model = schema_mod.ModelConfig(backend="dummy", model_name_or_path="dummy_a")
+    method_a = MethodConfig(name="direct_mcq")
+    method_b = MethodConfig(name="cyclic_logprob")
+    bench = BenchmarkConfig(name="toy")
+    config = ExperimentConfig(
+        name="test",
+        models=[model],
+        benchmarks=[bench],
+        methods=[method_a, method_b],
+        metrics=["accuracy"],
+        run=RunConfig(),
+    )
+
+    backend_cache: dict = {}
+    with mock.patch.object(run_exp, "build_backend", side_effect=fake_build_backend), \
+         mock.patch.object(run_exp, "instantiate_runner", return_value=mock.MagicMock()), \
+         mock.patch.object(run_exp, "run_method", side_effect=fake_run_method):
+        await run_exp._run_model(
+            method_a, model, bench, pd.DataFrame({"question_id": []}), None,
+            config, "rid", tmp_path, tmp_path / "checkpoints", backend_cache,
+        )
+        await run_exp._run_model(
+            method_b, model, bench, pd.DataFrame({"question_id": []}), None,
+            config, "rid", tmp_path, tmp_path / "checkpoints", backend_cache,
+        )
+
+    # Built once for the first (benchmark, method) call; reused on the second.
+    assert build_calls == ["dummy_a"]
+
+
+# ---------------------------------------------------------------------------
 # HuggingFace / Dummy backend: verify sync path not broken
 # ---------------------------------------------------------------------------
 

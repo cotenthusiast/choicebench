@@ -488,6 +488,7 @@ async def _run_model(
     run_id: str,
     output_dir: Path,
     checkpoint_dir: Path,
+    backend_cache: dict[int, APIBackend | HuggingFaceBackend | DummyBackend],
 ) -> None:
     """Set up and run one (method, model, benchmark) combination."""
     logger.info(
@@ -495,9 +496,17 @@ async def _run_model(
         benchmark_cfg.name, method.name,
         model_config.model_name_or_path, model_config.backend,
     )
-    backend = build_backend(
-        model_config, run_id, config.run.seed, config.run.concurrency_limit
-    )
+    # Keyed by object identity: config.models is the same list of ModelConfig
+    # instances for the whole run, so a model is built/loaded once and reused
+    # across every (benchmark, method) combination instead of reloading from
+    # disk on each pass through the outer loop.
+    cache_key = id(model_config)
+    backend = backend_cache.get(cache_key)
+    if backend is None:
+        backend = build_backend(
+            model_config, run_id, config.run.seed, config.run.concurrency_limit
+        )
+        backend_cache[cache_key] = backend
     logger.info("Backend: %s", backend.__class__.__name__)
 
     # The written identity for the generic `huggingface` path is the normalized
@@ -569,6 +578,7 @@ async def _run_model_isolated(
     run_id: str,
     output_dir: Path,
     checkpoint_dir: Path,
+    backend_cache: dict[int, APIBackend | HuggingFaceBackend | DummyBackend],
 ) -> tuple[str, Exception | None]:
     """Run one model job, catching any exception so sibling jobs are unaffected.
 
@@ -579,7 +589,7 @@ async def _run_model_isolated(
     label = _job_label(method, model_config, benchmark_cfg)
     try:
         await _run_model(method, model_config, benchmark_cfg, questions, preflight_questions,
-                         config, run_id, output_dir, checkpoint_dir)
+                         config, run_id, output_dir, checkpoint_dir, backend_cache)
         return label, None
     except Exception as exc:  # noqa: BLE001 - intentionally broad: isolate any job failure
         logger.error("Job failed [%s]: %s", label, exc, exc_info=True)
@@ -596,6 +606,7 @@ async def run_models_concurrently(
     run_id: str,
     output_dir: Path,
     checkpoint_dir: Path,
+    backend_cache: dict[int, APIBackend | HuggingFaceBackend | DummyBackend] | None = None,
 ) -> list[tuple[str, Exception]]:
     """Run all models for one (benchmark, method) combination.
 
@@ -604,7 +615,15 @@ async def run_models_concurrently(
     no async machinery to parallelise across. Each model's job is isolated:
     one model's exception is logged and does not prevent its siblings from
     completing. Returns the list of (job_label, exception) for jobs that failed.
+
+    backend_cache persists loaded backends across calls (keyed by model config
+    identity) so a model already built for an earlier benchmark/method is
+    reused instead of rebuilt. Defaults to a fresh, call-scoped dict when not
+    supplied by the caller.
     """
+    if backend_cache is None:
+        backend_cache = {}
+
     api_models = [m for m in model_configs if m.backend == "api"]
     sync_models = [m for m in model_configs if m.backend != "api"]
 
@@ -613,7 +632,7 @@ async def run_models_concurrently(
     if api_models:
         results = await asyncio.gather(*[
             _run_model_isolated(method, m, benchmark_cfg, questions, preflight_questions,
-                                 config, run_id, output_dir, checkpoint_dir)
+                                 config, run_id, output_dir, checkpoint_dir, backend_cache)
             for m in api_models
         ])
         failures.extend((label, exc) for label, exc in results if exc is not None)
@@ -621,7 +640,7 @@ async def run_models_concurrently(
     for m in sync_models:
         label, exc = await _run_model_isolated(
             method, m, benchmark_cfg, questions, preflight_questions,
-            config, run_id, output_dir, checkpoint_dir,
+            config, run_id, output_dir, checkpoint_dir, backend_cache,
         )
         if exc is not None:
             failures.append((label, exc))
@@ -676,6 +695,10 @@ async def _async_main(
     an empty list means every job across every benchmark/method completed.
     """
     failures: list[tuple[str, Exception]] = []
+    # Shared across every benchmark/method iteration so each model is built
+    # and loaded (weights onto GPU, for HF) exactly once per run, not once
+    # per (benchmark, method) combination.
+    backend_cache: dict[int, APIBackend | HuggingFaceBackend | DummyBackend] = {}
     for benchmark_cfg in config.benchmarks:
         questions = load_benchmark(benchmark_cfg, config.run.seed)
         logger.info("Loaded %d questions from %s", len(questions), benchmark_cfg.name)
@@ -696,6 +719,7 @@ async def _async_main(
                 run_id=run_id,
                 output_dir=output_dir,
                 checkpoint_dir=checkpoint_dir,
+                backend_cache=backend_cache,
             ))
     return failures
 
