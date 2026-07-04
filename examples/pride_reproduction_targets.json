@@ -1,0 +1,14 @@
+{
+  "provenance": "Zheng et al., ICLR 2024 (arXiv:2309.03882), Table 3, MMLU block, llama-13B row, 0-shot. PriDe cells are means over 5 calibration-subset runs per the paper; no per-cell std reported.",
+  "model": "llama-13B (LLaMA-1; huggyllama/llama-13b mirror)",
+  "benchmark": "MMLU test, 4-option, post permutation-safety filter (paper N=13592)",
+  "setting": "0-shot",
+  "metrics_scale": "RStd and Acc on 0-100 scale",
+  "targets": {
+    "default":     {"rstd": 17.4, "acc": 34.6},
+    "cyclic_perm": {"rstd": 2.9,  "acc": 47.7},
+    "pride_5":     {"rstd": 5.7,  "acc": 36.4},
+    "pride_40":    {"rstd": 3.9,  "acc": 40.4},
+    "pride_80":    {"rstd": 2.6,  "acc": 45.3}
+  }
+}
