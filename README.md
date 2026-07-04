@@ -661,7 +661,7 @@ If you use ChoiceBench in your research, please cite:
   title     = {ChoiceBench: A lightweight framework for MCQ evaluation-method research},
   year      = {2026},
   url       = {https://github.com/cotenthusiast/choicebench},
-  version   = {0.1.0},
+  version   = {0.1.1},
   license   = {MIT}
 }
 ```
