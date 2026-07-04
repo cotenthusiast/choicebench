@@ -221,6 +221,10 @@ methods:
   # validation — so it's commented out here:
   # - name: pride
   #   requires_logprobs: true   # schema-validated; rejects non-logprob backends
+  #   preflight:                # optional: calibrates PriDe's positional-bias prior
+  #     source: benchmark        # "benchmark" (reuse this benchmark's data) or a .csv/.jsonl file path
+  #     split: validation        # must differ from the benchmark's own `split:` above (enforced — raises if equal)
+  #     n: 100                   # number of calibration questions to sample (deterministic, seeded by run.seed)
 
 metrics:
   - accuracy
@@ -348,7 +352,7 @@ src/choicebench/
 | `direct_mcq` | Single-pass: prompt → parse → score | 1 |
 | `cyclic_permutation` | Runs one cyclic permutation per available option, takes majority vote | N options, normally 4 |
 | `two_stage` | Stage 1: free-form answer; Stage 2: map to option letter | 2, or 3 if fallback is enabled |
-| `pride` | PriDe Eq. 8 logprob debiasing. Note: YAML-driven runs use a uniform prior in v0.1 unless a preflight calibration block is configured. Without preflight, this is logprob argmax only — not calibration-fitted debiasing from Zheng et al., ICLR 2024. Subject to the [modal-k gate](#method-compatibility--known-limitations). | 1 score_options call per eval row; +4K calibration calls per run if K calibration rows are supplied |
+| `pride` | PriDe Eq. 8 logprob debiasing. Note: YAML-driven runs use a uniform prior in v0.1 unless a preflight calibration block is configured (see the `preflight:` example in [Config Reference](#config-reference)). Without preflight, this is logprob argmax only — not calibration-fitted debiasing from Zheng et al., ICLR 2024. Subject to the [modal-k gate](#method-compatibility--known-limitations). | 1 score_options call per eval row; +4K calibration calls per run if K calibration rows are supplied |
 | `cyclic_logprob` | Eq. 1 logprob averaging: score every cyclic permutation via `score_options`, average probability mass back to canonical slots, argmax | N options, normally 4 score_options calls |
 
 #### Authoritative answer column per method
@@ -617,6 +621,21 @@ the run directory first and start clean — see the flag's `--help` text in
 `scripts/run_experiment.py` for the exact behavior. Checkpoints are otherwise
 auto-deleted on successful completion, so a checkpoints directory surviving
 after a run claims to have finished is itself a sign something went wrong.
+
+**`module: command not found` inside a Slurm job's `.err` log, even though
+`module load` works fine when you run it by hand.** `module` is a bash
+function defined by your cluster's profile scripts, which only get sourced in
+an interactive/login shell. `sbatch` inherits the environment of the shell
+that invoked it — so if the job was submitted from a shell that never sourced
+those profile scripts (a single `ssh host "sbatch job.sh"` command, CI,
+cron, or any other non-interactive automation), `module` was never defined
+there, and the identical `module load` line inside the submitted script fails
+even though it works when you submit from a live terminal. Either always
+submit from a real interactive terminal, or stop depending on `module load`
+inside the sbatch script at all: resolve the interpreter to an absolute path
+once (e.g. `module load <name>` then `command -v python3`, done interactively
+a single time) and reference that absolute path directly in the script
+instead.
 
 ---
 
