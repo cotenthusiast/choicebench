@@ -1,0 +1,39 @@
+# examples/method_comparison.yaml
+#
+# Companion config for examples/method_comparison.md. Runs the new
+# shuffled_baseline demo method head-to-head with the direct_mcq baseline on
+# the bundled toy dataset, using DummyBackend so it needs no GPU or API key.
+
+experiment:
+  name: method_comparison_demo
+
+models:
+  - backend: dummy
+    model_name_or_path: dummy_1
+    device: cpu
+    generation_kwargs:
+      max_new_tokens: 16
+      temperature: 0.0
+      do_sample: false
+
+benchmarks:
+  - name: toy
+    split: test
+    n_samples: 10
+    subject_filter: null
+
+methods:
+  - name: direct_mcq
+  - name: shuffled_baseline
+
+metrics:
+  - accuracy
+  - mad
+
+run:
+  seed: 42
+  resume: false
+  dry_run: false
+  checkpoint_every_n: 50
+  prompt_version: "v1"
+  concurrency_limit: 10

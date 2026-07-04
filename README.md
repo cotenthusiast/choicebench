@@ -310,6 +310,13 @@ a matching `--output-name` to `prepare_data.py`).
 
 Any method or metric can be loaded from an external package — just install it in the same virtualenv and use the full import path in YAML. No framework files need to be touched.
 
+### Worked example
+
+`examples/method_comparison.md` walks through adding a new method
+(`shuffled_baseline`) end-to-end — implementation, registration, a real
+experiment config, and a real run against the toy dataset compared with
+`direct_mcq`.
+
 ---
 
 ## Architecture
