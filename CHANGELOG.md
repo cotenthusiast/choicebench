@@ -4,6 +4,22 @@ Notable changes to ChoiceBench. Newest first.
 
 ## Unreleased
 
+- Added `examples/pride_from_artifacts.py`, the offline PriDe recompute for
+  the reproduction wired in `examples/pride_reproduction.yaml`: reads the
+  completed `direct_logprob` + `cyclic_logprob` result CSVs for a run and
+  reconstructs the full PriDe grid (every `--alphas` x `--seeds` cell) purely
+  from their persisted `option_distributions_json` — zero additional GPU
+  inference. Per (alpha, seed): calibration questions (K = floor(alpha * N),
+  seeded, uniform without replacement) are answered via Eq. 1 and averaged
+  into a global prior via Eq. 7; every other question is answered via Eq. 8
+  against that prior. Reuses `pride_math`'s equation functions and
+  `choicebench.metrics`' `accuracy`/`recall_rstd`/`mad` directly — no
+  duplicated math. Questions present in only one CSV, or that failed in
+  either, are dropped from the scored subset (logged), not imputed. Writes a
+  JSON grid (per-cell metrics + N/K accounting, per-alpha mean/std over
+  seeds, and a comparison block against
+  `examples/pride_reproduction_targets.json`'s official numbers) and prints a
+  compact aligned summary table.
 - Added the PriDe (Zheng et al., ICLR 2024, arXiv:2309.03882) single-cell
   reproduction plumbing for MMLU / llama-13B (LLaMA-1) / 0-shot:
   `--filter-permutation-unsafe` on `scripts/prepare_data.py` (excludes

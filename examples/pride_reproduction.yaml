@@ -9,9 +9,9 @@
 #
 # PriDe itself is deliberately NOT a method below. PriDe (every alpha/seed)
 # is recomputed offline from the option_distributions_json this run persists
-# for direct_logprob/cyclic_logprob — see the (separate) offline recompute
-# script. Running PriDe here would waste GPU time re-deriving what the
-# offline script already gets from these two methods' logprobs.
+# for direct_logprob/cyclic_logprob — see examples/pride_from_artifacts.py.
+# Running PriDe here would waste GPU time re-deriving what that script
+# already gets from these two methods' logprobs.
 #
 # Prerequisite — prepare the permutation-filtered MMLU CSV first:
 #   python scripts/prepare_data.py --hf-path cais/mmlu --hf-subset all \
