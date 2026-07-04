@@ -15,6 +15,11 @@ import pandas as pd
 
 from choicebench.benchmarks.registry import get_by_hf_path
 from choicebench.config.paths import PROCESSED_DIR, ensure_dirs
+from choicebench.permutation_filter import (
+    filter_permutation_unsafe,
+    permutation_filter_path_for,
+    write_permutation_filter_report,
+)
 from choicebench.stats import compute_benchmark_stats, stats_path_for, write_stats
 
 logging.basicConfig(
@@ -83,6 +88,17 @@ def parse_args() -> argparse.Namespace:
         "--output-name", default=None,
         help="CSV filename stem; derived from --hf-path if omitted",
     )
+    parser.add_argument(
+        "--filter-permutation-unsafe", action="store_true",
+        help=(
+            "Exclude questions whose option text is meta-referential (e.g. "
+            "'A and B', 'none of the above') — see choicebench.permutation_filter. "
+            "Opt-in; never applied unless this flag is passed. Unless "
+            "--output-name is also given, '_filtered' is appended to the "
+            "resolved stem so this never overwrites the canonical unfiltered "
+            "normalized CSV that other experiments read."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -126,6 +142,8 @@ def main() -> None:
     args = parse_args()
 
     stem = _resolve_output_stem(args.output_name, args.hf_path, args.hf_subset)
+    if args.filter_permutation_unsafe and not args.output_name:
+        stem = f"{stem}_filtered"
     output_path = PROCESSED_DIR / f"{stem}_normalized.csv"
 
     if output_path.exists():
@@ -142,6 +160,19 @@ def main() -> None:
 
     df_normalized = normalize_to_schema(df_raw, args.hf_path, args.hf_subset)
     logger.info("Normalized to %d rows.", len(df_normalized))
+
+    if args.filter_permutation_unsafe:
+        n_before = len(df_normalized)
+        df_normalized, exclusions = filter_permutation_unsafe(df_normalized)
+        logger.info(
+            "Permutation-safety filter: excluded %d/%d question(s) (%.1f%%) with "
+            "meta-referential options.",
+            len(exclusions), n_before,
+            (len(exclusions) / n_before * 100) if n_before else 0.0,
+        )
+        write_permutation_filter_report(
+            exclusions, n_before, permutation_filter_path_for(output_path)
+        )
 
     df_normalized.to_csv(output_path, index=False)
     logger.info("Saved → %s", output_path)
