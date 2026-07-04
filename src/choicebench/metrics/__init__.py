@@ -4,6 +4,7 @@ from choicebench.metrics.base import BaseMetric
 from choicebench.metrics.accuracy import Accuracy
 from choicebench.metrics.mad import MAD
 from choicebench.metrics.order_sensitivity import OrderSensitivity
+from choicebench.metrics.recall_rstd import RecallRStd
 
 # Maps the metric name string used in config.yaml's metrics: list to the
 # class that implements it. The eval runner instantiates from this registry
@@ -12,6 +13,7 @@ BUILTIN_METRICS: dict[str, type[BaseMetric]] = {
     "accuracy": Accuracy,
     "mad": MAD,
     "order_sensitivity": OrderSensitivity,
+    "recall_rstd": RecallRStd,
 }
 
 __all__ = [
@@ -19,5 +21,6 @@ __all__ = [
     "Accuracy",
     "MAD",
     "OrderSensitivity",
+    "RecallRStd",
     "BUILTIN_METRICS",
 ]

@@ -7,6 +7,9 @@ Notable changes to ChoiceBench. Newest first.
 - Added `shuffled_baseline`, a demo evaluation method (single-call, seeded
   per-question option shuffle) used as the subject of a new extensibility
   walkthrough, `examples/method_comparison.md`.
+- Added `recall_rstd`, the paper's selection-bias metric (Zheng et al., ICLR
+  2024, §2.2) — standard deviation of per-letter recall, for reproducing
+  Table 3-style RStd numbers.
 
 ## v0.1.1 — 2026-07-04
 
