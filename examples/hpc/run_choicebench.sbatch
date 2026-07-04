@@ -14,8 +14,12 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# BASH_SOURCE breaks here: sbatch copies the submitted script to a spool
+# directory before executing it, so BASH_SOURCE resolves to the spool path,
+# not this file's real location. SLURM_SUBMIT_DIR is the directory sbatch
+# was invoked from and stays stable across that copy.
+REPO_ROOT="${SLURM_SUBMIT_DIR:-$PWD}"
+SCRIPT_DIR="$REPO_ROOT/examples/hpc"
 
 mkdir -p "$REPO_ROOT/logs"
 

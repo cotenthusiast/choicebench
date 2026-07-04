@@ -35,7 +35,11 @@ set -euo pipefail
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 # CHANGE these to match your cluster layout.
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# BASH_SOURCE breaks here: sbatch copies the submitted script to a spool
+# directory before executing it, so BASH_SOURCE resolves to the spool path,
+# not this file's real location. SLURM_SUBMIT_DIR is the directory sbatch
+# was invoked from and stays stable across that copy.
+REPO_ROOT="${SLURM_SUBMIT_DIR:-$PWD}"
 VENV_DIR="$HOME/venvs/choicebench"        # path to virtualenv
 
 # ── HuggingFace cache (only needed for local HF models) ─────────────────────
