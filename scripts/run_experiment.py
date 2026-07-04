@@ -121,6 +121,7 @@ def build_backend(
         backend = HuggingFaceBackend(
             model_config.model_name_or_path,
             model_config.device,
+            add_bos_token=model_config.add_bos_token,
             max_new_tokens=model_config.generation_kwargs.max_new_tokens,
             temperature=model_config.generation_kwargs.temperature,
             do_sample=model_config.generation_kwargs.do_sample,

@@ -78,6 +78,18 @@ def test_method_params_default_to_empty_dict(tmp_path):
     assert cfg.methods[0].params == {}
 
 
+def test_add_bos_token_defaults_true(tmp_path):
+    cfg = load_config(_write_config(tmp_path, _valid_config()))
+    assert cfg.models[0].add_bos_token is True
+
+
+def test_add_bos_token_can_be_set_false(tmp_path):
+    data = _valid_config()
+    data["models"][0]["add_bos_token"] = False
+    cfg = load_config(_write_config(tmp_path, data))
+    assert cfg.models[0].add_bos_token is False
+
+
 # --- pride.modal_k_threshold ----------------------------------------------
 
 def test_pride_threshold_defaults_to_0_95(tmp_path):

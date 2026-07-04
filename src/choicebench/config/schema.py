@@ -67,6 +67,13 @@ class ModelConfig:
     # "inherit run.concurrency_limit", resolved when the backend is built.
     concurrency_limit: int | None = None
     base_url: str | None = None  # vLLM server address; ignored for all other providers
+    # HuggingFaceBackend only: whether the tokenizer prepends a BOS token
+    # (transformers' add_special_tokens, applied to both generate() and
+    # score_options()). Default True preserves prior behavior (most
+    # tokenizers' own default). Zheng et al., ICLR 2024 (arXiv:2309.03882)
+    # do not prepend BOS for open-source models — set False to match.
+    # Ignored by api/dummy backends.
+    add_bos_token: bool = True
 
 
 @dataclass
@@ -180,6 +187,7 @@ def _build_models(raw: dict) -> list[ModelConfig]:
                     else None
                 ),
                 base_url=entry.get("base_url"),
+                add_bos_token=bool(entry.get("add_bos_token", True)),
             )
         )
     return models

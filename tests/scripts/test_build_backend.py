@@ -206,6 +206,7 @@ def test_huggingface_backend_receives_generation_kwargs(monkeypatch):
     )
 
     assert backend.generation_kwargs == {
+        "add_bos_token": True,
         "max_new_tokens": 17,
         "temperature": 0.25,
         "do_sample": True,

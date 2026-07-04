@@ -35,6 +35,7 @@ class HuggingFaceBackend(BaseBackend):
         self,
         model_name_or_path: str,
         device: str = "cuda",
+        add_bos_token: bool = True,
         **generation_kwargs,
     ) -> None:
         """
@@ -42,12 +43,19 @@ class HuggingFaceBackend(BaseBackend):
             model_name_or_path: HuggingFace hub ID or local model directory path.
             device: "cuda", "cpu", "mps", or "auto" (device_map=auto for
                 multi-GPU). Defaults to "cuda".
+            add_bos_token: Whether to let the tokenizer prepend its BOS token
+                (transformers' add_special_tokens), applied identically to
+                generate() and score_options(). Default True matches most
+                tokenizers' own default and prior behavior of this class.
+                Zheng et al., ICLR 2024 (arXiv:2309.03882) do not prepend BOS
+                for open-source models — pass False to reproduce that setup.
             **generation_kwargs: Default overrides for generate(), e.g.
                 max_new_tokens=256, temperature=0.7, do_sample=True. Any of
                 these can also be passed per-call to generate().
         """
         self._model_path = model_name_or_path
         self._device = device
+        self._add_bos_token = add_bos_token
         self._default_generation_kwargs = generation_kwargs
         self._model = None
         self._tokenizer = None
@@ -135,7 +143,9 @@ class HuggingFaceBackend(BaseBackend):
         if seed is not None:
             self._torch.manual_seed(seed)
 
-        inputs = self._tokenizer(prompt, return_tensors="pt")
+        inputs = self._tokenizer(
+            prompt, return_tensors="pt", add_special_tokens=self._add_bos_token
+        )
         prompt_len = inputs["input_ids"].shape[-1]
         input_device = self._get_input_device()
         inputs = {k: v.to(input_device) for k, v in inputs.items()}
@@ -207,7 +217,9 @@ class HuggingFaceBackend(BaseBackend):
                 )
             option_token_ids[opt] = ids[0]
 
-        inputs = self._tokenizer(prompt, return_tensors="pt")
+        inputs = self._tokenizer(
+            prompt, return_tensors="pt", add_special_tokens=self._add_bos_token
+        )
         input_device = self._get_input_device()
         inputs = {k: v.to(input_device) for k, v in inputs.items()}
 
