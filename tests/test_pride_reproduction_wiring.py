@@ -6,11 +6,9 @@ time is spent on the real huggyllama/llama-13b run.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pandas as pd
-import pytest
 import yaml
 
 from choicebench.config.schema import load_config
@@ -77,9 +75,35 @@ def test_full_pipeline_dummy_backend_smoke():
         assert row["prompt"].rstrip("\n").endswith("Answer:")
         assert "_" not in row["prompt"].split("about ", 1)[1].split(".", 1)[0]
 
-    results_df = pd.DataFrame(direct_rows)
-    for metric_name in ("accuracy", "recall_rstd", "mad"):
-        metric = BUILTIN_METRICS[metric_name]()
-        computed = metric.compute(results_df)
-        assert isinstance(computed, dict)
-        assert computed  # non-empty — every metric produced *something*
+    # Combine BOTH runners' rows so the metrics layer is exercised on
+    # direct_logprob's and cyclic_logprob's output together, not just one.
+    #
+    # Both surviving questions (abstract_algebra, astronomy) have
+    # correct_option == "B" (see _mmlu_style_rows/make_normalized_row). The
+    # dummy backend's fixed_scores are keyed purely by letter and ignore
+    # prompt content, so direct_logprob's argmax is deterministically "A" for
+    # every question — a pure positional bias that never matches "B".
+    # cyclic_logprob's debiasing (Eq. 1, averaged over cyclic permutations of
+    # this same content-blind backend) also converges on "A" here; both were
+    # confirmed by running the pipeline directly (see task report), not
+    # guessed.
+    results_df = pd.DataFrame(direct_rows + cyclic_rows)
+    assert len(results_df) == 4  # 2 questions x 2 methods
+
+    accuracy_result = BUILTIN_METRICS["accuracy"]().compute(results_df)
+    assert accuracy_result["accuracy"] == 0.0
+    assert accuracy_result["accuracy_conditional"] == 0.0
+
+    recall_rstd_result = BUILTIN_METRICS["recall_rstd"]().compute(results_df)
+    # Gold answers all sit at "B"; the backend's positional bias means every
+    # row is parsed as "A", so recall at "B" is 0 out of 4 and there is no
+    # dispersion to measure (a single non-NaN per-letter recall).
+    assert recall_rstd_result["n_per_letter_B"] == 4.0
+    assert recall_rstd_result["recall_B"] == 0.0
+    assert recall_rstd_result["rstd"] == 0.0
+
+    mad_result = BUILTIN_METRICS["mad"]().compute(results_df)
+    # Predictions are 100% "A" (0% gold) and 0% "B" (100% gold) -> |100-0|
+    # and |0-100| average to a maximal 100.0 marginal skew.
+    assert mad_result["mad"] == 100.0
+    assert mad_result["mad_std"] == 0.0
