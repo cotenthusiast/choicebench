@@ -58,7 +58,7 @@ source "$CHOICEBENCH_VENV/bin/activate"
 cd "$CHOICEBENCH_REPO"
 
 python -m pip install --upgrade pip
-python -m pip install -e ".[dev]"
+python -m pip install -e ".[hf]"
 python -c "import choicebench; print('ChoiceBench import OK')"
 
 echo "ChoiceBench HPC setup complete."
