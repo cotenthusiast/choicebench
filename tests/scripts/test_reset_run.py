@@ -53,7 +53,7 @@ def _run_main(tmp_path, monkeypatch, reset_run: bool):
     monkeypatch.setattr(run_exp, "validate_logprob_compatibility", lambda cfg: None)
 
     async def _fake_async_main(*args, **kwargs):
-        return None
+        return [], []
 
     monkeypatch.setattr(run_exp, "_async_main", _fake_async_main)
 

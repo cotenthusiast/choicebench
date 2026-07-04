@@ -49,7 +49,7 @@ from choicebench.infra.checkpoint import CheckpointManager
 from choicebench.io.readers import read_benchmark
 from choicebench.io.writers import write_run_results
 from choicebench.preflight import load_preflight
-from choicebench.pride_gate import apply_modal_k_gate
+from choicebench.pride_gate import ModalKGateError, ModalKGateReport, apply_modal_k_gate
 from choicebench.registry import CLIENT_REGISTRY, METHOD_REGISTRY
 from choicebench.stats import compute_benchmark_stats, read_stats, stats_path_for
 
@@ -522,17 +522,31 @@ async def _run_model(
     runner_cls = _resolve_runner_cls(method.name)
     if getattr(runner_cls, "applies_modal_k_gate", False):
         modal_k = resolve_modal_k(benchmark_cfg)
-        eval_questions, gate_report = apply_modal_k_gate(
-            questions, modal_k, config.pride.modal_k_threshold, write_label,
-        )
+        safe_model = model_config.model_name_or_path.replace("/", "_")
+        gate_path = output_dir / f"pride_modal_k_gate__{safe_model}__{write_label}.json"
+        gate_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            eval_questions, gate_report = apply_modal_k_gate(
+                questions, modal_k, config.pride.modal_k_threshold, write_label,
+            )
+        except ModalKGateError as exc:
+            # Below-threshold coverage is an intentional design exclusion, not
+            # a bug — write the report so the empty result cell is traceable,
+            # then re-raise so _run_model_isolated can route it to the
+            # run's "gated" tally instead of "failures" (no sys.exit(1),
+            # evaluate_run.py still runs).
+            if exc.report is not None:
+                gate_path.write_text(json.dumps(exc.report.as_dict(), indent=2))
+            logger.info(
+                "[%s] modal-k gate: benchmark %s skipped by design — %s",
+                method.name, write_label, exc,
+            )
+            raise
         logger.info(
             "[%s] modal-k gate: k=%d, %d/%d evaluated (%s).",
             method.name, gate_report.modal_k, gate_report.n_evaluated,
             gate_report.n_total, gate_report.reason,
         )
-        safe_model = model_config.model_name_or_path.replace("/", "_")
-        gate_path = output_dir / f"pride_modal_k_gate__{safe_model}__{write_label}.json"
-        gate_path.parent.mkdir(parents=True, exist_ok=True)
         gate_path.write_text(json.dumps(gate_report.as_dict(), indent=2))
         extra_runtime_kwargs = {"modal_k": modal_k, "gate_summary": gate_report.as_dict()}
 
@@ -579,21 +593,24 @@ async def _run_model_isolated(
     output_dir: Path,
     checkpoint_dir: Path,
     backend_cache: dict[int, APIBackend | HuggingFaceBackend | DummyBackend],
-) -> tuple[str, Exception | None]:
+) -> tuple[str, Exception | None, ModalKGateReport | None]:
     """Run one model job, catching any exception so sibling jobs are unaffected.
 
-    Returns (job_label, exception_or_None) instead of raising, so a bug in one
-    model/method/benchmark combination can't abort jobs running concurrently
-    alongside it.
+    Returns (job_label, exception_or_None, gate_report_or_None). A populated
+    exception means an unexpected failure; a populated gate_report means the
+    job was skipped by design (PriDe modal-k gate below threshold) — neither
+    a bug nor a completed evaluation, and not counted as a run failure.
     """
     label = _job_label(method, model_config, benchmark_cfg)
     try:
         await _run_model(method, model_config, benchmark_cfg, questions, preflight_questions,
                          config, run_id, output_dir, checkpoint_dir, backend_cache)
-        return label, None
+        return label, None, None
+    except ModalKGateError as exc:
+        return label, None, exc.report
     except Exception as exc:  # noqa: BLE001 - intentionally broad: isolate any job failure
         logger.error("Job failed [%s]: %s", label, exc, exc_info=True)
-        return label, exc
+        return label, exc, None
 
 
 async def run_models_concurrently(
@@ -607,14 +624,16 @@ async def run_models_concurrently(
     output_dir: Path,
     checkpoint_dir: Path,
     backend_cache: dict[int, APIBackend | HuggingFaceBackend | DummyBackend] | None = None,
-) -> list[tuple[str, Exception]]:
+) -> tuple[list[tuple[str, Exception]], list[tuple[str, ModalKGateReport]]]:
     """Run all models for one (benchmark, method) combination.
 
     API models run concurrently via asyncio.gather(); HF and Dummy models
     run sequentially after, since their generate() is blocking and they have
     no async machinery to parallelise across. Each model's job is isolated:
     one model's exception is logged and does not prevent its siblings from
-    completing. Returns the list of (job_label, exception) for jobs that failed.
+    completing. Returns (failures, gated): failures are (job_label, exception)
+    pairs for unexpected errors; gated are (job_label, gate_report) pairs for
+    jobs skipped by design (PriDe modal-k gate) — not failures.
 
     backend_cache persists loaded backends across calls (keyed by model config
     identity) so a model already built for an earlier benchmark/method is
@@ -628,6 +647,7 @@ async def run_models_concurrently(
     sync_models = [m for m in model_configs if m.backend != "api"]
 
     failures: list[tuple[str, Exception]] = []
+    gated: list[tuple[str, ModalKGateReport]] = []
 
     if api_models:
         results = await asyncio.gather(*[
@@ -635,17 +655,23 @@ async def run_models_concurrently(
                                  config, run_id, output_dir, checkpoint_dir, backend_cache)
             for m in api_models
         ])
-        failures.extend((label, exc) for label, exc in results if exc is not None)
+        for label, exc, gate_report in results:
+            if exc is not None:
+                failures.append((label, exc))
+            elif gate_report is not None:
+                gated.append((label, gate_report))
 
     for m in sync_models:
-        label, exc = await _run_model_isolated(
+        label, exc, gate_report = await _run_model_isolated(
             method, m, benchmark_cfg, questions, preflight_questions,
             config, run_id, output_dir, checkpoint_dir, backend_cache,
         )
         if exc is not None:
             failures.append((label, exc))
+        elif gate_report is not None:
+            gated.append((label, gate_report))
 
-    return failures
+    return failures, gated
 
 
 # ---------------------------------------------------------------------------
@@ -688,13 +714,16 @@ async def _async_main(
     run_id: str,
     output_dir: Path,
     checkpoint_dir: Path,
-) -> list[tuple[str, Exception]]:
+) -> tuple[list[tuple[str, Exception]], list[tuple[str, ModalKGateReport]]]:
     """Async body of the experiment: benchmark → method → concurrent models.
 
-    Returns the list of (job_label, exception) for any model job that failed;
-    an empty list means every job across every benchmark/method completed.
+    Returns (failures, gated). failures are (job_label, exception) pairs for
+    unexpected errors — a non-empty list means the run did not fully succeed.
+    gated are (job_label, gate_report) pairs for jobs skipped by design (PriDe
+    modal-k gate below threshold) — expected, and not a run failure.
     """
     failures: list[tuple[str, Exception]] = []
+    gated: list[tuple[str, ModalKGateReport]] = []
     # Shared across every benchmark/method iteration so each model is built
     # and loaded (weights onto GPU, for HF) exactly once per run, not once
     # per (benchmark, method) combination.
@@ -709,7 +738,7 @@ async def _async_main(
                 eval_question_ids=set(questions["question_id"]),
             )
 
-            failures.extend(await run_models_concurrently(
+            combo_failures, combo_gated = await run_models_concurrently(
                 method=method,
                 benchmark_cfg=benchmark_cfg,
                 model_configs=config.models,
@@ -720,8 +749,10 @@ async def _async_main(
                 output_dir=output_dir,
                 checkpoint_dir=checkpoint_dir,
                 backend_cache=backend_cache,
-            ))
-    return failures
+            )
+            failures.extend(combo_failures)
+            gated.extend(combo_gated)
+    return failures, gated
 
 
 def main() -> None:
@@ -765,7 +796,7 @@ def main() -> None:
     shutil.copy2(args.config, output_dir / "config.yaml")
     logger.info("Run ID: %s  |  Output: %s", run_id, output_dir)
 
-    failures = asyncio.run(_async_main(config, run_id, output_dir, checkpoint_dir))
+    failures, gated = asyncio.run(_async_main(config, run_id, output_dir, checkpoint_dir))
 
     # --- Run summary ---
     logger.info("── Run complete ─────────────────────────────────")
@@ -777,6 +808,10 @@ def main() -> None:
             logger.error("    - %s: %s", label, exc)
     else:
         logger.info("  Failed jobs: 0")
+    if gated:
+        logger.info("  Gated by design (PriDe modal-k threshold): %d", len(gated))
+        for label, report in gated:
+            logger.info("    - %s: %s", label, report.reason)
     logger.info("─────────────────────────────────────────────────")
 
     if failures:

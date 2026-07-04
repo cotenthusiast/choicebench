@@ -482,7 +482,7 @@ async def test_run_models_concurrently_isolates_failures(tmp_path):
 
     import unittest.mock as mock
     with mock.patch.object(run_exp, "_run_model", side_effect=fake_run_model):
-        failures = await run_exp.run_models_concurrently(
+        failures, gated = await run_exp.run_models_concurrently(
             method=method,
             benchmark_cfg=bench,
             model_configs=[model_ok, model_broken],
@@ -502,6 +502,61 @@ async def test_run_models_concurrently_isolates_failures(tmp_path):
     label, exc = failures[0]
     assert "model_broken" in label
     assert isinstance(exc, RuntimeError)
+    assert gated == []
+
+
+@pytest.mark.asyncio
+async def test_run_models_concurrently_routes_modal_k_gate_to_gated_not_failures(tmp_path):
+    """A ModalKGateError (PriDe skipped by design) must not count as a failure.
+
+    Regression test: this used to be caught by the same broad except Exception
+    as real bugs, landing in `failures` and triggering sys.exit(1) in main() —
+    which also aborted the sbatch script (set -e) before evaluate_run.py ran,
+    even though the exclusion was intentional (documented modal-k gate).
+    """
+    run_exp = _load_run_experiment()
+
+    from choicebench.pride_gate import ModalKGateError, ModalKGateReport
+
+    report = ModalKGateReport(
+        benchmark="mmlu_pro", modal_k=10, threshold=0.95,
+        n_total=10, n_evaluated=7, n_excluded=3, proportion=0.7,
+        reason="skipped by design: only 7/10 question(s) have modal k=10",
+    )
+
+    async def fake_run_model(method, model_config, *args, **kwargs):
+        raise ModalKGateError("gate failed", report=report)
+
+    import unittest.mock as mock
+    import choicebench.config.schema as schema_mod
+    from choicebench.config.schema import BenchmarkConfig, ExperimentConfig, MethodConfig, RunConfig
+
+    model = schema_mod.ModelConfig(backend="dummy", model_name_or_path="dummy_a")
+    method = MethodConfig(name="pride")
+    bench = BenchmarkConfig(name="mmlu_pro")
+    config = ExperimentConfig(
+        name="test", models=[model], benchmarks=[bench], methods=[method],
+        metrics=["accuracy"], run=RunConfig(),
+    )
+
+    with mock.patch.object(run_exp, "_run_model", side_effect=fake_run_model):
+        failures, gated = await run_exp.run_models_concurrently(
+            method=method,
+            benchmark_cfg=bench,
+            model_configs=[model],
+            preflight_questions=None,
+            questions=pd.DataFrame(),
+            config=config,
+            run_id="rid",
+            output_dir=tmp_path,
+            checkpoint_dir=tmp_path / "checkpoints",
+        )
+
+    assert failures == []
+    assert len(gated) == 1
+    label, gate_report = gated[0]
+    assert "dummy_a" in label
+    assert gate_report is report
 
 
 # ---------------------------------------------------------------------------

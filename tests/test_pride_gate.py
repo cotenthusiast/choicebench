@@ -60,3 +60,27 @@ def test_gate_all_modal_reports_zero_excluded():
 def test_gate_raises_on_empty_question_set():
     with pytest.raises(ModalKGateError, match="no questions"):
         apply_modal_k_gate(pd.DataFrame([]), modal_k=4, threshold=0.95, benchmark="demo")
+
+
+def test_gate_error_carries_report_for_below_threshold():
+    """Callers need the accounting even on the failing path (e.g. to write a
+    gate-report sidecar showing why a result cell is empty by design)."""
+    df = _rows({10: 83, 4: 17})
+    with pytest.raises(ModalKGateError) as exc:
+        apply_modal_k_gate(df, modal_k=10, threshold=0.95, benchmark="mmlu_pro")
+    report = exc.value.report
+    assert report is not None
+    assert report.benchmark == "mmlu_pro"
+    assert report.modal_k == 10
+    assert report.n_total == 100
+    assert report.n_evaluated == 83
+    assert report.n_excluded == 17
+
+
+def test_gate_error_carries_report_for_empty_question_set():
+    with pytest.raises(ModalKGateError) as exc:
+        apply_modal_k_gate(pd.DataFrame([]), modal_k=4, threshold=0.95, benchmark="demo")
+    report = exc.value.report
+    assert report is not None
+    assert report.n_total == 0
+    assert report.n_evaluated == 0

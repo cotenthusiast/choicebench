@@ -24,7 +24,16 @@ from choicebench.stats import n_choices_for_row
 
 
 class ModalKGateError(Exception):
-    """Raised when a benchmark's modal-k coverage is below the PriDe threshold."""
+    """Raised when a benchmark's modal-k coverage is below the PriDe threshold.
+
+    Carries the full accounting in `report` so a caller that wants to record
+    *why* PriDe was skipped for this benchmark (a by-design exclusion, not a
+    bug) doesn't have to re-derive it from the message string.
+    """
+
+    def __init__(self, message: str, report: "ModalKGateReport | None" = None) -> None:
+        super().__init__(message)
+        self.report = report
 
 
 @dataclass
@@ -69,7 +78,17 @@ def apply_modal_k_gate(
     n_total = int(len(questions))
     if n_total == 0:
         raise ModalKGateError(
-            f"PriDe modal-k gate: benchmark {benchmark!r} has no questions to evaluate."
+            f"PriDe modal-k gate: benchmark {benchmark!r} has no questions to evaluate.",
+            report=ModalKGateReport(
+                benchmark=benchmark,
+                modal_k=int(modal_k),
+                threshold=float(threshold),
+                n_total=0,
+                n_evaluated=0,
+                n_excluded=0,
+                proportion=0.0,
+                reason="benchmark has no questions to evaluate",
+            ),
         )
 
     counts = questions.apply(lambda r: n_choices_for_row(r.to_dict()), axis=1)
@@ -85,7 +104,20 @@ def apply_modal_k_gate(
             f"options — below the configured pride.modal_k_threshold={threshold}. "
             f"PriDe's global calibration assumes a single option count. Run PriDe on a "
             f"benchmark whose modal-k coverage is at least {threshold:.0%}, or lower "
-            f"pride.modal_k_threshold."
+            f"pride.modal_k_threshold.",
+            report=ModalKGateReport(
+                benchmark=benchmark,
+                modal_k=int(modal_k),
+                threshold=float(threshold),
+                n_total=n_total,
+                n_evaluated=n_evaluated,
+                n_excluded=n_excluded,
+                proportion=float(proportion),
+                reason=(
+                    f"skipped by design: only {n_evaluated}/{n_total} question(s) have "
+                    f"modal k={modal_k}, below the {threshold:.0%} coverage threshold"
+                ),
+            ),
         )
 
     filtered = questions[match_mask].copy()
