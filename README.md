@@ -54,14 +54,32 @@ easier to reproduce and extend.
 
 ## Real Run Results
 
-> **TODO:** full grid run across all 5 bundled benchmarks (MMLU, ARC-Challenge,
-> MMLU-Pro, HellaSwag, TruthfulQA), `direct_mcq` + `cyclic_permutation` + `pride`,
-> Qwen-7B and Llama-8B, 10 questions per benchmark — one `run_experiment.py`
-> invocation. Replace this placeholder with the results table (accuracy + 95% CI
-> per cell), a short note on the modal-k gate correctly excluding PriDe on
-> TruthfulQA / MMLU-Pro (cite the real `n_evaluated`/`n_total` from the gate
-> report sidecar), and a one-line callout that this is a small-sample demo run,
-> not a benchmark claim.
+A single `run_experiment.py` invocation across all 5 bundled benchmarks (MMLU,
+ARC-Challenge, MMLU-Pro, HellaSwag, TruthfulQA), `direct_mcq` + `cyclic_logprob`
++ `pride`, Llama-3.1-8B-Instruct and Qwen2.5-7B-Instruct, 10 questions per
+benchmark, seed 42. Cells are accuracy with the 95% CI in brackets.
+
+| Benchmark | direct_mcq · Llama | direct_mcq · Qwen | cyclic_logprob · Llama | cyclic_logprob · Qwen | pride · Llama | pride · Qwen |
+|---|---|---|---|---|---|---|
+| MMLU | 0.50 [0.19–0.81] | 0.50 [0.19–0.81] | 0.60 [0.26–0.88] | 0.50 [0.19–0.81] | 0.80 [0.44–0.97] | 0.60 [0.26–0.88] |
+| ARC-Challenge | 0.60 [0.26–0.88] | 0.90 [0.55–1.00] | 0.90 [0.55–1.00] | 1.00 [0.69–1.00] | 0.90 [0.55–1.00] | 0.90 [0.55–1.00] |
+| HellaSwag | 0.30 [0.07–0.65] | 0.70 [0.35–0.93] | 0.50 [0.19–0.81] | 0.70 [0.35–0.93] | 0.20 [0.03–0.56] | 0.70 [0.35–0.93] |
+| MMLU-Pro | 0.50 [0.19–0.81] | 0.20 [0.03–0.56] | 0.30 [0.07–0.65] | 0.50 [0.19–0.81] | gated | gated |
+| TruthfulQA | 0.40 [0.12–0.74] | 0.50 [0.19–0.81] | 0.40 [0.12–0.74] | 0.70 [0.35–0.93] | gated | gated |
+
+`pride` is gated on MMLU-Pro and TruthfulQA by the modal-k compatibility gate,
+exactly as designed: MMLU-Pro's modal option count is k=10, but only 7/10
+questions in this sample share it (70% coverage, below the 95% threshold), and
+TruthfulQA's modal k=4 matches 0/10 questions (0% coverage) — both benchmarks
+mix option counts, and PriDe's global positional-bias prior only means
+anything over a single fixed count. The gate refuses the run on those cells
+rather than average over an invalid prior; see [Method Compatibility & Known
+Limitations](#pride-requires-a-fixed-label-set-size-the-modal-k-gate) below.
+
+This is a 10-questions-per-benchmark demo run, not a statistically powered
+benchmark claim — that's why the confidence intervals above are wide. It
+exists to show the full grid running end-to-end, not to rank models or
+methods.
 
 ---
 
