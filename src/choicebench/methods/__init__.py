@@ -2,6 +2,7 @@
 
 from choicebench.methods.library import (
     CyclicLogprobRunner,
+    DirectLogprobRunner,
     DirectMCQRunner,
     PermutationRunner,
     PriDeRunner,
@@ -11,6 +12,7 @@ from choicebench.methods.library import (
 
 __all__ = [
     "CyclicLogprobRunner",
+    "DirectLogprobRunner",
     "DirectMCQRunner",
     "PermutationRunner",
     "TwoStageRunner",

@@ -10,6 +10,10 @@ Notable changes to ChoiceBench. Newest first.
 - Added `recall_rstd`, the paper's selection-bias metric (Zheng et al., ICLR
   2024, §2.2) — standard deviation of per-letter recall, for reproducing
   Table 3-style RStd numbers.
+- Added `direct_logprob`, a logprob-based method reproducing the paper's
+  "Default" baseline (§2.1): argmax over `score_options()` logprobs instead
+  of generate-and-parse. Requires a logprob-capable backend
+  (HuggingFace/Dummy).
 
 ## v0.1.1 — 2026-07-04
 

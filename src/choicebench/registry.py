@@ -9,6 +9,7 @@
 from choicebench.clients import AnthropicClient, GeminiClient, GroqClient, OpenAIClient, TogetherAIClient, VLLMClient
 from choicebench.methods import (
     CyclicLogprobRunner,
+    DirectLogprobRunner,
     DirectMCQRunner,
     PermutationRunner,
     PriDeRunner,
@@ -23,6 +24,7 @@ METHOD_REGISTRY: dict[str, type] = {
     "two_stage": TwoStageRunner,
     "pride": PriDeRunner,
     "shuffled_baseline": ShuffledBaselineRunner,
+    "direct_logprob": DirectLogprobRunner,
 }
 
 CLIENT_REGISTRY: dict[str, type] = {
