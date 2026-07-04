@@ -7,7 +7,14 @@
 # use "module.path:ClassName" syntax in the YAML config instead.
 
 from choicebench.clients import AnthropicClient, GeminiClient, GroqClient, OpenAIClient, TogetherAIClient, VLLMClient
-from choicebench.methods import CyclicLogprobRunner, DirectMCQRunner, PermutationRunner, PriDeRunner, TwoStageRunner
+from choicebench.methods import (
+    CyclicLogprobRunner,
+    DirectMCQRunner,
+    PermutationRunner,
+    PriDeRunner,
+    ShuffledBaselineRunner,
+    TwoStageRunner,
+)
 
 METHOD_REGISTRY: dict[str, type] = {
     "direct_mcq": DirectMCQRunner,
@@ -15,6 +22,7 @@ METHOD_REGISTRY: dict[str, type] = {
     "cyclic_logprob": CyclicLogprobRunner,
     "two_stage": TwoStageRunner,
     "pride": PriDeRunner,
+    "shuffled_baseline": ShuffledBaselineRunner,
 }
 
 CLIENT_REGISTRY: dict[str, type] = {

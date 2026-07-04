@@ -5,6 +5,7 @@ from choicebench.methods.library import (
     DirectMCQRunner,
     PermutationRunner,
     PriDeRunner,
+    ShuffledBaselineRunner,
     TwoStageRunner,
 )
 
@@ -14,4 +15,5 @@ __all__ = [
     "PermutationRunner",
     "TwoStageRunner",
     "PriDeRunner",
+    "ShuffledBaselineRunner",
 ]
