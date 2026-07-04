@@ -4,6 +4,20 @@ Notable changes to ChoiceBench. Newest first.
 
 ## Unreleased
 
+- Added the PriDe (Zheng et al., ICLR 2024, arXiv:2309.03882) single-cell
+  reproduction plumbing for MMLU / llama-13B (LLaMA-1) / 0-shot:
+  `--filter-permutation-unsafe` on `scripts/prepare_data.py` (excludes
+  meta-referential MMLU options like "A and B", "none of the above" —
+  `choicebench.permutation_filter`), a new `prompts/pride_repro/` template
+  version matching the paper's exact Figure 6 layout with per-question
+  `subject` support in `build_direct_mcq_prompt()`, a new `add_bos_token`
+  model config field (`HuggingFaceBackend` defaults to adding BOS; the paper
+  does not for open-source models), `examples/pride_reproduction.yaml` +
+  `examples/hpc/run_pride_reproduction.sbatch` (runs `direct_logprob` +
+  `cyclic_logprob` only — PriDe itself is recomputed offline from their
+  persisted distributions in a separate script), and
+  `examples/pride_reproduction_targets.json` with the paper's official
+  Table 3 numbers for this cell.
 - Added `shuffled_baseline`, a demo evaluation method (single-call, seeded
   per-question option shuffle) used as the subject of a new extensibility
   walkthrough, `examples/method_comparison.md`.
