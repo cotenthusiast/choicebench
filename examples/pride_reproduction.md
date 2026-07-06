@@ -168,7 +168,9 @@ $ python scripts/prepare_data.py --hf-path cais/mmlu --hf-subset all --filter-pe
 ```
 
 That 426-question exclusion breaks down by matched pattern (from
-`data/processed/mmlu_filtered_permutation_filter.json`):
+`data/processed/mmlu_filtered_permutation_filter.json`, committed at
+[`examples/pride_reproduction_results/mmlu_filtered_permutation_filter.json`](pride_reproduction_results/mmlu_filtered_permutation_filter.json)
+so this table is checkable without rerunning `prepare_data.py`):
 
 | Pattern | Excluded |
 |---|---|
@@ -279,16 +281,19 @@ $ python scripts/evaluate_run.py --run-id 20260705_204054_dedup
 ```
 
 Identical to machine precision to the `default`/`cyclic_perm` rows in the
-grid above.
+grid above. That output is `reports/20260705_204054_dedup_metrics.json`,
+committed at
+[`examples/pride_reproduction_results/20260705_204054_dedup_metrics.json`](pride_reproduction_results/20260705_204054_dedup_metrics.json).
 
 ## Results
 
 N = 13,564 scored questions (intersection of `direct_logprob`/
 `cyclic_logprob` successes, post-dedup) vs. the paper's reported 13,592.
 PriDe rows are mean ± population std over seeds 0–4
-(`reports/20260705_204054_dedup_pride_grid.json`'s `per_alpha`); Default/
-Cyclic Perm are single values (no seed dependence — every question is
-scored the same way regardless of α).
+(`reports/20260705_204054_dedup_pride_grid.json`'s `per_alpha`, committed at
+[`examples/pride_reproduction_results/20260705_204054_dedup_pride_grid.json`](pride_reproduction_results/20260705_204054_dedup_pride_grid.json));
+Default/Cyclic Perm are single values (no seed dependence — every question
+is scored the same way regardless of α).
 
 | Method | Acc (ours) | Acc (target) | Δ Acc | RStd (ours) | RStd (target) | Δ RStd |
 |---|---|---|---|---|---|---|

@@ -1,0 +1,2137 @@
+{
+  "n_total": 14042,
+  "n_excluded": 426,
+  "n_kept": 13616,
+  "exclusions": [
+    {
+      "question_id": "d096938f8a18e97a",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "bda53afe1cc9e308",
+      "matched_pattern": "letter_and_letter",
+      "offending_option_text": "A and D"
+    },
+    {
+      "question_id": "17ca7a51417ab906",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "4e46c4c521e0aa0b",
+      "matched_pattern": "letter_and_letter",
+      "offending_option_text": "A and B"
+    },
+    {
+      "question_id": "ff2c4a638d0fddec",
+      "matched_pattern": "letter_and_letter",
+      "offending_option_text": "A and B"
+    },
+    {
+      "question_id": "2bdd0586019401cc",
+      "matched_pattern": "letter_and_letter",
+      "offending_option_text": "A and B"
+    },
+    {
+      "question_id": "66586c1d5b54518e",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "16d8f9f2894d6a72",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above."
+    },
+    {
+      "question_id": "57635760626da9e6",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above."
+    },
+    {
+      "question_id": "92564471381d135a",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above"
+    },
+    {
+      "question_id": "475f16eb93b938b8",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above."
+    },
+    {
+      "question_id": "36f7fad8258d2aa3",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above."
+    },
+    {
+      "question_id": "dab3d11a8fb28aa0",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above."
+    },
+    {
+      "question_id": "d9bcb31b8ea813c3",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "05647275c1c290b8",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "0bb32c0756a47797",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "0a1eb89526042a79",
+      "matched_pattern": "letter_and_letter",
+      "offending_option_text": "B and C"
+    },
+    {
+      "question_id": "24183b45b9967893",
+      "matched_pattern": "both_and",
+      "offending_option_text": "Both C and D."
+    },
+    {
+      "question_id": "3d6f86f103d67e56",
+      "matched_pattern": "both_and",
+      "offending_option_text": "Both A and C"
+    },
+    {
+      "question_id": "b088f2533c710d1b",
+      "matched_pattern": "both_and",
+      "offending_option_text": "Both A and B"
+    },
+    {
+      "question_id": "0cfa026154f18782",
+      "matched_pattern": "both_and",
+      "offending_option_text": "Both B and C"
+    },
+    {
+      "question_id": "463a1d04211bff08",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above."
+    },
+    {
+      "question_id": "154999b0450c68f0",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above."
+    },
+    {
+      "question_id": "62c20ce69ad13bd4",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above."
+    },
+    {
+      "question_id": "5ea6aa4da5824589",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "1886b3be06586a58",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above."
+    },
+    {
+      "question_id": "a2c867a950968bbf",
+      "matched_pattern": "both_and",
+      "offending_option_text": "both A and B."
+    },
+    {
+      "question_id": "556b6acceae60dc7",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above."
+    },
+    {
+      "question_id": "f6c5ac6acf054e58",
+      "matched_pattern": "both_and",
+      "offending_option_text": "Both A and B."
+    },
+    {
+      "question_id": "431559d077369e9a",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above."
+    },
+    {
+      "question_id": "f783c3ac2c316aa9",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above."
+    },
+    {
+      "question_id": "6887ab6b8a3294dc",
+      "matched_pattern": "both_and",
+      "offending_option_text": "Both A and B"
+    },
+    {
+      "question_id": "5829aa527950550b",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "a93de2ab0d528ab1",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above."
+    },
+    {
+      "question_id": "bbbfdff2c3012506",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "03ab9d84d5ffc2cb",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "5fb1240e19f02f9a",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "270d6aed514ac62e",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above."
+    },
+    {
+      "question_id": "f32ada9588b8ab5f",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above."
+    },
+    {
+      "question_id": "b86fa605cf52874f",
+      "matched_pattern": "both_and",
+      "offending_option_text": "Both A and B"
+    },
+    {
+      "question_id": "d0afdfc445f64b06",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "16d5e4ae3e3bd57b",
+      "matched_pattern": "both_and",
+      "offending_option_text": "both A and B."
+    },
+    {
+      "question_id": "db4b34dd6333f24f",
+      "matched_pattern": "both_and",
+      "offending_option_text": "both A and B"
+    },
+    {
+      "question_id": "03434f211ecbbbbd",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above"
+    },
+    {
+      "question_id": "2c4900a49c1a3f40",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above"
+    },
+    {
+      "question_id": "9c76b653419a3a6e",
+      "matched_pattern": "both_and",
+      "offending_option_text": "Both A and B"
+    },
+    {
+      "question_id": "ff1863b1b879c8a3",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "8d264066c755ab72",
+      "matched_pattern": "letter_list_and_letter",
+      "offending_option_text": "A, B, and C"
+    },
+    {
+      "question_id": "6d8bc79edcb18ad1",
+      "matched_pattern": "both_and",
+      "offending_option_text": "Both A and C"
+    },
+    {
+      "question_id": "7af3f2c3f06c78c7",
+      "matched_pattern": "letter_and_letter",
+      "offending_option_text": "A and B"
+    },
+    {
+      "question_id": "2243867f3cb7b2b0",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "4b9973a98b58fe08",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above"
+    },
+    {
+      "question_id": "ba7de8162cf4b3e3",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above."
+    },
+    {
+      "question_id": "1ed0bec045a4e415",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above"
+    },
+    {
+      "question_id": "87a67a06d4428827",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above."
+    },
+    {
+      "question_id": "caabb83cb4b074ff",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above."
+    },
+    {
+      "question_id": "48d94b8d8cf20f5d",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above."
+    },
+    {
+      "question_id": "8baafefe7c46435a",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "ae3efdfbee9a5cf6",
+      "matched_pattern": "letter_and_letter",
+      "offending_option_text": "A and C"
+    },
+    {
+      "question_id": "6a768ed323d0c25e",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above."
+    },
+    {
+      "question_id": "808f5a6e9cb08fe6",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above"
+    },
+    {
+      "question_id": "df5810898e367a6f",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above."
+    },
+    {
+      "question_id": "e6033dec139969e4",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above."
+    },
+    {
+      "question_id": "ec6b0a172a7b60da",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above"
+    },
+    {
+      "question_id": "594221419fe3875f",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above."
+    },
+    {
+      "question_id": "3e900ed3ea372cd1",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above."
+    },
+    {
+      "question_id": "b7194e4d2937935b",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above."
+    },
+    {
+      "question_id": "4d8badc994e0a146",
+      "matched_pattern": "letter_and_letter",
+      "offending_option_text": "A and C"
+    },
+    {
+      "question_id": "6254a85dd6abd134",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "70bc28e3fa93bb07",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "cb98c4b6d697b02c",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "2da325c157399b9e",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "37cfddac6b787010",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "461e3f70dee2b0d0",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "6d9433e46999d260",
+      "matched_pattern": "letter_and_letter",
+      "offending_option_text": "b and c"
+    },
+    {
+      "question_id": "2f66afcb58a474be",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "c6ca8eb93909fa07",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "e61d748035d0c9f8",
+      "matched_pattern": "both_and",
+      "offending_option_text": "both a and b"
+    },
+    {
+      "question_id": "a3acba43e890a9f7",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "c6956ac28c31f504",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "3503d64c2ab5b3fc",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "eb80107d663c4e0b",
+      "matched_pattern": "both_and",
+      "offending_option_text": "both A and C"
+    },
+    {
+      "question_id": "8b234861724b287a",
+      "matched_pattern": "letter_and_letter",
+      "offending_option_text": "a and b"
+    },
+    {
+      "question_id": "88544a5acd1f0152",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "667be33b73edbc24",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "55bd91249ae57e0b",
+      "matched_pattern": "both_and",
+      "offending_option_text": "both A and B"
+    },
+    {
+      "question_id": "14bb64039ced7bf9",
+      "matched_pattern": "both_and",
+      "offending_option_text": "both A and B"
+    },
+    {
+      "question_id": "f91bc37df38c1b01",
+      "matched_pattern": "both_and",
+      "offending_option_text": "both A and B"
+    },
+    {
+      "question_id": "29914a4e03caae7a",
+      "matched_pattern": "both_and",
+      "offending_option_text": "both A and C"
+    },
+    {
+      "question_id": "1257899d1fe73250",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "847fea61ade5e98c",
+      "matched_pattern": "letter_and_letter",
+      "offending_option_text": "a and b"
+    },
+    {
+      "question_id": "811cde693f836cf5",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "7de8df4eeac4f88d",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "3a4e3f5d1ff71cda",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above"
+    },
+    {
+      "question_id": "bae182e733d16525",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "4a68279ef5a10def",
+      "matched_pattern": "both_and",
+      "offending_option_text": "both B and C"
+    },
+    {
+      "question_id": "148b552797cb83fb",
+      "matched_pattern": "both_and",
+      "offending_option_text": "both A and B"
+    },
+    {
+      "question_id": "22bb92ed8f686dc4",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above"
+    },
+    {
+      "question_id": "b2a2155b5e449d9b",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "eecb00123ea40971",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above"
+    },
+    {
+      "question_id": "939f5a0f05bae55d",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "c26d1b822588367d",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above"
+    },
+    {
+      "question_id": "51d2b0b8c5185be7",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above"
+    },
+    {
+      "question_id": "a7e7f9847cba78d9",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above"
+    },
+    {
+      "question_id": "d9fc2374322986c7",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above"
+    },
+    {
+      "question_id": "3fa5f60ff8126a41",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "f90055c763f6399e",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "8f6c5597fac963c5",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above."
+    },
+    {
+      "question_id": "a2e6e28bcbaee6b0",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above"
+    },
+    {
+      "question_id": "f4a57a35344e2556",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "b97ddff14476a89d",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above"
+    },
+    {
+      "question_id": "7cb6f9b03f4ee912",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above."
+    },
+    {
+      "question_id": "478fb41ec065e487",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above."
+    },
+    {
+      "question_id": "10b4b05e12b2238a",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above."
+    },
+    {
+      "question_id": "d21b59c63be5753f",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above."
+    },
+    {
+      "question_id": "624872deed2001e5",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "7a69a6900d2086f1",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "394bf9759f85ad7a",
+      "matched_pattern": "both_and",
+      "offending_option_text": "both A and B"
+    },
+    {
+      "question_id": "bc99103eceeef548",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "736b5bfa81c84490",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "41db928bb4e326d1",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "3be8394b1dee7ba6",
+      "matched_pattern": "both_and",
+      "offending_option_text": "both A and B"
+    },
+    {
+      "question_id": "f97aa7a52b845a56",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "a47a068bf42d9ced",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "ddff7104adf4d540",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "8232adb31ddf74a2",
+      "matched_pattern": "both_and",
+      "offending_option_text": "both A and B"
+    },
+    {
+      "question_id": "9d6eee12297116c3",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "aaa6ef5ed3bf4007",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "9cb07b3bffe4b770",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "03733beeaf6e05ac",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above."
+    },
+    {
+      "question_id": "65b5bd0d37b394ff",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above."
+    },
+    {
+      "question_id": "ac6be8c71a93b732",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "78fcab41a0f4b408",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "97d843e852366b55",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above."
+    },
+    {
+      "question_id": "2e748aab2ec7b309",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "4733f70a6c6d449c",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "e0a075e707f43672",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "565fe81968718ba5",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above."
+    },
+    {
+      "question_id": "b4860c9a93111e22",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "a0f7ec9f5b472ed6",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "6fed7feb44586cce",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "c070a64a07624bf7",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above"
+    },
+    {
+      "question_id": "952be391d366f802",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "ef39cda6f960edde",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "44eafcf71aaa0e69",
+      "matched_pattern": "both_and",
+      "offending_option_text": "both A and B"
+    },
+    {
+      "question_id": "798b39f78e9ba218",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "b8bace909b55886f",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "8504b676e051eac7",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "407ccb4fce337a34",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "038f880ae06ad02d",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above."
+    },
+    {
+      "question_id": "e7d6f4a697cba4fb",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "75f9533c92179350",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "e872e40cfc4a22e7",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "af9bbc0a34ba91c5",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "3416f7a7051949d1",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "edf04de1ae49308c",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "dbbf2d354b1a4e69",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "29c47f51b40a887d",
+      "matched_pattern": "both_and",
+      "offending_option_text": "both A and B"
+    },
+    {
+      "question_id": "e920c27c62069d58",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "c534feea2f11016d",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above."
+    },
+    {
+      "question_id": "5a20cf205083a544",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "5f285e430202e8a5",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "75047bfc7f4bd8ee",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "568405a584eec326",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above."
+    },
+    {
+      "question_id": "9ef966b551da7b09",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "8f6eec2b51571941",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "40750939abe45c48",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "1c534b917b69435e",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "28f9a6756b507b70",
+      "matched_pattern": "both_and",
+      "offending_option_text": "both A and B"
+    },
+    {
+      "question_id": "76981549770878d0",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "0d4198313072f6d4",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "cd1fb38fe70e4d81",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "6b445a7a710fc3f7",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "4487cd926935151a",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "5f133c099ff62aff",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "b5fda95976a8b2bf",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "6e43f6ec50381254",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "268ba237e8082b2e",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "f43280cb6d7e1693",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "00ff6957b26de20e",
+      "matched_pattern": "both_and",
+      "offending_option_text": "both A and B"
+    },
+    {
+      "question_id": "90e87a57759404e2",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above."
+    },
+    {
+      "question_id": "b2f99a63e79fdf1d",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "927b0f68ff049c70",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "4118eaf0d1719394",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "4637a5288789fe5b",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "e53edc248fdf53e0",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "118b75d1eaee158c",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "6cd1e8f5e7c15f38",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above."
+    },
+    {
+      "question_id": "441804f7246dcb63",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "ef4b56fc9f22898a",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "abddfec398e32ab4",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above."
+    },
+    {
+      "question_id": "2092e4d6fc6096ed",
+      "matched_pattern": "both_and",
+      "offending_option_text": "both A and B"
+    },
+    {
+      "question_id": "de9f9e1aacf5f881",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "1ef3a3fee145590d",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above."
+    },
+    {
+      "question_id": "595971bd44d4e43b",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "8749fc3e15a08470",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "bcf15f0cad1e86dd",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above."
+    },
+    {
+      "question_id": "7d29f50b5ffab6ba",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "9951febc30a37726",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "9e6c7ef738add9a6",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "10a5a7dae4ce95ee",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "c2bfd8f17855f27a",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above."
+    },
+    {
+      "question_id": "4fabb0061526d0e7",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "6f64e710d2baa2b0",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "d4cb734f3ae7d44c",
+      "matched_pattern": "both_and",
+      "offending_option_text": "both A and B"
+    },
+    {
+      "question_id": "9805a5b596d59adc",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "b3c05cb5fedb50a4",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "cd76bd11b11a9327",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "ec073f7c61bc39c4",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "c00a70862b5ecb2b",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "e071e7600d57a25d",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "060173557464c431",
+      "matched_pattern": "both_and",
+      "offending_option_text": "Both A and B"
+    },
+    {
+      "question_id": "2e4041ecbb729bec",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "2e3417f742ead009",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "8e638166d35f2c8d",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "8f3257717962d348",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "7d8e01c225ebe989",
+      "matched_pattern": "both_and",
+      "offending_option_text": "both A and B"
+    },
+    {
+      "question_id": "ad3d9f7650ed9a14",
+      "matched_pattern": "both_and",
+      "offending_option_text": "both A and B"
+    },
+    {
+      "question_id": "31ec56c612234732",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above."
+    },
+    {
+      "question_id": "28c54308f4bacd4f",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "a06d0fa32c9a2ded",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above."
+    },
+    {
+      "question_id": "9009e919f00cf792",
+      "matched_pattern": "both_and",
+      "offending_option_text": "both A and B"
+    },
+    {
+      "question_id": "e518ffe398f7f3ec",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "65bc8fa88355c56c",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "c2402d13045c3e2b",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above."
+    },
+    {
+      "question_id": "a35efe9a0044e650",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "631aad7955167cc9",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "98445f72d0d1e152",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above."
+    },
+    {
+      "question_id": "80f41d9c07ec002b",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "092388f939a1be0f",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "f57175d19dda8a23",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above."
+    },
+    {
+      "question_id": "d082837d483c516f",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "e20ec308fa215d8c",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above."
+    },
+    {
+      "question_id": "0ecdec38b3bbde62",
+      "matched_pattern": "both_and",
+      "offending_option_text": "Both A and B"
+    },
+    {
+      "question_id": "dc36030d124c5c38",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "ec6469d5914962d9",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above."
+    },
+    {
+      "question_id": "31230c7bcc827f07",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "9e55e701b952f831",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "8e04519ab70e5191",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "3e3fff71d93278db",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above."
+    },
+    {
+      "question_id": "07975f37210a78b4",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "f6fab102dd95cf83",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "4814f774f8b04e91",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "5f78a96f42df237b",
+      "matched_pattern": "both_and",
+      "offending_option_text": "both A and B"
+    },
+    {
+      "question_id": "5f120da12891712c",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "e826f32e794d98ec",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above."
+    },
+    {
+      "question_id": "4b75273be6bda626",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "0770cb225f904b86",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "b6f3a611c0592050",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above."
+    },
+    {
+      "question_id": "7de3e0814d106bd8",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "102ccc11a904714b",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "9667487f58639d9f",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "bfff00cf6083b14f",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "d8b8b96d1c9bc04d",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "dd3ba5b4d2ab66ad",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above"
+    },
+    {
+      "question_id": "8e5f561897181e1b",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "a9a152249d1f1fe1",
+      "matched_pattern": "both_and",
+      "offending_option_text": "Both a and c"
+    },
+    {
+      "question_id": "a2a00e0cb65d10cd",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above"
+    },
+    {
+      "question_id": "623103d1c6a2ea6b",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "70bec1fbdc4c6881",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above"
+    },
+    {
+      "question_id": "20b9ed91de12b520",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above"
+    },
+    {
+      "question_id": "ac8d9bf49ec9f408",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "a2089d43331ff805",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above."
+    },
+    {
+      "question_id": "637d2b72137eab7f",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above."
+    },
+    {
+      "question_id": "0bce9f24901131df",
+      "matched_pattern": "both_and",
+      "offending_option_text": "both a and b."
+    },
+    {
+      "question_id": "f84ec92d07f0519e",
+      "matched_pattern": "both_and",
+      "offending_option_text": "both a and b."
+    },
+    {
+      "question_id": "f79f4dc33cefa215",
+      "matched_pattern": "both_and",
+      "offending_option_text": "both a and b."
+    },
+    {
+      "question_id": "807805a96697df8a",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above."
+    },
+    {
+      "question_id": "2e594de3431a5c9d",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above."
+    },
+    {
+      "question_id": "a4dc7a97283ff5b5",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above."
+    },
+    {
+      "question_id": "bea6467147db23e3",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above."
+    },
+    {
+      "question_id": "a8acbcd090c50524",
+      "matched_pattern": "both_and",
+      "offending_option_text": "both a and b."
+    },
+    {
+      "question_id": "fc5e5648b029d3cb",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "d1967a031cd6db12",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above."
+    },
+    {
+      "question_id": "13c42a3a245f2cdf",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above."
+    },
+    {
+      "question_id": "c38e95cb5d7392be",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above."
+    },
+    {
+      "question_id": "6cb686de94a85a4f",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above."
+    },
+    {
+      "question_id": "25a238de32cfaf39",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above."
+    },
+    {
+      "question_id": "04a26f3f8f974e97",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above."
+    },
+    {
+      "question_id": "ae91f689b13c991b",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above."
+    },
+    {
+      "question_id": "93c70389a0ac78c1",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above."
+    },
+    {
+      "question_id": "45f223a4c9e8e3ea",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above."
+    },
+    {
+      "question_id": "00a7a8c26d23440e",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above."
+    },
+    {
+      "question_id": "6a8a8d15547863b3",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above."
+    },
+    {
+      "question_id": "b25b904348483642",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above."
+    },
+    {
+      "question_id": "f9d10f98f0cd6729",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above."
+    },
+    {
+      "question_id": "8db7f12c3c0f6a5e",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above."
+    },
+    {
+      "question_id": "1e85841083214ff6",
+      "matched_pattern": "both_and",
+      "offending_option_text": "both a and b."
+    },
+    {
+      "question_id": "a0952b83b127c028",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above."
+    },
+    {
+      "question_id": "9bea73dfeafb27c5",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above."
+    },
+    {
+      "question_id": "4cf46735693ed145",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above."
+    },
+    {
+      "question_id": "efe3a506849b17bf",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above."
+    },
+    {
+      "question_id": "1fcbf9a75a502fa4",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above."
+    },
+    {
+      "question_id": "6d07987929e52910",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above."
+    },
+    {
+      "question_id": "61152472a0b150cd",
+      "matched_pattern": "both_and",
+      "offending_option_text": "both a and b."
+    },
+    {
+      "question_id": "3afcdbb1a1c8ecb3",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above."
+    },
+    {
+      "question_id": "e5b82edf754f7eb5",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above."
+    },
+    {
+      "question_id": "d67627b131e55a60",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above."
+    },
+    {
+      "question_id": "75bc0ba5a62af40e",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above."
+    },
+    {
+      "question_id": "fe9c45aba08a9ff1",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above."
+    },
+    {
+      "question_id": "0bd4b8dd505aa0bf",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above."
+    },
+    {
+      "question_id": "aa17a48ea63656e3",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above."
+    },
+    {
+      "question_id": "987ad25a444ff2a1",
+      "matched_pattern": "both_and",
+      "offending_option_text": "both a and b."
+    },
+    {
+      "question_id": "834aa28534dd9c6e",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above."
+    },
+    {
+      "question_id": "6a81cc6c92eae57c",
+      "matched_pattern": "both_and",
+      "offending_option_text": "both b and c."
+    },
+    {
+      "question_id": "f761ceda8628fecf",
+      "matched_pattern": "both_and",
+      "offending_option_text": "both a and b."
+    },
+    {
+      "question_id": "02f85da8bc7e1c1b",
+      "matched_pattern": "both_and",
+      "offending_option_text": "both a and b."
+    },
+    {
+      "question_id": "33f74ec4817cac00",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above."
+    },
+    {
+      "question_id": "1b65d605409d9f7f",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above."
+    },
+    {
+      "question_id": "7abeef0eb83cde7d",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above."
+    },
+    {
+      "question_id": "9d529a91675b51b1",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above."
+    },
+    {
+      "question_id": "65863a95c6dd031b",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above."
+    },
+    {
+      "question_id": "ca1af12732576650",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above."
+    },
+    {
+      "question_id": "ce7351268dbb1916",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above."
+    },
+    {
+      "question_id": "b4e19ddfcdc365b2",
+      "matched_pattern": "both_and",
+      "offending_option_text": "both a and b."
+    },
+    {
+      "question_id": "f2f7b4c8bc5aad99",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above."
+    },
+    {
+      "question_id": "2b4a8d9a54009c53",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above."
+    },
+    {
+      "question_id": "8cd5fc0eff69734d",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "e84d7d8b33b8c7a3",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above."
+    },
+    {
+      "question_id": "acee7e2390c4e68b",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "5d9ce1dbdb92adca",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "2eb9a49acaad0e64",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above."
+    },
+    {
+      "question_id": "771bd7127e6525bd",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "33084379dd56c337",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above."
+    },
+    {
+      "question_id": "5c0dec97c7d5cadd",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "bcc166957e5a3562",
+      "matched_pattern": "both_and",
+      "offending_option_text": "both a and c."
+    },
+    {
+      "question_id": "d06fcd3ed551faed",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "50b70948919274f2",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "badaf0fb316ed071",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "f128b2bf60d4a3de",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above."
+    },
+    {
+      "question_id": "947215ff22709a66",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above."
+    },
+    {
+      "question_id": "72aab72e76fea193",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above."
+    },
+    {
+      "question_id": "8d082050b215eddb",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above."
+    },
+    {
+      "question_id": "b0c1949ccc863aff",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "cb686fdf7b36d616",
+      "matched_pattern": "both_and",
+      "offending_option_text": "Both A and C."
+    },
+    {
+      "question_id": "4f512574e0fdadd8",
+      "matched_pattern": "both_and",
+      "offending_option_text": "both b and c"
+    },
+    {
+      "question_id": "f8434157339cc23d",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above."
+    },
+    {
+      "question_id": "5c7fe06fc06c3144",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "0275f682aadef2ab",
+      "matched_pattern": "both_and",
+      "offending_option_text": "both b and c."
+    },
+    {
+      "question_id": "b7de92efdb3fea2e",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above."
+    },
+    {
+      "question_id": "37497916717b31c3",
+      "matched_pattern": "both_and",
+      "offending_option_text": "both b and c"
+    },
+    {
+      "question_id": "21b3e1800e6f6b14",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above."
+    },
+    {
+      "question_id": "9b0eb7e5929698e7",
+      "matched_pattern": "both_and",
+      "offending_option_text": "both b and c."
+    },
+    {
+      "question_id": "eeff2559131c9dd4",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "none of the above"
+    },
+    {
+      "question_id": "d137aaa77f9af8a8",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above."
+    },
+    {
+      "question_id": "3c3d953a57977655",
+      "matched_pattern": "both_and",
+      "offending_option_text": "Both a and b."
+    },
+    {
+      "question_id": "4dadbae8fb3c6dac",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "602ed97727248fdd",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "2b2f5e90467ea536",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above."
+    },
+    {
+      "question_id": "d385ff4620f9a604",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above."
+    },
+    {
+      "question_id": "41e54532e04e70ba",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above."
+    },
+    {
+      "question_id": "9ef06775c820560f",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above."
+    },
+    {
+      "question_id": "c8b1d91425651434",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above."
+    },
+    {
+      "question_id": "d6f489d74d6f151d",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above."
+    },
+    {
+      "question_id": "2bdbfc0e784b1e03",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "fa420d19b6384cfa",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "c0d07f6fdaa76769",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "4364fe20ed9d51fd",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above"
+    },
+    {
+      "question_id": "c264a38ded4aedcd",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "3e2dbceb1634de5e",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "81dc9b883d89fd16",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "2edc25b9ebf6554c",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "abba64996e1c8a31",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "385053811b7a8363",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "9643c8121f6dcfc0",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above"
+    },
+    {
+      "question_id": "4f720e6a00c9220c",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "57647002f2f1384f",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "ba147a38de5fdac3",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "396fda506853d207",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "93ad59ccebf0830e",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "39582707e4b8e666",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "5de296349409f977",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "2e29a8b95cfad920",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "f2adc712efb846d2",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "87138d9b9fabcdf7",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "6aed2db09697f1fc",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "2b52c0a9cf7ddf08",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "dfbf04ed76ab272b",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "19278b5ed57794b5",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "b889e490c1b79757",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "bce2751c2790287d",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "f7ab27ff83a80acd",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "bbd92f39abf60807",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "68cfa73719076880",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "9504c24e10145181",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "a27e8caac3f5d226",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "5320d1dd90f2c78a",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "all of the above"
+    },
+    {
+      "question_id": "142934efdb65c851",
+      "matched_pattern": "both_and",
+      "offending_option_text": "Both b and c"
+    },
+    {
+      "question_id": "da5ab69df679ba61",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "745844cbe793ec50",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above"
+    },
+    {
+      "question_id": "2a9cea3f3373230c",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "ALL of the above"
+    },
+    {
+      "question_id": "7b2eae65d467ccb6",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above"
+    },
+    {
+      "question_id": "aed63aacfd5e6ce9",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above"
+    },
+    {
+      "question_id": "f8936b481f1587c1",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "c7f4f800eeb6806e",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above"
+    },
+    {
+      "question_id": "6a31e712df9debc6",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above"
+    },
+    {
+      "question_id": "f8936b481f1587c1",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "cdf79c88dfbcb4e8",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "a77369563832fbdb",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "ALL of the above"
+    },
+    {
+      "question_id": "c72cbfe1c64f1f41",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above"
+    },
+    {
+      "question_id": "4f7d8fad630f983f",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "78cffc3606f88681",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above"
+    },
+    {
+      "question_id": "fb7e55ee66372bf3",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "8567095537bb4a30",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "1b44cc82cbaf38c9",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "603e7de6ebb06dba",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above"
+    },
+    {
+      "question_id": "7973c17550ff5c28",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above"
+    },
+    {
+      "question_id": "dc8b6d0f98d31384",
+      "matched_pattern": "none_of_the_above",
+      "offending_option_text": "None of the above"
+    },
+    {
+      "question_id": "f2641787c6731fba",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "ce4a42a127e9a895",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "2641ce961570557b",
+      "matched_pattern": "both_and",
+      "offending_option_text": "Both b and c"
+    },
+    {
+      "question_id": "38fe3c60f1f18e36",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "d463122c25ec366f",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "91469987b43ca48a",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "a33263200d52ea04",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "01aa574babeb2883",
+      "matched_pattern": "both_and",
+      "offending_option_text": "Both a and b"
+    },
+    {
+      "question_id": "9ec8d1baae209335",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "aca48d831dcc1987",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "9f5ddec7af179e70",
+      "matched_pattern": "both_and",
+      "offending_option_text": "Both a and c"
+    },
+    {
+      "question_id": "bfeb00e48bdaba98",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "326fef99d886f719",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "ca739dc0b42c042e",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "251f4aeb241b67d0",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "783ea01e77f13faa",
+      "matched_pattern": "both_and",
+      "offending_option_text": "Both a and c"
+    },
+    {
+      "question_id": "94e252a541c0456a",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    },
+    {
+      "question_id": "44407d2c8a2a654a",
+      "matched_pattern": "all_of_the_above",
+      "offending_option_text": "All of the above"
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+{
+    "cyclic_logprob": {
+        "huggyllama/llama-13b": {
+            "mmlu_filtered": {
+                "accuracy": 0.49048953111176646,
+                "accuracy_ci_low": 0.48204257005438156,
+                "accuracy_ci_high": 0.4989405739998935,
+                "accuracy_conditional": 0.49048953111176646,
+                "accuracy_conditional_ci_low": 0.48204257005438156,
+                "accuracy_conditional_ci_high": 0.4989405739998935,
+                "n_per_letter_A": 3134.0,
+                "recall_A": 58.008934269304405,
+                "n_per_letter_B": 3376.0,
+                "recall_B": 47.008293838862556,
+                "n_per_letter_C": 3481.0,
+                "recall_C": 46.480896294168346,
+                "n_per_letter_D": 3573.0,
+                "recall_D": 45.61992723201791,
+                "rstd": 5.064238729421211,
+                "mad": 4.309200825715128,
+                "mad_std": 0.22371516733836785
+            }
+        }
+    },
+    "direct_logprob": {
+        "huggyllama/llama-13b": {
+            "mmlu_filtered": {
+                "accuracy": 0.4295193158360366,
+                "accuracy_ci_low": 0.4211679192331977,
+                "accuracy_ci_high": 0.4379009640087388,
+                "accuracy_conditional": 0.4295193158360366,
+                "accuracy_conditional_ci_low": 0.4211679192331977,
+                "accuracy_conditional_ci_high": 0.4379009640087388,
+                "n_per_letter_A": 3134.0,
+                "recall_A": 49.07466496490108,
+                "n_per_letter_B": 3376.0,
+                "recall_B": 40.52132701421801,
+                "n_per_letter_C": 3481.0,
+                "recall_C": 61.36167767882792,
+                "n_per_letter_D": 3573.0,
+                "recall_D": 21.942345368038062,
+                "rstd": 14.347638248372515,
+                "mad": 11.206133883810082,
+                "mad_std": 0.24964184134514075
+            }
+        }
+    }
+}

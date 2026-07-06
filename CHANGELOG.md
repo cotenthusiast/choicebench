@@ -2,8 +2,15 @@
 
 Notable changes to ChoiceBench. Newest first.
 
-## Unreleased
+## v0.1.2 — 2026-07-06
 
+- Committed the PriDe reproduction's evidence files under
+  `examples/pride_reproduction_results/` (the PriDe grid JSON, the
+  cross-check metrics JSON, and the permutation-filter sidecar) so every
+  number in `examples/pride_reproduction.md` is checkable without rerunning
+  the pipeline or having the gitignored `reports/`/`data/processed/`
+  originals on hand. Referenced from the three places in the walkthrough
+  that cite those artifacts.
 - Added `examples/pride_reproduction.md`, the full walkthrough of the completed
   MMLU / llama-13B / 0-shot single-cell reproduction of Zheng et al. (ICLR
   2024) Table 3: real commands and output for data prep, the GPU run, the
