@@ -4,6 +4,17 @@ Notable changes to ChoiceBench. Newest first.
 
 ## Unreleased
 
+- Added `examples/pride_reproduction.md`, the full walkthrough of the completed
+  MMLU / llama-13B / 0-shot single-cell reproduction of Zheng et al. (ICLR
+  2024) Table 3: real commands and output for data prep, the GPU run, the
+  PriDe grid recompute, and a framework cross-check; a results table against
+  the paper's published numbers; and an honest accounting of where our
+  numbers match, where they diverge, and why (scoring-surface candidates,
+  underspecified protocol choices). Surfaced a real dataset issue along the
+  way: MMLU's official `test` split contains 26 verbatim duplicate questions,
+  caught by `pride_from_artifacts.py`'s duplicate-`question_id` guard rather
+  than silently double-counted; filed as a known issue that the benchmark
+  loader should warn on this at load time (not fixed here).
 - Added `examples/pride_from_artifacts.py`, the offline PriDe recompute for
   the reproduction wired in `examples/pride_reproduction.yaml`: reads the
   completed `direct_logprob` + `cyclic_logprob` result CSVs for a run and

@@ -83,6 +83,32 @@ methods.
 
 ---
 
+## Reproduces published results
+
+Unlike the demo grid above, this is a full-scale, single-cell reproduction of
+Table 3 from Zheng et al., *"Large Language Models Are Not Robust Multiple
+Choice Selectors"* (ICLR 2024, arXiv:2309.03882): MMLU, `llama-13B`
+(LLaMA-1), 0-shot, N=13,564 questions, Default / Cyclic Perm / PriDe at three
+calibration fractions.
+
+| Method | Acc (ours) | Acc (paper) | Δ Acc | RStd (ours) | RStd (paper) | Δ RStd |
+|---|---|---|---|---|---|---|
+| Default | 43.0 | 34.6 | +8.4 | 14.3 | 17.4 | −3.1 |
+| Cyclic Perm | 49.0 | 47.7 | +1.3 | 5.1 | 2.9 | +2.2 |
+| PriDe (α=5%) | 44.8 ± 0.1 | 36.4 | +8.4 | 4.4 ± 0.5 | 5.7 | −1.3 |
+| PriDe (α=40%) | 46.5 ± 0.3 | 40.4 | +6.1 | 4.4 ± 0.2 | 3.9 | +0.5 |
+| PriDe (α=80%) | 48.1 ± 0.1 | 45.3 | +2.8 | 4.8 ± 0.1 | 2.6 | +2.2 |
+
+The paper's qualitative story reproduces fully — monotone accuracy gains
+with α, RStd collapse at every α, Cyclic Perm as the accuracy ceiling — but
+absolute accuracy runs a systematic 1.3–8.4 point high, shrinking as more of
+the scored set gets permutation-debiased treatment. See
+[`examples/pride_reproduction.md`](examples/pride_reproduction.md) for the
+full walkthrough: real commands and output, the exact config, and an honest
+accounting of that deviation with candidate causes.
+
+---
+
 ## Quick Start
 
 ### Installation
