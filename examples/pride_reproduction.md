@@ -308,10 +308,15 @@ is scored the same way regardless of α).
 **The qualitative structure reproduces fully.** Every shape the paper
 argues for shows up in our numbers: accuracy climbs monotonically with α
 (44.8 → 46.5 → 48.1, capping out below Cyclic Perm's 49.0, which is the
-ceiling every PriDe α approaches but shouldn't beat — Cyclic Perm *is* what
-every calibration-subset question is scored with, so PriDe is bounded by it
-by construction); RStd collapses at every α relative to Default's 14.3, down
-to 4.4–4.8, in the same range as Cyclic Perm's own 5.1; and PriDe at α=5%
+ceiling every PriDe α approaches — Cyclic Perm is the limit PriDe converges
+to as α → 1 (where every question is calibration-subset and scored via
+Eq. 1, i.e. cyclic, directly), so it's expected, and here observed, to
+upper-bound PriDe at every α; at intermediate α the non-calibration
+fraction is scored by Eq. 8's prior-debiased direct distributions, which
+have no formal guarantee of underperforming cyclic on those questions, so
+this isn't a constructive bound); RStd collapses at every α relative to
+Default's 14.3, down to 4.4–4.8, in the same range as Cyclic Perm's own
+5.1; and PriDe at α=5%
 already achieves that collapse in full (14.3 → 4.4, at or fractionally below
 Cyclic Perm's own 5.1 floor — likely noise from K=678 being the smallest
 calibration sample in the grid, not a real effect) for roughly 1.15× the
