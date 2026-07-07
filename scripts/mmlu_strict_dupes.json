@@ -1,0 +1,272 @@
+[
+  {
+    "row_indices": [
+      1370,
+      1466
+    ],
+    "size": 2,
+    "subject": "college_physics",
+    "answer": 2,
+    "stem_preview": "White light is normally incident on a puddle of water (index of refraction 1.33)"
+  },
+  {
+    "row_indices": [
+      1371,
+      1428
+    ],
+    "size": 2,
+    "subject": "college_physics",
+    "answer": 2,
+    "stem_preview": "Which of the following is true about any system that undergoes a reversible ther"
+  },
+  {
+    "row_indices": [
+      1372,
+      1420
+    ],
+    "size": 2,
+    "subject": "college_physics",
+    "answer": 0,
+    "stem_preview": "The best type of laser with which to do spectroscopy over a range of visible wav"
+  },
+  {
+    "row_indices": [
+      1373,
+      1385
+    ],
+    "size": 2,
+    "subject": "college_physics",
+    "answer": 1,
+    "stem_preview": "Excited states of the helium atom can be characterized as para- (antiparallel el"
+  },
+  {
+    "row_indices": [
+      1396,
+      1435
+    ],
+    "size": 2,
+    "subject": "college_physics",
+    "answer": 1,
+    "stem_preview": "A rod measures 1.00 m in its rest system. How fast must an observer move paralle"
+  },
+  {
+    "row_indices": [
+      1398,
+      1427
+    ],
+    "size": 2,
+    "subject": "college_physics",
+    "answer": 3,
+    "stem_preview": "A magnetic field is directed perpendicular to the plane of a circular coil of ar"
+  },
+  {
+    "row_indices": [
+      1399,
+      1446
+    ],
+    "size": 2,
+    "subject": "college_physics",
+    "answer": 3,
+    "stem_preview": "Light of variable frequency shines on the metal surface of a photoelectric tube."
+  },
+  {
+    "row_indices": [
+      1411,
+      1462
+    ],
+    "size": 2,
+    "subject": "college_physics",
+    "answer": 2,
+    "stem_preview": "Under certain conditions, a beam of electrons impinging on a crystal surface wil"
+  },
+  {
+    "row_indices": [
+      1412,
+      1459
+    ],
+    "size": 2,
+    "subject": "college_physics",
+    "answer": 1,
+    "stem_preview": "A uniform solid disk starts from rest and rolls down an inclined plane without s"
+  },
+  {
+    "row_indices": [
+      1441,
+      1445
+    ],
+    "size": 2,
+    "subject": "college_physics",
+    "answer": 2,
+    "stem_preview": "A 10 kg box slides horizontally without friction at a speed of 1 m/s. At one poi"
+  },
+  {
+    "row_indices": [
+      1453,
+      1458
+    ],
+    "size": 2,
+    "subject": "college_physics",
+    "answer": 0,
+    "stem_preview": "The emission spectrum of the doubly ionized lithium atom Li++ (Z = 3, A = 7) is "
+  },
+  {
+    "row_indices": [
+      2169,
+      2354
+    ],
+    "size": 2,
+    "subject": "elementary_mathematics",
+    "answer": 0,
+    "stem_preview": "Stephanie flew 2,448 miles from Los Angeles to New York City. What is the number"
+  },
+  {
+    "row_indices": [
+      4901,
+      5109
+    ],
+    "size": 2,
+    "subject": "high_school_psychology",
+    "answer": 3,
+    "stem_preview": "Which classical conditioning term best describes the following scenario: Later i"
+  },
+  {
+    "row_indices": [
+      4911,
+      5310
+    ],
+    "size": 2,
+    "subject": "high_school_psychology",
+    "answer": 2,
+    "stem_preview": "Research indicates that which of the following factors most influence a person's"
+  },
+  {
+    "row_indices": [
+      4930,
+      5210
+    ],
+    "size": 2,
+    "subject": "high_school_psychology",
+    "answer": 1,
+    "stem_preview": "Which of the following is an example of an implicit memory?"
+  },
+  {
+    "row_indices": [
+      4938,
+      4955
+    ],
+    "size": 2,
+    "subject": "high_school_psychology",
+    "answer": 1,
+    "stem_preview": "Garcia and Koelling's research regarding learned aversions established that whic"
+  },
+  {
+    "row_indices": [
+      4958,
+      5426
+    ],
+    "size": 2,
+    "subject": "high_school_psychology",
+    "answer": 3,
+    "stem_preview": "Which of the following structures is located at the most central and protected p"
+  },
+  {
+    "row_indices": [
+      4998,
+      5312
+    ],
+    "size": 2,
+    "subject": "high_school_psychology",
+    "answer": 1,
+    "stem_preview": "The case study of Phineas Gage's brain injury was significant for which of the f"
+  },
+  {
+    "row_indices": [
+      5022,
+      5040
+    ],
+    "size": 2,
+    "subject": "high_school_psychology",
+    "answer": 3,
+    "stem_preview": "An artist doing a pencil drawing could use which of the following techniques to "
+  },
+  {
+    "row_indices": [
+      5080,
+      5185
+    ],
+    "size": 2,
+    "subject": "high_school_psychology",
+    "answer": 2,
+    "stem_preview": "Which sentence most accurately describes how neurons communicate?"
+  },
+  {
+    "row_indices": [
+      5085,
+      5353
+    ],
+    "size": 2,
+    "subject": "high_school_psychology",
+    "answer": 2,
+    "stem_preview": "Someone with brain damage who has difficulty making the muscle movements needed "
+  },
+  {
+    "row_indices": [
+      5138,
+      5392
+    ],
+    "size": 2,
+    "subject": "high_school_psychology",
+    "answer": 1,
+    "stem_preview": "Which of the following would a researcher need to use to determine if the differ"
+  },
+  {
+    "row_indices": [
+      5267,
+      5283
+    ],
+    "size": 2,
+    "subject": "high_school_psychology",
+    "answer": 1,
+    "stem_preview": "Knowledge of different categories of trees and where they grow best is an exampl"
+  },
+  {
+    "row_indices": [
+      12915,
+      12982
+    ],
+    "size": 2,
+    "subject": "professional_psychology",
+    "answer": 1,
+    "stem_preview": "In most situations, the \u201cholder of the privilege\u201d is:"
+  },
+  {
+    "row_indices": [
+      13052,
+      13061
+    ],
+    "size": 2,
+    "subject": "public_relations",
+    "answer": 1,
+    "stem_preview": "In what year did the BBC start broadcasting radio?"
+  },
+  {
+    "row_indices": [
+      13105,
+      13155
+    ],
+    "size": 2,
+    "subject": "public_relations",
+    "answer": 3,
+    "stem_preview": "Which of the following information about publications does the Audit Bureau of C"
+  },
+  {
+    "row_indices": [
+      13637,
+      13648
+    ],
+    "size": 2,
+    "subject": "us_foreign_policy",
+    "answer": 3,
+    "stem_preview": "Which of the following are possible constraints on US foreign policy decision ma"
+  }
+]
