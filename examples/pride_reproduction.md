@@ -219,11 +219,12 @@ doubly-checkpointed run would silently corrupt the scored subset.
 
 This is `_load_method_frame`'s duplicate-`question_id` guardrail
 (`examples/pride_from_artifacts.py`) catching real dataset pathology, not a
-run artifact: MMLU's own official `test` split contains 26 verbatim
-duplicate questions (identical question text, identical subject, identical
+run artifact: MMLU's own official `test` split contains 27 verbatim
+duplicate pairs (identical question text, identical subject, identical
 correct answer — two different `question_id` hashes for what is the same
 question asked twice; `answer_choices_json`, `subject`, and `question_text`
-all matched byte-for-byte on inspection). Without this guard,
+all matched byte-for-byte on inspection), 26 of which survive into this
+run's 13,616-row permutation-safety-filtered subset. Without this guard,
 `pride_from_artifacts.py` — or the framework's own `evaluate_run.py` — would
 have silently double-counted these 26 questions in every metric. Both
 copies of each duplicated question were dropped (not just the second),
@@ -246,6 +247,23 @@ for run in ['20260705_204054', '20260705_204054_dedup']:
 This is a known-issue follow-up, not something fixed here: the benchmark
 loader should warn on duplicate `question_id`s at load time so this doesn't
 depend on a downstream script's guard to surface it.
+
+**Reconciling against prior reports of MMLU duplication.** On the raw
+14,042-row MMLU test split (`cais/mmlu`, `all`, `test`), strict matching on
+identical stem, options, subject, and answer key yields 27 duplicate pairs
+(54 rows, 0.39%); 26 survive ChoiceBench's 13,616-row permutation-safe
+filter, as above. Dropping just the subject field from that key nearly
+quadruples the pair count to 105 — of those 105, roughly three-quarters (78)
+are the same question filed under two different subjects, and the remaining
+quarter are the 27 strict pairs already counted. Loosening further to
+stem-only matching raises the redundant-row count to 174 (1.24%), consistent
+with the 1.2% of identical questions reported by Gupta et al.
+(arXiv:2410.20245); the two figures differ on both matching criterion
+(three-field vs. stem-only) and counting unit (pairs vs. removable rows).
+Our contribution is the enumerated strict-criterion list with committed
+receipts and its automatic detection by the pipeline's duplicate-`question_id`
+guard above — a check absent from the MMLU-Redux error taxonomy
+(arXiv:2406.04127).
 
 Now the grid recomputes cleanly against the deduplicated run:
 

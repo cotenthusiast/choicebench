@@ -18,10 +18,17 @@ Notable changes to ChoiceBench. Newest first.
   the paper's published numbers; and an honest accounting of where our
   numbers match, where they diverge, and why (scoring-surface candidates,
   underspecified protocol choices). Surfaced a real dataset issue along the
-  way: MMLU's official `test` split contains 26 verbatim duplicate questions,
-  caught by `pride_from_artifacts.py`'s duplicate-`question_id` guard rather
-  than silently double-counted; filed as a known issue that the benchmark
-  loader should warn on this at load time (not fixed here).
+  way: MMLU's official `test` split contains 27 verbatim duplicate pairs (26
+  post-filter), caught by `pride_from_artifacts.py`'s duplicate-`question_id`
+  guard rather than silently double-counted; filed as a known issue that the
+  benchmark loader should warn on this at load time (not fixed here).
+- Reconciled the walkthrough's duplicate-question finding against prior
+  reports: strict stem+choices+subject+answer matching on the raw 14,042-row
+  split gives 27 pairs (0.39%), while loosening to stem-only matching gives
+  174 redundant rows (1.24%), consistent with the 1.2% reported by Gupta et
+  al. (arXiv:2410.20245) — the gap is both matching criterion and counting
+  unit, not a discrepancy; also notes the strict-criterion guard as a check
+  absent from the MMLU-Redux taxonomy (arXiv:2406.04127).
 - Added `examples/pride_from_artifacts.py`, the offline PriDe recompute for
   the reproduction wired in `examples/pride_reproduction.yaml`: reads the
   completed `direct_logprob` + `cyclic_logprob` result CSVs for a run and
