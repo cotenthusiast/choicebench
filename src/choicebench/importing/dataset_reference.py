@@ -174,6 +174,23 @@ def _normalize_source(
             )
         record["question_id"] = question_id
         record["correct_option"] = str(record["correct_option"]).strip().upper()
+        for integer_field in ("correct_index", "n_choices"):
+            if integer_field not in record:
+                continue
+            raw_integer = str(record[integer_field]).strip()
+            try:
+                parsed_integer = int(raw_integer)
+            except ValueError as exc:
+                raise DatasetReferenceError(
+                    f"Expected dataset source {source_id!r} has malformed {integer_field} "
+                    f"for question_id {question_id!r}."
+                ) from exc
+            if str(parsed_integer) != raw_integer or parsed_integer < 0:
+                raise DatasetReferenceError(
+                    f"Expected dataset source {source_id!r} has malformed {integer_field} "
+                    f"for question_id {question_id!r}."
+                )
+            record[integer_field] = parsed_integer
 
         if has_structured_choices:
             raw_choices = raw_row[mapping["choices_json"]]

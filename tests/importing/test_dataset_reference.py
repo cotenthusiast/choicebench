@@ -623,6 +623,27 @@ def test_ordered_option_mapping_requires_contiguous_semantic_keys():
         )
 
 
+def test_current_normalized_integer_fields_preserve_native_semantic_types():
+    rows = _rows()
+    for row in rows:
+        row["correct_index"] = str(ord(row["gold"]) - ord("A"))
+        row["n_choices"] = "3"
+    declaration = _declaration(
+        columns={
+            **_columns(),
+            "correct_index": "correct_index",
+            "n_choices": "n_choices",
+        }
+    )
+
+    dataset = build_expected_dataset(
+        declaration, {"reference": _source("reference", rows)}
+    )
+
+    assert dataset.artifact_frame["correct_index"].tolist() == [1, 0, 2]
+    assert dataset.artifact_frame["n_choices"].tolist() == [3, 3, 3]
+
+
 @pytest.mark.parametrize("mutation", ["schema", "extra_field"])
 def test_snapshot_record_schema_is_exact_and_fail_closed(tmp_path: Path, mutation: str):
     dataset = build_expected_dataset(
