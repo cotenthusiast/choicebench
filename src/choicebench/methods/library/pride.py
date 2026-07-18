@@ -41,6 +41,8 @@ from choicebench.methods.library.pride_math import (
     equation7_prior_from_rollouts,
     logprob_map_to_label_distribution,
 )
+from choicebench.identity import integrity_digest, redact_text
+from choicebench.infra.artifacts import atomic_write_json
 
 logger = logging.getLogger(__name__)
 
@@ -80,12 +82,9 @@ class PriDeRunner(ExperimentRunner):
 
     Logprobs come from backend.score_options() — no provider/client logic.
 
-    Calibration sidecar reuse key (PF-9): a cached prior is reused only when the
-    model_name slug, ``calibration_benchmark``, sorted calibration question ids,
-    ``calibration_seed``, ``temperature``, ``max_tokens``, and ``prompt_version``
-    all match. It does NOT capture model weights — two local checkpoints that
-    share a basename (``org/model`` → ``org_model``) still collide on the sidecar
-    path, so use distinct ``run_id`` / ``calibration_runs_dir`` for those.
+    Config-driven sidecars are condition-addressed and self-validating. Reuse
+    requires the exact condition/calibration identities, settings, and content
+    digest. Programmatic legacy construction retains its older path shape.
     """
 
     requires_score_options: bool = True
@@ -116,6 +115,8 @@ class PriDeRunner(ExperimentRunner):
             preflight_questions: list[dict] | None = None,
             modal_k: int = 4,
             gate_summary: dict | None = None,
+            condition_id: str | None = None,
+            calibration_identity: dict | None = None,
     ) -> None:
         # Precedence: calibration_questions > preflight_questions > uniform prior.
         # calibration_questions is the explicit API; preflight_questions is the
@@ -164,6 +165,8 @@ class PriDeRunner(ExperimentRunner):
         self._modal_k = int(modal_k)
         self._modal_letters: tuple[str, ...] = tuple(letters_for(self._modal_k))
         self._gate_summary = dict(gate_summary) if gate_summary else None
+        self._condition_id = condition_id
+        self._calibration_identity = dict(calibration_identity or {})
 
         self._calibration_ready: bool = False
         self._calibration_state: CalibrationState = calibration_state_uniform(self._modal_letters)
@@ -177,6 +180,8 @@ class PriDeRunner(ExperimentRunner):
         self._calibration_n_perm_total: int = 0
 
     def _sidecar_path(self) -> Path:
+        if self._condition_id:
+            return self._calibration_runs_dir / self.run_id / "artifacts" / self._condition_id / "pride_calibration.json"
         slug = self.backend.model_name.replace("/", "_").replace(" ", "_")
         return (
             self._calibration_runs_dir
@@ -223,8 +228,12 @@ class PriDeRunner(ExperimentRunner):
         if sorted_ids and path.exists():
             try:
                 blob = json.loads(path.read_text())
+                digest = blob.get("sidecar_digest")
+                payload = {key: value for key, value in blob.items() if key != "sidecar_digest"}
                 if (
                     blob.get("schema_version") == _SIDE_SCHEMA_VERSION
+                    and (self._condition_id is None or digest == integrity_digest(payload))
+                    and (self._condition_id is None or blob.get("condition_id") == self._condition_id)
                     and tuple(sorted(blob.get("calibration_question_ids") or [])) == sorted_ids
                     and int(blob.get("calibration_seed", -1)) == self._calibration_seed
                     # PF-9: also key on the generation settings the prior was fit
@@ -235,6 +244,7 @@ class PriDeRunner(ExperimentRunner):
                     and blob.get("prompt_version") == self.prompt_version
                     # A prior fit at a different option count is not reusable.
                     and int(blob.get("n_options", -1)) == self._modal_k
+                    and blob.get("calibration_identity", {}) == self._calibration_identity
                 ):
                     self._calibration_state = calibration_state_from_sidecar(blob, self._modal_letters)
                     self._calibration_ready = True
@@ -244,8 +254,15 @@ class PriDeRunner(ExperimentRunner):
                         path,
                     )
                     return
+                if self._condition_id is not None:
+                    raise RuntimeError(
+                        f"PriDe calibration sidecar does not belong to condition {self._condition_id}: {path}."
+                    )
             except (json.JSONDecodeError, KeyError, OSError, TypeError, ValueError) as exc:
-                logger.warning("PriDe sidecar unreadable (%s); refitting.", exc)
+                raise RuntimeError(
+                    f"PriDe calibration sidecar is corrupt or incompatible: {path}. "
+                    "Reset the run to recompute it."
+                ) from exc
 
         if not cal_rows:
             logger.warning(
@@ -276,13 +293,13 @@ class PriDeRunner(ExperimentRunner):
             "schema_version": _SIDE_SCHEMA_VERSION,
             "version": self._calibration_state.version,
             "calibration_seed": self._calibration_seed,
-            # Generation settings the prior was fit under — part of the reuse key
-            # (PF-9). model weights are NOT captured (only the model_name slug in
-            # the filename), so two checkpoints sharing a basename still collide.
+            # Generation settings the prior was fit under are part of the reuse key.
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
             "prompt_version": self.prompt_version,
             "n_options": len(self._modal_letters),
+            "condition_id": self._condition_id,
+            "calibration_identity": self._calibration_identity,
             "calibration_question_ids": list(sorted_ids),
             "peprior_probs": {
                 L: float(self._calibration_state.peprior_probs.get(L, 0.0))
@@ -290,8 +307,8 @@ class PriDeRunner(ExperimentRunner):
             },
             "epsilon": self._calibration_state.epsilon,
         }
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(sidecar_payload, indent=2))
+        sidecar_payload["sidecar_digest"] = integrity_digest(sidecar_payload)
+        atomic_write_json(path, sidecar_payload)
 
     def _cyclic_rollout_prob_matrix(self, question_row: Any) -> np.ndarray:
         """Run all cyclic permutations through score_options() → shape-(n,n) matrix.
@@ -333,7 +350,7 @@ class PriDeRunner(ExperimentRunner):
                 rows.append(logprob_map_to_label_distribution(lp_map, letters=letters))
                 n_success += 1
             except Exception as exc:
-                logger.warning("PriDe calibration: score_options failed — %s", exc)
+                logger.warning("PriDe calibration: score_options failed — %s", redact_text(exc))
                 rows.append(uni.copy())
                 last_exc = exc
 
@@ -365,11 +382,11 @@ class PriDeRunner(ExperimentRunner):
             scores = self.backend.score_options(prompt, letters)
             lp_map = dict(zip(letters, scores))
         except Exception as exc:
-            scoring_error = str(exc)
+            scoring_error = redact_text(exc)
             logger.warning(
                 "PriDe: score_options failed for question %s — %s",
                 question_row["question_id"],
-                exc,
+                redact_text(exc),
             )
 
         return self._build_debiased_row(

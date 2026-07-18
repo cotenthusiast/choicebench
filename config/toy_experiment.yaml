@@ -1,15 +1,14 @@
 # config/toy_experiment.yaml
 #
 # Onboarding config. Uses DummyBackend (fixed responses, no model weights,
-# no API calls) against a tiny bundled 10-question synthetic dataset
-# (data/processed/toy_normalized.csv) so the pipeline can be exercised
-# without a GPU or any API key.
+# no API calls) against a deterministic 10-question synthetic dataset prepared
+# with `choicebench-prepare-toy`, so the pipeline can be exercised without a
+# GPU or API key.
 #
 # Real benchmark data (MMLU, ARC-Challenge) is NOT bundled in this repo —
-# data/processed/ ships only the toy CSV plus a .gitkeep. See
+# Generated data is not shipped in the package. See
 # scripts/prepare_data.py for how real benchmark data is downloaded and
-# normalized. benchmark.name is "toy" here, pointing at the bundled toy CSV,
-# so this config runs end-to-end without downloading anything first.
+# normalized. Prepare the toy artifact once before running this config.
 
 experiment:
   name: toy_experiment

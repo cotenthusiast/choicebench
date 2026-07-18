@@ -6,7 +6,6 @@ import pytest
 from choicebench.io.readers import (
     _infer_benchmark_from_stem,
     read_all_run_results,
-    read_run_results,
 )
 from choicebench.io.writers import write_run_results
 
@@ -52,15 +51,15 @@ def sample_two_stage_results() -> list[dict]:
     ]
 
 
-class TestReadRunResults:
-    """Tests for read_run_results."""
+class TestWriteRunResultsRoundtrip:
+    """Round-trip tests for write_run_results (read back with plain pandas)."""
 
     def test_roundtrip(self, tmp_path, sample_results):
         """Write then read should return equivalent data."""
         path = write_run_results(
             sample_results, tmp_path, "run_001", "baseline", "gpt-5-mini"
         )
-        df = read_run_results(path)
+        df = pd.read_csv(path)
         assert len(df) == 2
         assert "question_id" in df.columns
 
@@ -69,7 +68,7 @@ class TestReadRunResults:
         path = write_run_results(
             sample_results, tmp_path, "run_001", "baseline", "gpt-5-mini"
         )
-        df = read_run_results(path)
+        df = pd.read_csv(path)
         assert isinstance(df, pd.DataFrame)
 
     def test_preserves_values(self, tmp_path, sample_results):
@@ -77,7 +76,7 @@ class TestReadRunResults:
         path = write_run_results(
             sample_results, tmp_path, "run_001", "baseline", "gpt-5-mini"
         )
-        df = read_run_results(path)
+        df = pd.read_csv(path)
         assert df.iloc[0]["question_id"] == "q_001"
         assert df.iloc[1]["question_id"] == "q_002"
 
@@ -90,7 +89,7 @@ class TestReadRunResults:
             "two_stage",
             "gpt-5-mini",
         )
-        df = read_run_results(path)
+        df = pd.read_csv(path)
         assert df.iloc[0]["free_text_response"] == "HTTPS"
 
 

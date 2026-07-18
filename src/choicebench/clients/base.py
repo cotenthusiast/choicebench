@@ -6,7 +6,10 @@ import asyncio
 import logging
 import random
 import time
+import math
+from numbers import Real
 from abc import ABC, abstractmethod
+from choicebench.identity import redact_text
 
 from choicebench.clients.types import (
     ValidationError,
@@ -57,6 +60,14 @@ class BaseClient(ABC):
                                  this model. Proactively spaces requests to
                                  stay under per-minute rate limits.
         """
+        if isinstance(timeout, bool) or not isinstance(timeout, Real) or not math.isfinite(float(timeout)) or timeout <= 0:
+            raise ValueError("timeout must be a finite positive number.")
+        if isinstance(concurrency_limit, bool) or not isinstance(concurrency_limit, int) or concurrency_limit <= 0:
+            raise ValueError("concurrency_limit must be a positive integer.")
+        if isinstance(max_retries, bool) or not isinstance(max_retries, int) or max_retries < 0:
+            raise ValueError("max_retries must be a non-negative integer.")
+        if isinstance(min_delay_seconds, bool) or not isinstance(min_delay_seconds, Real) or not math.isfinite(float(min_delay_seconds)) or min_delay_seconds < 0:
+            raise ValueError("min_delay_seconds must be a finite non-negative number.")
         self.provider = provider
         self.model_name = model_name
         self.timeout = timeout
@@ -140,7 +151,7 @@ class BaseClient(ABC):
                     self.model_name,
                     attempt + 1,
                     self.max_retries + 1,
-                    exc,
+                    redact_text(exc),
                 )
                 last_exc = exc
 
@@ -150,7 +161,7 @@ class BaseClient(ABC):
                     self.model_name,
                     attempt + 1,
                     self.max_retries + 1,
-                    exc,
+                    redact_text(exc),
                 )
                 last_exc = exc
 
@@ -160,7 +171,7 @@ class BaseClient(ABC):
                     self.model_name,
                     attempt + 1,
                     self.max_retries + 1,
-                    exc,
+                    redact_text(exc),
                 )
                 last_exc = exc
 
@@ -249,18 +260,18 @@ class BaseClient(ABC):
     ) -> ErrorInfo:
         """Convert a raw exception into standardized error information."""
         if isinstance(exc, ValidationError):
-            return ErrorInfo(type(exc).__name__, str(exc), False, stage)
+            return ErrorInfo(type(exc).__name__, redact_text(exc), False, stage)
         if isinstance(exc, ProviderRateLimitError):
-            return ErrorInfo(type(exc).__name__, str(exc), True, stage)
+            return ErrorInfo(type(exc).__name__, redact_text(exc), True, stage)
         if isinstance(exc, ProviderTimeoutError):
-            return ErrorInfo(type(exc).__name__, str(exc), True, stage)
+            return ErrorInfo(type(exc).__name__, redact_text(exc), True, stage)
         if isinstance(exc, ProviderConfigurationError):
-            return ErrorInfo(type(exc).__name__, str(exc), False, stage)
+            return ErrorInfo(type(exc).__name__, redact_text(exc), False, stage)
         if isinstance(exc, ProviderCallError):
-            return ErrorInfo(type(exc).__name__, str(exc), True, stage)
+            return ErrorInfo(type(exc).__name__, redact_text(exc), True, stage)
         return ErrorInfo(
             type(exc).__name__,
-            str(exc) if str(exc) else "Unexpected exception with no message.",
+            redact_text(exc) if str(exc) else "Unexpected exception with no message.",
             False,
             stage,
         )

@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "choicebench"
-version = "0.1.2"
+version = "0.2.0"
 description = "A lightweight framework for MCQ evaluation-method research"
 readme = "README.md"
 authors = [{name = "Karl Hanna"}]
-license = {text = "MIT"}
+license = "MIT"
 requires-python = ">=3.10"
 dependencies = [
     "pandas",
@@ -33,6 +33,8 @@ dev = [
     "pytest>=7.0",
     "pytest-asyncio",
     "httpx",
+    "build",
+    "twine",
 ]
 # vLLM support: vLLM is NOT a Python dependency of ChoiceBench. Run it as a
 # separate server (e.g. `vllm serve <model> --port 8000`) and point ChoiceBench
@@ -43,8 +45,18 @@ dev = [
 Homepage = "https://github.com/cotenthusiast/choicebench"
 Repository = "https://github.com/cotenthusiast/choicebench"
 
+[project.scripts]
+choicebench-run = "choicebench.cli.run_experiment:main"
+choicebench-prepare = "choicebench.cli.prepare_data:main"
+choicebench-evaluate = "choicebench.cli.evaluate_run:main"
+choicebench-prepare-toy = "choicebench.cli.prepare_toy_data:main"
+
 [tool.setuptools]
 package-dir = {"" = "src"}
+include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+choicebench = ["resources/prompts/*/*.txt"]

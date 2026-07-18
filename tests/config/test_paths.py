@@ -60,7 +60,7 @@ def test_reset_rejects_symlink_resolving_outside(tmp_path):
     link = root / "sneaky"
     link.symlink_to(outside, target_is_directory=True)
 
-    with pytest.raises(ValueError, match="under the allowed root"):
+    with pytest.raises(ValueError, match="symlinked run directory"):
         safe_reset_run_dir(link, allowed_root=root)
 
     assert (outside / "keep.txt").exists()

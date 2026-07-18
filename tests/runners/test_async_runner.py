@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 import asyncio
-import importlib.util
+import importlib
 import pathlib
 from pathlib import Path
 from typing import Any
@@ -39,12 +39,8 @@ _PROMPTS_DIR = _REPO_ROOT / "prompts"
 # ---------------------------------------------------------------------------
 
 def _load_run_experiment():
-    spec = importlib.util.spec_from_file_location(
-        "run_experiment_async_test", _REPO_ROOT / "scripts" / "run_experiment.py"
-    )
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    import choicebench.cli.run_experiment as module
+    return importlib.reload(module)
 
 
 def _make_success_response(provider="openai", model_name="gpt-4.1-mini", raw_text="C") -> ModelResponse:
@@ -575,7 +571,7 @@ async def test_run_model_reuses_cached_backend_across_calls(tmp_path):
 
     build_calls: list[str] = []
 
-    def fake_build_backend(model_config, run_id, run_seed, default_concurrency_limit=10):
+    def fake_build_backend(model_config, run_id, run_seed, default_concurrency_limit=10, model_identity=None):
         build_calls.append(model_config.model_name_or_path)
         return object()
 

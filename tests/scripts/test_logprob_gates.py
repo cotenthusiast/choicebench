@@ -6,7 +6,7 @@
 # `dummy`, so a pride+dummy+requires_logprobs config passed schema validation
 # then crashed at the runtime gate. Both now consult model_supports_logprobs().
 
-import importlib.util
+import importlib
 from pathlib import Path
 
 import pytest
@@ -23,12 +23,8 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _load_run_experiment():
-    spec = importlib.util.spec_from_file_location(
-        "run_experiment_logprob_under_test", _REPO_ROOT / "scripts" / "run_experiment.py"
-    )
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    import choicebench.cli.run_experiment as module
+    return importlib.reload(module)
 
 
 def _write(tmp_path, data) -> str:

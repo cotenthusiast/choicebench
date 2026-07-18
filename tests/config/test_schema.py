@@ -5,6 +5,7 @@
 # precisely in this layer, so it gets a dedicated suite.
 
 import textwrap
+import math
 
 import pytest
 import yaml
@@ -223,6 +224,72 @@ def test_n_samples_must_be_positive(tmp_path):
         load_config(_write_config(tmp_path, data))
 
 
+@pytest.mark.parametrize("field,value", [
+    ("checkpoint_every_n", 0), ("checkpoint_every_n", -1),
+    ("checkpoint_every_n", True), ("concurrency_limit", 0),
+    ("concurrency_limit", -1), ("concurrency_limit", False),
+    ("seed", -1), ("seed", True),
+])
+def test_invalid_run_numeric_boundaries_fail_early(tmp_path, field, value):
+    data = _valid_config()
+    data["run"][field] = value
+    with pytest.raises(ConfigError, match=field):
+        load_config(_write_config(tmp_path, data))
+
+
+@pytest.mark.parametrize("field,value", [
+    ("max_new_tokens", 0), ("max_new_tokens", -1), ("max_new_tokens", True),
+    ("temperature", -0.1), ("temperature", 2.1),
+    ("temperature", float("nan")), ("temperature", float("inf")), ("temperature", True),
+    ("do_sample", 1), ("do_sample", "false"),
+])
+def test_invalid_generation_boundaries_fail_early(tmp_path, field, value):
+    data = _valid_config()
+    data["models"][0]["generation_kwargs"] = {field: value}
+    with pytest.raises(ConfigError, match=field):
+        load_config(_write_config(tmp_path, data))
+
+
+@pytest.mark.parametrize("value", [0, -1, True, 1.5, "1"])
+def test_invalid_model_concurrency_fails_early(tmp_path, value):
+    data = _valid_config()
+    data["models"][0]["concurrency_limit"] = value
+    with pytest.raises(ConfigError, match=r"models\[0\].concurrency_limit"):
+        load_config(_write_config(tmp_path, data))
+
+
+@pytest.mark.parametrize("value", [0.0, -0.1, 1.1, float("nan"), float("inf"), True])
+def test_invalid_pride_threshold_fails_early(tmp_path, value):
+    data = _valid_config()
+    data["pride"] = {"modal_k_threshold": value}
+    with pytest.raises(ConfigError, match="pride.modal_k_threshold"):
+        load_config(_write_config(tmp_path, data))
+
+
+def test_valid_numeric_minima_and_endpoints(tmp_path):
+    data = _valid_config()
+    data["run"].update({"checkpoint_every_n": 1, "concurrency_limit": 1, "seed": 0})
+    data["models"][0]["generation_kwargs"] = {"max_new_tokens": 1, "temperature": 2.0, "do_sample": True}
+    data["models"][0]["concurrency_limit"] = 1
+    data["pride"] = {"modal_k_threshold": 1.0}
+    assert load_config(_write_config(tmp_path, data)).run.checkpoint_every_n == 1
+
+
+@pytest.mark.parametrize("section,field", [
+    ("run", "concurency_limit"), ("model", "revison"),
+    ("benchmark", "source_revison"), ("method", "require_logprobs"),
+])
+def test_unknown_fields_fail_with_migration_safe_error(tmp_path, section, field):
+    data = _valid_config()
+    target = {
+        "run": data["run"], "model": data["models"][0],
+        "benchmark": data["benchmarks"][0], "method": data["methods"][0],
+    }[section]
+    target[field] = 1
+    with pytest.raises(ConfigError, match=field):
+        load_config(_write_config(tmp_path, data))
+
+
 def test_unknown_metric_raises(tmp_path):
     data = _valid_config()
     data["metrics"] = ["not_a_metric"]
@@ -317,3 +384,52 @@ def test_benchmark_normalized_stem_requires_a_source():
     cfg = BenchmarkConfig(name="toy")
     with pytest.raises(ConfigError, match="requires either output_name or hf_path"):
         benchmark_normalized_stem(cfg)
+
+
+def test_method_params_with_credential_names_are_rejected_at_load(tmp_path):
+    """CB-4 (schema side): unambiguous credential keys are refused with an
+    actionable error before any identity is computed."""
+    import pytest
+    from choicebench.config.schema import ConfigError, load_config
+
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "experiment:\n  name: t\n"
+        "models:\n  - backend: dummy\n    model_name_or_path: d\n"
+        "benchmarks:\n  - name: toy\n"
+        "methods:\n  - name: direct_mcq\n    params:\n      api_key: oops\n"
+        "metrics: [accuracy]\n"
+    )
+    with pytest.raises(ConfigError, match="credential-named"):
+        load_config(config)
+
+
+def test_method_params_with_secret_shaped_scientific_names_are_accepted(tmp_path):
+    from choicebench.config.schema import load_config
+
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "experiment:\n  name: t\n"
+        "models:\n  - backend: dummy\n    model_name_or_path: d\n"
+        "benchmarks:\n  - name: toy\n"
+        "methods:\n  - name: direct_mcq\n    params:\n      token: sci\n      secret_strength: 3\n"
+        "metrics: [accuracy]\n"
+    )
+    loaded = load_config(config)
+    assert loaded.methods[0].params == {"token": "sci", "secret_strength": 3}
+
+
+def test_nested_credential_params_are_rejected_at_load(tmp_path):
+    import pytest
+    from choicebench.config.schema import ConfigError, load_config
+
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "experiment:\n  name: t\n"
+        "models:\n  - backend: dummy\n    model_name_or_path: d\n"
+        "benchmarks:\n  - name: toy\n"
+        "methods:\n  - name: direct_mcq\n    params:\n      client:\n        api_key: oops\n"
+        "metrics: [accuracy]\n"
+    )
+    with pytest.raises(ConfigError, match="credential-named"):
+        load_config(config)

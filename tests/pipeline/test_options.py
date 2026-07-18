@@ -3,10 +3,10 @@
 import json
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 from choicebench.benchmarks.base import make_normalized_row
-from choicebench.io.readers import read_benchmark
 from choicebench.pipeline.options import (
     build_choices,
     build_option_map,
@@ -98,7 +98,7 @@ def test_build_option_map_rejects_correct_option_not_in_options():
 # ---------------------------------------------------------------------------
 
 def test_existing_legacy_normalized_csv_loads_under_new_schema():
-    df = read_benchmark(_LEGACY_CSV)
+    df = pd.read_csv(_LEGACY_CSV)
     assert len(df) == 3
 
     rows = df.to_dict(orient="records")

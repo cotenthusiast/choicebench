@@ -1,6 +1,6 @@
 # tests/scripts/test_prepare_toy_data.py
 
-import importlib.util
+import importlib
 from pathlib import Path
 
 import pandas as pd
@@ -12,13 +12,8 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _load_prepare_toy_data():
-    spec = importlib.util.spec_from_file_location(
-        "prepare_toy_data_under_test",
-        _REPO_ROOT / "scripts" / "prepare_toy_data.py",
-    )
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    import choicebench.cli.prepare_toy_data as module
+    return importlib.reload(module)
 
 
 def test_build_row_includes_correct_answer_text():
@@ -38,7 +33,12 @@ def test_build_row_includes_correct_answer_text():
 
 
 def test_committed_toy_csv_matches_canonical_schema():
-    df = pd.read_csv(_REPO_ROOT / "data" / "processed" / "toy_normalized.csv")
+    script = _load_prepare_toy_data()
+    rng = script.random.Random(script._SEED)
+    df = pd.DataFrame([
+        script._build_row(i, question, answer, distractors, rng)
+        for i, (question, answer, distractors) in enumerate(script._QUESTIONS)
+    ])
 
     assert "correct_answer_text" in df.columns
     for _, row in df.iterrows():

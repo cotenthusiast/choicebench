@@ -1,8 +1,13 @@
+import os
 import shutil
+import re
+from importlib import resources
 from pathlib import Path
 
-# Root ------------------------------------------------
-ROOT_DIR = Path(__file__).resolve().parents[3]
+# Workspace policy: CHOICEBENCH_HOME is applied before imports;
+# imports; otherwise user-generated artifacts live beneath the current working
+# directory. Runtime resources are package data and are never written here.
+ROOT_DIR = Path(os.environ.get("CHOICEBENCH_HOME", Path.cwd())).expanduser().resolve()
 
 # Directories ----------------------------------------
 DATA_DIR = ROOT_DIR / "data"
@@ -10,7 +15,7 @@ PROCESSED_DIR = DATA_DIR / "processed"
 
 RUNS_DIR = ROOT_DIR / "runs"
 REPORTS_DIR = ROOT_DIR / "reports"
-PROMPTS_DIR = ROOT_DIR / "prompts"
+PROMPTS_DIR = resources.files("choicebench.resources").joinpath("prompts")
 
 def ensure_dirs() -> None:
     """Create all standard project directories. Call once at program startup."""
@@ -20,14 +25,32 @@ def ensure_dirs() -> None:
         RUNS_DIR,
         REPORTS_DIR,
     ]:
-        directory.mkdir(parents=True, exist_ok=True)
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise RuntimeError(
+                f"ChoiceBench workspace is not writable at {ROOT_DIR}. Set CHOICEBENCH_HOME "
+                "to a writable directory before starting the command."
+            ) from exc
+
+
+_RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+
+
+def validate_run_id(run_id: str) -> str:
+    if not isinstance(run_id, str) or not _RUN_ID_RE.fullmatch(run_id) or run_id in {".", ".."}:
+        raise ValueError(
+            "run ID must be 1-128 ASCII letters, digits, dots, underscores, or hyphens, "
+            "starting with a letter or digit; path separators and traversal are forbidden."
+        )
+    return run_id
 
 # TOY benchmark ---------------------------------------
 TOY_BENCHMARK_PATH = PROCESSED_DIR / "toy_normalized.csv"
 
 
-def get_benchmark_path(name: str) -> Path:
-    """Return the normalized CSV path for a registered benchmark."""
+def get_benchmark_path(name: str, split: str = "test") -> Path:
+    """Return the legacy generic path; verified runtime loaders do not use it."""
     return PROCESSED_DIR / f"{name}_normalized.csv"
 
 
@@ -55,8 +78,12 @@ def safe_reset_run_dir(run_dir: Path, allowed_root: Path = RUNS_DIR) -> Path:
         ValueError: if ``run_dir`` resolves to ``allowed_root`` itself or to a
             path outside ``allowed_root`` (including via symlink traversal).
     """
-    run_dir = Path(run_dir).resolve()
+    raw_run_dir = Path(run_dir)
     allowed_root = Path(allowed_root).resolve()
+
+    if raw_run_dir.is_symlink():
+        raise ValueError(f"Refusing to reset symlinked run directory {raw_run_dir}.")
+    run_dir = raw_run_dir.resolve()
 
     if run_dir == allowed_root:
         raise ValueError(

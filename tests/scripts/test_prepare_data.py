@@ -5,20 +5,15 @@
 # is exactly the file load_benchmark() looks for. Otherwise the stem is derived
 # from the hf_path ("ai2_arc") and the run hits a self-contradicting dead end.
 
-import importlib.util
+import importlib
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _load_prepare_data():
-    spec = importlib.util.spec_from_file_location(
-        "prepare_data_under_test",
-        _REPO_ROOT / "scripts" / "prepare_data.py",
-    )
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    import choicebench.cli.prepare_data as module
+    return importlib.reload(module)
 
 
 def test_registered_hf_path_defaults_stem_to_registry_name():
@@ -71,12 +66,12 @@ def test_filter_flag_appends_filtered_suffix_when_no_output_name(monkeypatch, tm
 
     mod.main()
 
-    out_csv = tmp_path / "mmlu_filtered_normalized.csv"
+    out_csv = next(tmp_path.rglob("normalized.csv"))
     assert out_csv.exists()
     df = pd.read_csv(out_csv)
     assert len(df) == 1  # q2 excluded
 
-    sidecar = tmp_path / "mmlu_filtered_permutation_filter.json"
+    sidecar = out_csv.with_name("normalized_permutation_filter.json")
     report = json.loads(sidecar.read_text())
     assert report["n_total"] == 2
     assert report["n_excluded"] == 1
@@ -105,8 +100,9 @@ def test_filter_flag_respects_explicit_output_name(monkeypatch, tmp_path):
 
     mod.main()
 
-    assert (tmp_path / "custom_stem_normalized.csv").exists()
-    assert not (tmp_path / "custom_stem_filtered_normalized.csv").exists()
+    out = next(tmp_path.rglob("normalized.csv"))
+    assert "custom_stem" in out.parts
+    assert out.with_name("artifact.json").exists()
 
 
 def test_no_filter_flag_leaves_output_unfiltered(monkeypatch, tmp_path):
@@ -131,6 +127,7 @@ def test_no_filter_flag_leaves_output_unfiltered(monkeypatch, tmp_path):
 
     mod.main()
 
-    df = pd.read_csv(tmp_path / "mmlu_normalized.csv")
+    out = next(tmp_path.rglob("normalized.csv"))
+    df = pd.read_csv(out)
     assert len(df) == 1  # kept — filter never ran
-    assert not (tmp_path / "mmlu_permutation_filter.json").exists()
+    assert not out.with_name("normalized_permutation_filter.json").exists()

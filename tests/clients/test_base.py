@@ -191,3 +191,13 @@ class TestNormalizeException:
         assert error.message == str(exc)
         assert error.retryable is expected_retryable
         assert error.stage == stage
+
+
+@pytest.mark.parametrize("kwargs", [
+    {"timeout": 0}, {"timeout": float("nan")}, {"timeout": True},
+    {"concurrency_limit": 0}, {"concurrency_limit": True},
+    {"max_retries": -1}, {"max_retries": True},
+])
+def test_constructor_rejects_hazardous_numeric_values(kwargs):
+    with pytest.raises(ValueError):
+        DummyClient(provider="openai", model_name="m", **kwargs)

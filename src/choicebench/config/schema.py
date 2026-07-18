@@ -7,6 +7,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import math
+from numbers import Real
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -15,9 +17,24 @@ import yaml
 from choicebench.backends.dummy_backend import DummyBackend
 from choicebench.backends.hf_backend import HuggingFaceBackend
 from choicebench.benchmarks.registry import BENCHMARK_REGISTRY
+from choicebench.identity import is_credential_key
 from choicebench.metrics import BUILTIN_METRICS
 
 DEFAULT_MAX_NEW_TOKENS = 512
+
+
+def _credential_keys_in(value: Any) -> set[str]:
+    """Collect credential-named keys at any nesting depth of a params tree."""
+    found: set[str] = set()
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            if is_credential_key(str(key)):
+                found.add(str(key))
+            found |= _credential_keys_in(item)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            found |= _credential_keys_in(item)
+    return found
 
 _VALID_BACKENDS = {"huggingface", "api", "dummy"}
 # No API provider client implements score_options() — all of them (OpenAI,
@@ -74,6 +91,7 @@ class ModelConfig:
     # do not prepend BOS for open-source models — set False to match.
     # Ignored by api/dummy backends.
     add_bos_token: bool = True
+    revision: str | None = None
 
 
 @dataclass
@@ -85,6 +103,8 @@ class BenchmarkConfig:
     hf_path: str | None = None       # e.g. "cais/mmlu"
     hf_subset: str | None = None     # e.g. "all" or "ARC-Challenge"
     output_name: str | None = None   # override for normalized CSV filename stem
+    source_revision: str | None = None
+    transforms: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -109,6 +129,7 @@ class RunConfig:
     dry_run: bool = False
     checkpoint_every_n: int = 50
     prompt_version: str = "v1"
+    prompt_dir: str | None = None
     concurrency_limit: int = 10
 
 
@@ -150,24 +171,74 @@ def _require(d: Mapping, key: str, where: str) -> Any:
     return d[key]
 
 
+def _reject_unknown(d: Mapping, allowed: set[str], where: str) -> None:
+    unknown = sorted(set(d) - allowed)
+    if unknown:
+        raise ConfigError(f"Unknown field(s) in {where}: {unknown}. Check spelling or migrate the config.")
+
+
+def _strict_int(value: Any, field_name: str, *, minimum: int | None = None) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ConfigError(f"{field_name} must be an integer; got {value!r}.")
+    if minimum is not None and value < minimum:
+        qualifier = "a positive integer" if minimum == 1 else f">= {minimum}"
+        raise ConfigError(f"{field_name} must be {qualifier}; got {value!r}.")
+    return value
+
+
+def _strict_float(
+    value: Any, field_name: str, *, minimum: float, maximum: float,
+    minimum_exclusive: bool = False,
+) -> float:
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ConfigError(f"{field_name} must be a finite number; got {value!r}.")
+    result = float(value)
+    if not math.isfinite(result):
+        raise ConfigError(f"{field_name} must be a finite number; got {value!r}.")
+    lower_bad = result <= minimum if minimum_exclusive else result < minimum
+    if lower_bad or result > maximum:
+        left = "(" if minimum_exclusive else "["
+        raise ConfigError(f"{field_name} must be in {left}{minimum}, {maximum}]; got {value!r}.")
+    return result
+
+
+def _strict_bool(value: Any, field_name: str) -> bool:
+    if not isinstance(value, bool):
+        raise ConfigError(f"{field_name} must be true or false; got {value!r}.")
+    return value
+
+
+def _nonempty(value: Any, field_name: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ConfigError(f"{field_name} must be a non-empty string; got {value!r}.")
+    return value.strip()
+
+
 def _build_generation_kwargs(raw: dict | None) -> GenerationKwargsConfig:
     raw = raw or {}
+    _reject_unknown(raw, {"max_new_tokens", "temperature", "do_sample"}, "generation_kwargs")
     return GenerationKwargsConfig(
-        max_new_tokens=int(raw.get("max_new_tokens", 512)),
-        temperature=float(raw.get("temperature", 0.0)),
-        do_sample=bool(raw.get("do_sample", False)),
+        max_new_tokens=_strict_int(raw.get("max_new_tokens", 512), "generation_kwargs.max_new_tokens", minimum=1),
+        temperature=_strict_float(raw.get("temperature", 0.0), "generation_kwargs.temperature", minimum=0.0, maximum=2.0),
+        do_sample=_strict_bool(raw.get("do_sample", False), "generation_kwargs.do_sample"),
     )
 
 
 def _build_models(raw: dict) -> list[ModelConfig]:
     models = []
     for i, entry in enumerate(raw.get("models", [])):
-        backend = _require(entry, "backend", f"models[{i}]")
+        if not isinstance(entry, Mapping):
+            raise ConfigError(f"models[{i}] must be a YAML mapping; got {entry!r}.")
+        _reject_unknown(entry, {
+            "backend", "model_name_or_path", "provider", "device", "generation_kwargs",
+            "concurrency_limit", "base_url", "add_bos_token", "revision",
+        }, f"models[{i}]")
+        backend = _nonempty(_require(entry, "backend", f"models[{i}]"), f"models[{i}].backend")
         if backend not in _VALID_BACKENDS:
             raise ConfigError(
                 f"model.backend must be one of {sorted(_VALID_BACKENDS)}; got {backend!r}."
             )
-        device = entry.get("device", "cuda")
+        device = _nonempty(entry.get("device", "cuda"), f"models[{i}].device")
         if device not in _VALID_DEVICES:
             raise ConfigError(
                 f"model.device must be one of {sorted(_VALID_DEVICES)}; got {device!r}."
@@ -177,17 +248,21 @@ def _build_models(raw: dict) -> list[ModelConfig]:
         models.append(
             ModelConfig(
                 backend=backend,
-                model_name_or_path=_require(entry, "model_name_or_path", f"models[{i}]"),
-                provider=entry.get("provider"),
+                model_name_or_path=_nonempty(_require(entry, "model_name_or_path", f"models[{i}]"), f"models[{i}].model_name_or_path"),
+                provider=(_nonempty(entry["provider"], f"models[{i}].provider") if entry.get("provider") is not None else None),
                 device=device,
                 generation_kwargs=_build_generation_kwargs(entry.get("generation_kwargs")),
                 concurrency_limit=(
-                    int(entry["concurrency_limit"])
+                    _strict_int(entry["concurrency_limit"], f"models[{i}].concurrency_limit", minimum=1)
                     if entry.get("concurrency_limit") is not None
                     else None
                 ),
                 base_url=entry.get("base_url"),
-                add_bos_token=bool(entry.get("add_bos_token", True)),
+                add_bos_token=_strict_bool(entry.get("add_bos_token", True), f"models[{i}].add_bos_token"),
+                revision=(
+                    _nonempty(entry["revision"], f"models[{i}].revision")
+                    if entry.get("revision") is not None else None
+                ),
             )
         )
     return models
@@ -195,27 +270,45 @@ def _build_models(raw: dict) -> list[ModelConfig]:
 
 def _build_benchmark_entry(raw: dict, index: int) -> BenchmarkConfig:
     where = f"benchmarks[{index}]"
-    name = _require(raw, "name", where)
+    if not isinstance(raw, Mapping):
+        raise ConfigError(f"{where} must be a YAML mapping; got {raw!r}.")
+    _reject_unknown(raw, {
+        "name", "split", "n_samples", "subject_filter", "hf_path", "hf_subset",
+        "output_name", "source_revision", "transforms",
+    }, where)
+    name = _nonempty(_require(raw, "name", where), f"{where}.name")
     valid = get_valid_benchmarks()
     if name not in valid:
         raise ConfigError(
             f"{where}.name must be one of {sorted(valid)}; got {name!r}."
         )
     n_samples = raw.get("n_samples")
-    if n_samples is not None and (not isinstance(n_samples, int) or n_samples <= 0):
-        raise ConfigError(
-            f"{where}.n_samples must be a positive integer or null; got {n_samples!r}."
-        )
+    if n_samples is not None:
+        n_samples = _strict_int(n_samples, f"{where}.n_samples", minimum=1)
     if name == BENCHMARK_HUGGINGFACE and not raw.get("hf_path"):
         raise ConfigError(f"{where}.hf_path is required when name is 'huggingface'.")
+    transforms = raw.get("transforms", [])
+    if not isinstance(transforms, list):
+        raise ConfigError(f"{where}.transforms must be a list of strings.")
+    transforms = [_nonempty(value, f"{where}.transforms") for value in transforms]
+    subject_filter = raw.get("subject_filter")
+    if subject_filter is not None:
+        if not isinstance(subject_filter, list):
+            raise ConfigError(f"{where}.subject_filter must be a list of strings or null.")
+        subject_filter = [_nonempty(value, f"{where}.subject_filter") for value in subject_filter]
+    source_revision = raw.get("source_revision")
+    if source_revision is not None:
+        source_revision = _nonempty(source_revision, f"{where}.source_revision")
     return BenchmarkConfig(
         name=name,
-        split=raw.get("split", "test"),
+        split=_nonempty(raw.get("split", "test"), f"{where}.split"),
         n_samples=n_samples,
-        subject_filter=raw.get("subject_filter"),
+        subject_filter=subject_filter,
         hf_path=raw.get("hf_path"),
         hf_subset=raw.get("hf_subset"),
         output_name=raw.get("output_name"),
+        source_revision=source_revision,
+        transforms=transforms,
     )
 
 
@@ -265,28 +358,53 @@ def _build_methods(raw: list | None) -> list[MethodConfig]:
         where = f"methods[{i}]"
         if not isinstance(entry, Mapping):
             raise ConfigError(f"{where} must be a YAML mapping; got {entry!r}.")
-        name = _require(entry, "name", where)
+        name = _nonempty(_require(entry, "name", where), f"{where}.name")
         params = entry.get("params", {})
         if params is None:
             params = {}
         if not isinstance(params, dict):
             raise ConfigError(f"{where}.params must be a YAML mapping; got {params!r}.")
+        reserved = sorted(set(params) & {
+            "calibration_identity", "calibration_questions", "calibration_runs_dir",
+            "condition_id", "gate_summary", "modal_k", "preflight_questions",
+        })
+        if reserved:
+            raise ConfigError(
+                f"{where}.params contains orchestrator-owned runtime field(s) {reserved}; remove them."
+            )
+        credentials = sorted(_credential_keys_in(params))
+        if credentials:
+            raise ConfigError(
+                f"{where}.params contains credential-named field(s) {credentials}. "
+                "ChoiceBench reads credentials from environment variables and refuses "
+                "them in scientific configuration; rename the parameter if it is "
+                "ordinary method configuration."
+            )
         preflight_raw = entry.get("preflight")
         preflight: PreflightConfig | None = None
+        _reject_unknown(entry, {"name", "requires_logprobs", "params", "preflight"}, where)
         if preflight_raw is not None:
             if not isinstance(preflight_raw, dict):
                 raise ConfigError(
                     f"{where}.preflight must be a YAML mapping; got {preflight_raw!r}."
                 )
+            _reject_unknown(preflight_raw, {"source", "split", "n"}, f"{where}.preflight")
             preflight = PreflightConfig(
-                source=str(preflight_raw.get("source", "benchmark")),
-                split=str(preflight_raw.get("split", "validation")),
-                n=int(preflight_raw.get("n", 100)),
+                source=_nonempty(preflight_raw.get("source", "benchmark"), f"{where}.preflight.source"),
+                split=_nonempty(preflight_raw.get("split", "validation"), f"{where}.preflight.split"),
+                n=_strict_int(preflight_raw.get("n", 100), f"{where}.preflight.n", minimum=1),
             )
+        if name == "pride":
+            if "calibration_n" in params:
+                _strict_int(params["calibration_n"], f"{where}.params.calibration_n", minimum=0)
+            if "calibration_seed" in params:
+                _strict_int(params["calibration_seed"], f"{where}.params.calibration_seed", minimum=0)
+        if name == "two_stage" and "fallback_on_parse_failure" in params:
+            _strict_bool(params["fallback_on_parse_failure"], f"{where}.params.fallback_on_parse_failure")
         methods.append(
             MethodConfig(
                 name=name,
-                requires_logprobs=bool(entry.get("requires_logprobs", False)),
+                requires_logprobs=_strict_bool(entry.get("requires_logprobs", False), f"{where}.requires_logprobs"),
                 params=dict(params),
                 preflight=preflight,
             )
@@ -311,29 +429,28 @@ def _build_metrics(raw: list | None) -> list[str]:
 
 def _build_run(raw: dict | None) -> RunConfig:
     raw = raw or {}
+    _reject_unknown(raw, {
+        "seed", "resume", "dry_run", "checkpoint_every_n", "prompt_version",
+        "prompt_dir", "concurrency_limit",
+    }, "run")
     return RunConfig(
-        seed=int(raw.get("seed", 42)),
-        resume=bool(raw.get("resume", True)),
-        dry_run=bool(raw.get("dry_run", False)),
-        checkpoint_every_n=int(raw.get("checkpoint_every_n", 50)),
-        prompt_version=str(raw.get("prompt_version", "v1")),
-        concurrency_limit=int(raw.get("concurrency_limit", 10)),
+        seed=_strict_int(raw.get("seed", 42), "run.seed", minimum=0),
+        resume=_strict_bool(raw.get("resume", True), "run.resume"),
+        dry_run=_strict_bool(raw.get("dry_run", False), "run.dry_run"),
+        checkpoint_every_n=_strict_int(raw.get("checkpoint_every_n", 50), "run.checkpoint_every_n", minimum=1),
+        prompt_version=_nonempty(raw.get("prompt_version", "v1"), "run.prompt_version"),
+        prompt_dir=(
+            _nonempty(raw["prompt_dir"], "run.prompt_dir")
+            if raw.get("prompt_dir") is not None else None
+        ),
+        concurrency_limit=_strict_int(raw.get("concurrency_limit", 10), "run.concurrency_limit", minimum=1),
     )
 
 
 def _build_pride(raw: dict | None) -> PriDeConfig:
     raw = raw or {}
-    threshold = raw.get("modal_k_threshold", 0.95)
-    try:
-        threshold = float(threshold)
-    except (TypeError, ValueError):
-        raise ConfigError(
-            f"pride.modal_k_threshold must be a number in (0, 1]; got {threshold!r}."
-        )
-    if not (0.0 < threshold <= 1.0):
-        raise ConfigError(
-            f"pride.modal_k_threshold must be in (0, 1]; got {threshold}."
-        )
+    _reject_unknown(raw, {"modal_k_threshold"}, "pride")
+    threshold = _strict_float(raw.get("modal_k_threshold", 0.95), "pride.modal_k_threshold", minimum=0.0, maximum=1.0, minimum_exclusive=True)
     return PriDeConfig(modal_k_threshold=threshold)
 
 
@@ -381,7 +498,7 @@ def _validate_cross_field(config: ExperimentConfig) -> None:
         # filename / checkpoint key / benchmark_name column), not just
         # output_name — otherwise two `name: huggingface` entries that resolve
         # to the same stem would slip past and silently overwrite each other.
-        key = benchmark_write_label(bench)
+        key = repr(canonical_benchmark_key(bench))
         if key in seen_benchmark_keys:
             raise ConfigError(
                 f"Duplicate benchmark key {key!r} in benchmarks list — "
@@ -389,6 +506,15 @@ def _validate_cross_field(config: ExperimentConfig) -> None:
                 f"Set output_name on one of them to disambiguate."
             )
         seen_benchmark_keys.add(key)
+
+
+def canonical_benchmark_key(bench: BenchmarkConfig) -> tuple:
+    """Full prepared-source identity used only to reject exact duplicates."""
+    return (
+        benchmark_write_label(bench), bench.split, bench.hf_path, bench.hf_subset,
+        bench.source_revision, tuple(bench.transforms), bench.output_name,
+        bench.n_samples, tuple(bench.subject_filter or []),
+    )
 
 
 def load_config(path: str) -> ExperimentConfig:
@@ -406,12 +532,16 @@ def load_config(path: str) -> ExperimentConfig:
         raise ConfigError(f"{path} must contain a YAML mapping at the top level.")
 
     experiment = raw.get("experiment") or {}
+    _reject_unknown(raw, {"experiment", "models", "benchmarks", "methods", "metrics", "run", "pride"}, "top level")
+    if not isinstance(experiment, Mapping):
+        raise ConfigError("experiment must be a YAML mapping.")
+    _reject_unknown(experiment, {"name"}, "experiment")
     models = _build_models(raw)
     if not models:
         raise ConfigError("models must be a non-empty list.")
 
     config = ExperimentConfig(
-        name=_require(experiment, "name", "experiment"),
+        name=_nonempty(_require(experiment, "name", "experiment"), "experiment.name"),
         models=models,
         benchmarks=_build_benchmarks(raw),
         methods=_build_methods(raw.get("methods")),

@@ -116,9 +116,15 @@ class MAD(BaseMetric):
         total_abs_dev = np.zeros(_N_BOOTSTRAP)
         for k in range(len(options)):
             gt_count = ((gt_boot == k) & scored_boot).sum(axis=1)
-            gt_pct = np.where(total_scored > 0, gt_count / total_scored * 100.0, 0.0)
+            gt_pct = np.divide(
+                gt_count * 100.0, total_scored,
+                out=np.zeros_like(total_scored), where=total_scored > 0,
+            )
             pred_count = ((pred_boot == k) & scored_boot).sum(axis=1)
-            pred_pct = np.where(total_scored > 0, pred_count / total_scored * 100.0, 0.0)
+            pred_pct = np.divide(
+                pred_count * 100.0, total_scored,
+                out=np.zeros_like(total_scored), where=total_scored > 0,
+            )
             total_abs_dev += np.abs(pred_pct - gt_pct)
 
         stats = np.where(total_scored > 0, total_abs_dev / len(options), np.nan)

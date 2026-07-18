@@ -191,7 +191,7 @@ above is needed — skip straight to the config and use
 #
 # Companion config for examples/method_comparison.md. Runs the new
 # shuffled_baseline demo method head-to-head with the direct_mcq baseline on
-# the bundled toy dataset, using DummyBackend so it needs no GPU or API key.
+# the prepared toy dataset, using DummyBackend so it needs no GPU or API key.
 
 experiment:
   name: method_comparison_demo
@@ -231,7 +231,7 @@ run:
 ## Running it
 
 ```
-$ python scripts/run_experiment.py --config examples/method_comparison.yaml --run-id method_comparison_demo --yes
+$ choicebench-run --config examples/method_comparison.yaml --run-id method_comparison_demo --yes
 15:24:44  INFO      Loaded config: examples/method_comparison.yaml
 15:24:44  INFO      Run ID: method_comparison_demo  |  Output: .../runs/method_comparison_demo
 15:24:44  INFO      Loaded 10 questions from toy
@@ -239,12 +239,12 @@ $ python scripts/run_experiment.py --config examples/method_comparison.yaml --ru
 15:24:44  INFO      Backend: DummyBackend
 15:24:44  INFO      [direct_mcq] Starting fresh: 10 questions
 15:24:44  INFO      [direct_mcq] Progress: 10 / 10 questions complete
-15:24:44  INFO      [direct_mcq] Done → .../runs/method_comparison_demo/method_comparison_demo_direct_mcq_dummy_1_toy.csv
+15:24:44  INFO      [direct_mcq] Done → .../runs/method_comparison_demo/results/cond_<hash>.csv
 15:24:44  INFO      ── Benchmark: toy  Method: shuffled_baseline  Model: dummy_1 (dummy) ──────────────────
 15:24:44  INFO      Backend: DummyBackend
 15:24:44  INFO      [shuffled_baseline] Starting fresh: 10 questions
 15:24:44  INFO      [shuffled_baseline] Progress: 10 / 10 questions complete
-15:24:44  INFO      [shuffled_baseline] Done → .../runs/method_comparison_demo/method_comparison_demo_shuffled_baseline_dummy_1_toy.csv
+15:24:44  INFO      [shuffled_baseline] Done → .../runs/method_comparison_demo/results/cond_<hash>.csv
 15:24:44  INFO      ── Run complete ─────────────────────────────────
 15:24:44  INFO        Run ID:     method_comparison_demo
 15:24:44  INFO        Results in: .../runs/method_comparison_demo
@@ -253,51 +253,44 @@ $ python scripts/run_experiment.py --config examples/method_comparison.yaml --ru
 ```
 
 ```
-$ python scripts/evaluate_run.py --run-id method_comparison_demo
+$ choicebench-evaluate --run-id method_comparison_demo
 15:24:50  INFO      Loading run: method_comparison_demo
 15:24:50  INFO      Loaded 20 rows
-15:24:50  INFO      Metrics to compute: ['accuracy', 'mad']
-15:24:50  INFO      Metrics saved to .../reports/method_comparison_demo_metrics.json
+15:24:50  INFO      Metrics saved to .../reports/method_comparison_demo_eval_<hash>_metrics.json
 15:24:50  INFO      ── Eval complete ────────────────────────────────
-15:24:50  INFO        [direct_mcq | dummy_1 | toy]  {'accuracy': 0.3, 'accuracy_ci_low': 0.0667, 'accuracy_ci_high': 0.6525, 'accuracy_conditional': 0.3, 'accuracy_conditional_ci_low': 0.0667, 'accuracy_conditional_ci_high': 0.6525, 'mad': 46.6667, 'mad_std': 9.6976}
-15:24:50  INFO        [shuffled_baseline | dummy_1 | toy]  {'accuracy': 0.2, 'accuracy_ci_low': 0.0252, 'accuracy_ci_high': 0.5561, 'accuracy_conditional': 0.2, 'accuracy_conditional_ci_low': 0.0252, 'accuracy_conditional_ci_high': 0.5561, 'mad': 20.0, 'mad_std': 7.5855}
+15:24:50  INFO        [cond_<hash> | direct_mcq | dummy_1 | toy]  {'accuracy': 0.3, ...}
+15:24:50  INFO        [cond_<hash> | shuffled_baseline | dummy_1 | toy]  {'accuracy': 0.2, ...}
 15:24:50  INFO      ─────────────────────────────────────────────────
 ```
 
 ## Reading the results
 
-`reports/method_comparison_demo_metrics.json`:
+`reports/method_comparison_demo_eval_<hash>_metrics.json` contains the source
+experiment/protocol identity, metric implementation identities, a report
+digest, and condition-keyed metrics:
 
 ```json
 {
-    "direct_mcq": {
-        "dummy_1": {
-            "toy": {
-                "accuracy": 0.3,
-                "accuracy_ci_low": 0.06673951117773447,
-                "accuracy_ci_high": 0.6524528500599973,
-                "accuracy_conditional": 0.3,
-                "accuracy_conditional_ci_low": 0.06673951117773447,
-                "accuracy_conditional_ci_high": 0.6524528500599973,
-                "mad": 46.666666666666664,
-                "mad_std": 9.697566338462908
-            }
-        }
+  "schema_version": "choicebench.evaluation.v1",
+  "evaluation_id": "eval_<hash>",
+  "source": {"experiment_id": "exp_<hash>", "protocol_version": "choicebench.protocol.v2"},
+  "conditions": {
+    "cond_<direct-hash>": {
+      "method_name": "direct_mcq",
+      "model_name": "dummy_1",
+      "benchmark_name": "toy",
+      "status": "completed",
+      "metrics": {"accuracy": 0.3, "mad": 46.666666666666664}
     },
-    "shuffled_baseline": {
-        "dummy_1": {
-            "toy": {
-                "accuracy": 0.2,
-                "accuracy_ci_low": 0.02521072632683336,
-                "accuracy_ci_high": 0.5560954623076415,
-                "accuracy_conditional": 0.2,
-                "accuracy_conditional_ci_low": 0.02521072632683336,
-                "accuracy_conditional_ci_high": 0.5560954623076415,
-                "mad": 20.0,
-                "mad_std": 7.585523037338954
-            }
-        }
+    "cond_<shuffle-hash>": {
+      "method_name": "shuffled_baseline",
+      "model_name": "dummy_1",
+      "benchmark_name": "toy",
+      "status": "completed",
+      "metrics": {"accuracy": 0.2, "mad": 20.0}
     }
+  },
+  "report_digest": "<sha256>"
 }
 ```
 

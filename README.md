@@ -117,6 +117,7 @@ accounting of that deviation with candidate causes.
 git clone https://github.com/cotenthusiast/choicebench && cd choicebench
 python -m venv .venv && source .venv/bin/activate
 pip install -e .
+choicebench-prepare-toy
 ```
 
 For local HuggingFace inference, install the optional dependencies instead:
@@ -138,7 +139,7 @@ VLLM_API_KEY=
 ### Run the toy experiment (no GPU, no API key needed)
 
 ```bash
-python scripts/run_experiment.py --config config/toy_experiment.yaml --run-id toy_experiment --yes
+choicebench-run --config config/toy_experiment.yaml --run-id toy_experiment --yes
 ```
 
 This runs the built-in `DummyBackend` (fixed responses, no model) against a 10-question synthetic dataset. It completes in seconds and exercises the full pipeline: benchmark loading → method execution → checkpointing → result CSV writing.
@@ -148,10 +149,12 @@ Without `--run-id`, the run is written to a timestamped directory (e.g. `runs/20
 ### Evaluate results
 
 ```bash
-python scripts/evaluate_run.py --run-id toy_experiment
+choicebench-evaluate --run-id toy_experiment
 ```
 
-Logs a metrics summary and writes a JSON report to `reports/`.
+Logs a metrics summary and writes a self-identifying JSON report to
+`reports/toy_experiment_eval_<hash>_metrics.json`. Ordinary evaluation and
+`--reparse` have distinct evaluation IDs and cannot overwrite one another.
 
 Expected output for the toy run is `accuracy: 0.3`: `DummyBackend` always answers
 `A`, and 3 of the 10 toy questions have `A` as their correct option.
@@ -160,33 +163,38 @@ Expected output for the toy run is `accuracy: 0.3`: `DummyBackend` always answer
 
 ```
 runs/toy_experiment/
-  config.yaml                                      # copy of the config used
-  toy_experiment_direct_mcq_dummy_1_toy.csv        # one CSV per (run, method, model, benchmark)
-  toy_experiment_direct_mcq_dummy_2_toy.csv
-  checkpoints/                                     # auto-cleaned on completion
+  manifest.json                                    # immutable protocol/config/input identity
+  run_state.json                                   # mutable completion/gating status only
+  config.yaml                                      # original human-readable config
+  results/cond_<hash>.csv                          # one file per canonical condition
+  checkpoints/cond_<hash>.json                     # present only while interrupted
+  artifacts/cond_<hash>/                           # method/gate sidecars
+  artifacts/datasets/sel_<hash>.csv                # exact selected input rows
+  artifacts/prompts/prompt_<hash>/*.txt             # exact prompt templates consumed
 ```
 
-The CSV filename encodes `<run_id>_<method>_<model>_<benchmark>`. Each result CSV has one row per question with columns for the prompt, raw model output, parsed choice, gold answer, and whether the answer was correct.
+Human labels remain in each row, but uniqueness comes from `condition_id`, not
+from filename sanitization. Every row also carries `experiment_id`, dataset
+artifact/selection IDs, model/method IDs, prompt ID, and the exact split.
 
 ### Prepare MMLU or ARC-Challenge
 
-The bundled toy CSV needs no setup. For example, to prepare MMLU or
+The deterministic toy generator is invoked by `choicebench-prepare-toy`. For example, to prepare MMLU or
 ARC-Challenge, normalize them once before running experiments:
 
 ```bash
-python scripts/prepare_data.py --hf-path cais/mmlu --hf-subset all
-python scripts/prepare_data.py --hf-path allenai/ai2_arc --hf-subset ARC-Challenge
+choicebench-prepare --hf-path cais/mmlu --hf-subset all --split test
+choicebench-prepare --hf-path allenai/ai2_arc --hf-subset ARC-Challenge --split test
 ```
 
 Every HuggingFace dataset needs a registered `@benchmark` normalizer before
 `prepare_data.py` can process it — there is no code-free path (see **Add a
 benchmark**). For the benchmarks in the table below this is already done, so
-`prepare_data.py` writes to the stem the config expects automatically (e.g.
-`arc_challenge_normalized.csv`) and `--output-name` is unnecessary — the two
-commands above match the **Supported Benchmarks** table below as-is. If you
-instead load a dataset via `name: huggingface`, pass `--output-name <stem>` to
-match the `output_name` you set in the config — but that dataset still needs
-the same registered normalizer first.
+`choicebench-prepare` writes a verified split-addressed artifact using the
+registered benchmark name automatically, so `--output-name` is unnecessary
+for built-ins. A generic `name: huggingface` config may use `output_name` as a
+logical display/address component, but it still requires a registered
+normalizer. Always prepare every evaluation and calibration split explicitly.
 
 ---
 
@@ -215,6 +223,7 @@ experiment:
 models:                         # one or more; every model runs every benchmark
   - backend: huggingface        # "huggingface" | "api" | "dummy"
     model_name_or_path: Qwen/Qwen2.5-7B-Instruct  # HF hub ID or local path
+    revision: null               # optional model branch/tag/commit; identity-bearing
     device: cuda                # "cuda" | "cpu" | "auto" (multi-GPU)
     generation_kwargs:
       max_new_tokens: 512
@@ -231,6 +240,8 @@ models:                         # one or more; every model runs every benchmark
 benchmarks:                     # a non-empty list (one entry per benchmark)
   - name: mmlu                  # "mmlu" | "arc_challenge" | "mmlu_pro" | "hellaswag" | "truthful_qa" | "toy" | "huggingface"
     split: test                 # split name (benchmark-specific)
+    source_revision: null       # optional HF revision/commit; part of artifact identity
+    transforms: []              # e.g. [permutation_safe_v1], must match preparation
     n_samples: 100              # null = full split; positive int = random subsample
     subject_filter: null        # null | list of MMLU subject strings
 
@@ -262,7 +273,8 @@ run:
   resume: true                  # resume from checkpoint if one exists
   dry_run: false                # print plan and exit without running
   checkpoint_every_n: 50        # save progress to disk every N questions
-  prompt_version: "v1"          # subdirectory under prompts/
+  prompt_version: "v1"          # packaged prompt bundle; file contents are hashed
+  prompt_dir: null               # optional external root for custom prompt bundles
   concurrency_limit: 10         # max in-flight requests per API model (rate-limit guard)
 ```
 
@@ -370,9 +382,126 @@ src/choicebench/
   scoring/           — correctness scoring
 ```
 
-**Data flow:** config → `load_benchmark()` → `build_backend()` → `instantiate_runner()` → `run_method()` (with checkpointing) → `write_run_results()` → `evaluate_run.py` → metrics report.
+**Data flow:** config -> verified prepared artifact -> immutable manifest and
+condition grid -> backend/method execution -> condition-addressed results ->
+manifest-driven evaluation.
 
-**Checkpointing:** progress is saved to `runs/<run_id>/checkpoints/` every `checkpoint_every_n` questions. If a run is interrupted, re-running the same command resumes from the last checkpoint automatically (when `resume: true`). Checkpoints are deleted on successful completion.
+### Protocol-v2 identity and provenance
+
+ChoiceBench v0.2 makes every result self-identifying. Preparation maps the
+logical benchmark, source/config, requested split, source revision,
+normalization version, and declared transforms to a distinct directory:
+
+```
+data/processed/<name>/<split>/norm-v2/src_<spec-hash>/
+  normalized.csv
+  artifact.json
+  stats.json
+```
+
+`artifact.json` records the exact specification, row count, source metadata
+(including the resolved Hub commit where available),
+and a semantic SHA-256 digest of the ordered normalized rows. Loading
+recomputes that digest. A changed CSV, mismatched metadata file, stale generic
+`<name>_normalized.csv`, or wrong split is rejected. Legacy CSVs are never
+silently assigned provenance; re-run `choicebench-prepare` for the exact split.
+
+Before inference, `choicebench-run` resolves all datasets and calibration
+splits, hashes and archives the exact prompt contents, canonicalizes and credential-sanitizes the complete model
+and method configurations, resolves Hugging Face model refs to commits (or
+hashes every file in a local model tree), fingerprints configured external
+method/metric modules, records the source commit/dirty source-tree digest,
+ChoiceBench/Python/dependency versions, expands the declared condition grid,
+and writes `manifest.json`. Its timestamp is informational and excluded from
+the deterministic experiment identity.
+
+A condition ID covers benchmark + split + prepared artifact + deterministic
+sample selection + calibration selection + full model/backend/provider/endpoint
+configuration + full method parameters + prompt bundle + seed. Therefore two
+same-named methods with different parameters, or two same-display-name models
+on different providers/endpoints, cannot share a result or checkpoint.
+
+Resume is accepted only when the newly resolved experiment digest exactly
+matches the existing immutable manifest. Changes to code/protocol, seed,
+dataset contents, split, sampled rows, prompt contents, method parameters,
+model/provider/backend settings, generation settings, or dependencies reject
+resume with instructions to choose a new run ID or use `--reset-run`.
+Nonempty v0.1 run directories without a manifest are treated as unverifiable
+legacy runs and cannot be resumed.
+
+Presentation and operational controls (`experiment.name`, `run.resume`,
+`run.dry_run`, checkpoint cadence, API concurrency, and YAML grid ordering) do
+not invalidate resume. They remain in the config snapshot but are excluded
+from scientific identity. `run_state.json` is deliberately separate and mutable; it records whether
+each immutable condition is pending, completed, failed, or gated. Evaluation
+reads only result paths declared by the manifest and rejects missing,
+unexpected, duplicate, identity-conflicting, or digest-corrupt artifacts.
+Failed conditions do not block evaluation: they are accounted in the report
+(status and error, no metrics) and the report's `run_status` marks the run as
+`partial`; pending conditions refuse evaluation until the run is finished.
+The evaluation ID binds the exact validated result contents, so re-evaluating
+changed results produces a new report file rather than overwriting the old one.
+
+For papers, report at least the ChoiceBench version, protocol version, and
+`experiment_id` from `manifest.json`, and archive the run manifest with the
+configuration and results.
+
+Example (abbreviated; recognized credentials are redacted and scientific file
+inputs are represented by logical names/content digests, not absolute paths):
+
+```json
+{
+  "schema_version": "choicebench.manifest.v2",
+  "experiment_id": "exp_0123456789abcdef",
+  "payload": {
+    "protocol_version": "choicebench.protocol.v2",
+    "datasets": [{"artifact_id": "ds_...", "split": "test"}],
+    "conditions": [{"condition_id": "cond_...", "result_path": "results/cond_....csv"}]
+  }
+}
+```
+
+### Installed workspace policy
+
+Prompt templates are read-only package resources. User data is never written
+inside `site-packages`. `CHOICEBENCH_HOME`, when set, is the workspace root;
+otherwise the current working directory is used. Its `data/`, `runs/`, and
+`reports/` children contain generated artifacts. The supported installed
+commands are `choicebench-prepare`, `choicebench-prepare-toy`,
+`choicebench-run`, and `choicebench-evaluate`; the existing `scripts/*.py`
+entry points remain available from a source clone.
+
+Set `run.prompt_dir` to an external prompt root for a custom bundle. The
+logical version and template contents are identity-bearing; the machine path is
+not stored. `.env` is loaded from `CHOICEBENCH_HOME` (or the current workspace
+when that variable is unset).
+
+ChoiceBench enforces one writer process per run ID with an advisory lock.
+Concurrent API requests and models inside that process remain supported. Slurm
+array tasks must use distinct run IDs; a second process targeting an active run
+fails before touching the manifest, checkpoints, or results. `--reset-run` is
+subject to the same lock and refuses symlinked run directories.
+
+Credential handling is schema-aware: unambiguous credential-named keys
+(`api_key`, `authorization`, `client_secret`, …) are refused outright in
+scientific configuration — rename the parameter if it is ordinary method
+configuration — while secret-shaped but scientific names (`token`,
+`secret_strength`, …) keep their identity-affecting values. Value-level
+sanitization still covers bearer tokens, URL userinfo, and common signed-query
+schemes in endpoints and error text; it cannot identify an arbitrary secret
+embedded in ordinary prompt/model-output prose. Inspect artifacts before
+public release and never place credentials in prompts or scientific parameters.
+External method/metric identity binds the configured class's defining module,
+distribution version, and owning external package tree. Dynamically loaded code
+outside that package tree remains the extension author's responsibility. Remote APIs
+may remain nondeterministic and may not expose an immutable server-side model
+revision even when the client configuration is fully identified.
+
+**Checkpointing:** progress is saved to
+`runs/<run_id>/checkpoints/<condition_id>.json` every `checkpoint_every_n`
+questions. Checkpoints embed the experiment, condition, and dataset-selection
+identities; corruption or mismatch is a hard error. They are deleted after a
+condition completes successfully.
 
 ---
 
@@ -385,7 +514,7 @@ src/choicebench/
 | `direct_mcq` | Single-pass: prompt → parse → score | 1 |
 | `cyclic_permutation` | Runs one cyclic permutation per available option, takes majority vote | N options, normally 4 |
 | `two_stage` | Stage 1: free-form answer; Stage 2: map to option letter | 2, or 3 if fallback is enabled |
-| `pride` | PriDe Eq. 8 logprob debiasing. Note: YAML-driven runs use a uniform prior in v0.1 unless a preflight calibration block is configured (see the `preflight:` example in [Config Reference](#config-reference)). Without preflight, this is logprob argmax only — not calibration-fitted debiasing from Zheng et al., ICLR 2024. Subject to the [modal-k gate](#method-compatibility--known-limitations). | 1 score_options call per eval row; +4K calibration calls per run if K calibration rows are supplied |
+| `pride` | PriDe Eq. 8 logprob debiasing. YAML-driven runs use a uniform prior unless a preflight calibration block is configured (see the `preflight:` example in [Config Reference](#config-reference)). Without preflight, this is logprob argmax only, not calibration-fitted debiasing. Subject to the [modal-k gate](#method-compatibility--known-limitations). | 1 score_options call per eval row; +4K calibration calls per run if K calibration rows are supplied |
 | `cyclic_logprob` | Eq. 1 logprob averaging: score every cyclic permutation via `score_options`, average probability mass back to canonical slots, argmax | N options, normally 4 score_options calls |
 
 #### Authoritative answer column per method
@@ -511,8 +640,8 @@ across a benchmark whose questions have highly variable choice counts.
 To enforce this, PriDe runs behind a **modal-k compatibility gate**, configured
 by `pride.modal_k_threshold` (default `0.95`):
 
-- The benchmark's modal choice count *k* is read from the `<name>_stats.json`
-  sidecar written by `prepare_data.py`.
+- The benchmark's modal choice count *k* is computed from the exact selected
+  dataset rows archived in the run manifest snapshot.
 - If at least a `modal_k_threshold` proportion of the loaded questions have
   exactly *k* options, the run proceeds **on the modal-k subset only** — the
   non-modal-k questions are excluded.
@@ -525,8 +654,8 @@ evaluates only the modal-k subset, whatever the threshold is set to. Lowering
 the threshold only changes whether the run is *permitted to proceed at all* on a
 more heterogeneous benchmark — at the cost of a smaller `n_evaluated` relative
 to `n_total`. To see exactly what fraction you actually scored, consult the
-per-run gate report sidecar,
-`pride_modal_k_gate__<model>__<benchmark>.json` (written to the run directory),
+per-condition gate report sidecar,
+`runs/<run_id>/artifacts/<condition_id>/modal_k_gate.json`,
 and its `n_evaluated` vs `n_total` accounting — the same figures are mirrored
 onto each result row as `gate_n_evaluated` / `gate_n_total`.
 
@@ -629,11 +758,12 @@ CONFIG=config/my_experiment.yaml sbatch --partition=mypartition \
 ## Troubleshooting
 
 **CUDA out-of-memory on the HuggingFace backend.** The HF backend loads
-weights in `fp16` onto the device(s) given by `device:` in your config. If a
+weights in `fp16` on CUDA/auto (`fp32` on CPU) onto the device(s) given by
+`device:` in your config. If a
 model doesn't fit, either switch to a smaller `model_name_or_path`, set
 `device: auto` to shard across all visible GPUs, reduce
 `generation_kwargs.max_new_tokens`, or move the model to a node/partition with
-more GPU memory — there is no built-in quantization to fall back on in v0.1.
+more GPU memory; v0.2 has no built-in quantization fallback.
 
 **A model works everywhere except this run, and it's a `ProviderConfigurationError`.**
 API clients (`src/choicebench/clients/`) raise
@@ -645,15 +775,12 @@ retrying: a missing/empty API key, an invalid key, or a malformed request
 your config.
 
 **Is this a stale/corrupt checkpoint or a fresh run?** Re-running the same
-`--run-id` reuses that run directory: `config.yaml` and matching result CSVs
-are overwritten, and any checkpoint under `runs/<run_id>/checkpoints/` is
-resumed (when `run.resume: true`) rather than restarted. If a run directory
-was left in a bad state (e.g. killed mid-write, or you changed the config in a
-way that makes the old checkpoint inconsistent), pass `--reset-run` to clear
-the run directory first and start clean — see the flag's `--help` text in
-`scripts/run_experiment.py` for the exact behavior. Checkpoints are otherwise
-auto-deleted on successful completion, so a checkpoints directory surviving
-after a run claims to have finished is itself a sign something went wrong.
+`--run-id` first rebuilds and verifies the immutable experiment manifest.
+Only an identical experiment may resume or reuse a digest-verified completed
+condition. Scientific changes and corrupt checkpoints/results are hard errors
+before mixing can occur. Use a new run ID to preserve the prior experiment, or
+`--reset-run` for an intentional destructive replacement; reset is refused
+while another process holds the run lock.
 
 **`module: command not found` inside a Slurm job's `.err` log, even though
 `module load` works fine when you run it by hand.** `module` is a bash
@@ -676,9 +803,8 @@ instead.
 
 Planned v0.2 work:
 
-- **Config-driven PriDe calibration splits** — specify calibration rows directly in YAML rather than passing them via Python construction.
 - **Mixed-option PriDe calibration** — a single PriDe run that calibrates across questions with *different* option counts (rather than gating to the modal k, as it does today).
-- **Parallel orchestration across benchmark/method jobs** — v0.1 already runs API models concurrently (`asyncio.gather`) and questions concurrently under each model's `concurrency_limit`; benchmarks and methods still iterate serially, which this work would parallelize.
+- **Parallel orchestration across benchmark/method jobs** — ChoiceBench runs API models concurrently (`asyncio.gather`) and questions concurrently under each model's `concurrency_limit`; benchmarks and methods still iterate serially.
 - **Inspect AI adapter** — run ChoiceBench methods inside [Inspect](https://inspect.ai) workflows.
 - **Broader benchmark adapters and stronger script-level integration tests.**
 
@@ -694,7 +820,7 @@ If you use ChoiceBench in your research, please cite:
   title     = {ChoiceBench: A lightweight framework for MCQ evaluation-method research},
   year      = {2026},
   url       = {https://github.com/cotenthusiast/choicebench},
-  version   = {0.1.2},
+  version   = {0.2.0},
   license   = {MIT}
 }
 ```

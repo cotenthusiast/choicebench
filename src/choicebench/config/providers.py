@@ -7,9 +7,10 @@ import os
 from dotenv import load_dotenv
 
 from choicebench.config.schema import DEFAULT_MAX_NEW_TOKENS
+from choicebench.config.paths import ROOT_DIR
 
 # API keys --------------------------------------------------------------
-load_dotenv()
+load_dotenv(ROOT_DIR / ".env")
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")

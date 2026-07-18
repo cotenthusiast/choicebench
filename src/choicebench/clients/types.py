@@ -1,6 +1,7 @@
 # src/choicebench/clients/types.py
 
 from numbers import Real
+import math
 
 from choicebench.config.providers import MAX_TOKENS, SEED, TEMPERATURE
 
@@ -112,7 +113,7 @@ class ModelRequest:
         if isinstance(self.temperature, bool) or not isinstance(self.temperature, Real):
             raise RequestValidationError("temperature must be a numeric value.")
 
-        if self.temperature < 0.0 or self.temperature > 2.0:
+        if not math.isfinite(float(self.temperature)) or self.temperature < 0.0 or self.temperature > 2.0:
             raise RequestValidationError(
                 "temperature must be between 0.0 and 2.0."
             )
@@ -123,8 +124,10 @@ class ModelRequest:
         if self.max_tokens <= 0:
             raise RequestValidationError("max_tokens must be a positive integer.")
 
-        if self.seed is not None and (isinstance(self.seed, bool) or not isinstance(self.seed, int)):
-            raise RequestValidationError("seed must be an integer or None.")
+        if self.seed is not None and (
+            isinstance(self.seed, bool) or not isinstance(self.seed, int) or self.seed < 0
+        ):
+            raise RequestValidationError("seed must be a non-negative integer or None.")
 
 
 class ModelResponse:
@@ -170,9 +173,9 @@ class ModelResponse:
                 "latency_seconds must be a non-negative numeric value."
             )
 
-        if self.latency_seconds < 0:
+        if not math.isfinite(self.latency_seconds) or self.latency_seconds < 0:
             raise ResponseValidationError(
-                "latency_seconds must be a non-negative numeric value."
+                "latency_seconds must be a non-negative finite numeric value."
             )
 
         if self.is_success():

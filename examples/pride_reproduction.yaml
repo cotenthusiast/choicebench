@@ -13,12 +13,12 @@
 # Running PriDe here would waste GPU time re-deriving what that script
 # already gets from these two methods' logprobs.
 #
-# Prerequisite — prepare the permutation-filtered MMLU CSV first:
-#   python scripts/prepare_data.py --hf-path cais/mmlu --hf-subset all \
-#       --filter-permutation-unsafe --output-name mmlu_filtered
-# This writes data/processed/mmlu_filtered_normalized.csv (~13,592 of 14,042
-# rows survive per the paper's ~3.2% exclusion) plus a
-# mmlu_filtered_permutation_filter.json accounting sidecar.
+# Prerequisite - prepare the verified, filtered, unique-ID MMLU artifact first:
+#   choicebench-prepare --hf-path cais/mmlu --hf-subset all --split test \
+#       --filter-permutation-unsafe --exclude-duplicate-question-ids \
+#       --output-name mmlu_filtered
+# Both transforms are recorded in artifact and experiment identity. Excluding
+# duplicate IDs is required for unambiguous row-level checkpoint/resume state.
 
 experiment:
   name: pride_reproduction_mmlu_llama13b_0shot
@@ -47,15 +47,14 @@ models:
 # VRAM sizing that assumes it.
 
 benchmarks:
-  # NOTE: name: huggingface (not name: mmlu) — a registered benchmark name's
-  # CSV path is hardcoded to "<name>_normalized.csv" and ignores output_name,
-  # which would silently point this run at the *unfiltered* mmlu_normalized.csv.
-  # The generic huggingface path is the only one that honors output_name.
+  # The explicit transform is part of the prepared-artifact identity, so this
+  # cannot accidentally resolve the canonical unfiltered MMLU artifact.
   - name: huggingface
     hf_path: cais/mmlu
     hf_subset: all
     split: test
     output_name: mmlu_filtered
+    transforms: [permutation_safe_v1, unique_question_ids_v1]
     n_samples: null
     subject_filter: null
 

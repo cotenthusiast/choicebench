@@ -230,7 +230,8 @@ def test_run_end_to_end_over_csvs(tmp_path: Path):
 
     assert output["run_id"] == "testrun"
     assert output["n_scored"] == 5
-    cell = output["cells"]["alpha=0.4/seed=0"]
+    cell = next(iter(output["cells"].values()))
+    assert cell["condition_id"].startswith("pridecell_")
     assert cell["n"] == 5
     assert cell["k"] == 2
     assert cell["accuracy"] == pytest.approx(0.8)

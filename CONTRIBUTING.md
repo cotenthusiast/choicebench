@@ -88,17 +88,22 @@ python scripts/run_experiment.py --config config/toy_experiment.yaml --yes
    from choicebench.benchmarks import my_benchmark
    ```
 
-4. Run `python scripts/prepare_data.py --hf-path org/my-benchmark --hf-subset default`. Registered HuggingFace paths default to the registry name for the normalized CSV stem, so `name: my_benchmark` in YAML will load `data/processed/my_benchmark_normalized.csv`.
+4. Run `python scripts/prepare_data.py --hf-path org/my-benchmark --hf-subset default --split test`. Registered Hugging Face paths default to the registry name. The command writes a split/source/normalization-addressed artifact under `data/processed/my_benchmark/test/`; the matching YAML resolves and verifies that exact artifact.
 
 Every HuggingFace dataset needs a registered normalizer first. If you use `name: huggingface` in YAML for an unregistered dataset, `prepare_data.py` cannot normalize it.
 
 ## Submitting a PR
 
 1. Fork the repo and create a feature branch from the default branch
-2. Run `pytest tests/` — all tests must pass
+2. Run `pytest tests/` — all tests must pass. The suite is self-contained: it
+   prepares its own toy data inside a temporary `CHOICEBENCH_HOME` workspace,
+   so it needs no manual preparation step and writes nothing into the
+   repository. Install test dependencies first with `pip install -e ".[dev]"`.
 3. Run the toy experiment end-to-end to verify the pipeline is intact:
    ```bash
+   python scripts/prepare_toy_data.py
    python scripts/run_experiment.py --config config/toy_experiment.yaml --run-id toy_experiment --yes
+   python scripts/evaluate_run.py --run-id toy_experiment
    ```
 4. Open a PR against the default branch with a description of what changed and why
 5. For new methods or metrics, include a brief description of the algorithm and a reference if applicable

@@ -23,6 +23,7 @@ import logging
 from typing import Any
 
 import numpy as np
+from choicebench.identity import redact_text
 
 from choicebench.clients.types import FAILURE_STATUS, SUCCESS_STATUS
 from choicebench.parsing.types import PARSE_OK, ParseResult
@@ -73,10 +74,10 @@ class CyclicLogprobRunner(ExperimentRunner):
                 )
                 n_success += 1
             except Exception as exc:
-                logger.warning("CyclicLogprob: score_options failed — %s", exc)
+                logger.warning("CyclicLogprob: score_options failed — %s", redact_text(exc))
                 dist_rows.append(uni.copy())
                 if scoring_error is None:
-                    scoring_error = str(exc)
+                    scoring_error = redact_text(exc)
 
         mat = np.stack(dist_rows, axis=0).astype(np.float64)  # shape (N, N)
         content_probs = equation1_cyclic_debiased_content_probs(mat)

@@ -34,6 +34,7 @@ models:
     # backend: huggingface. Provider model name (e.g. "gpt-4.1-mini") when
     # backend: api.
     model_name_or_path: Qwen/Qwen2.5-7B-Instruct
+    revision: null  # optional model branch/tag/commit; included in condition identity
 
     # Required when backend: api — must match a key in CLIENT_REGISTRY
     # ("anthropic" | "openai" | "gemini" | "groq" | "together" | "vllm").
@@ -92,6 +93,14 @@ benchmarks:
     # Which split to draw from.
     split: test
 
+    # Optional immutable source revision (HF branch/tag/commit). It participates
+    # in prepared-artifact and experiment identity.
+    source_revision: null
+
+    # Preparation transforms must match the preparation command. For example,
+    # `--filter-permutation-unsafe` writes [permutation_safe_v1].
+    transforms: []
+
     # Cap the number of questions for a quick/cheap run. null = use the full
     # split.
     n_samples: null
@@ -147,7 +156,7 @@ benchmarks:
 methods:
   - name: direct_mcq
   - name: cyclic_permutation
-    # This built-in method has no params in v0.1.
+    # This built-in method has no method-specific params.
 
   - name: two_stage
     # Optional: re-issue a direct MCQ prompt if stage 2 parsing is ambiguous (adds a 3rd call).
@@ -203,6 +212,7 @@ run:
 
   # Prompt template version to use (must match a subdirectory in prompts/).
   prompt_version: "v1"
+  prompt_dir: null  # optional external prompt root; contents, not path, define identity
 
   # Global default cap on in-flight API requests, applied to any model that
   # does not set its own concurrency_limit in the models: section above. A

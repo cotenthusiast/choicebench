@@ -31,6 +31,15 @@ echo "Node: ${SLURMD_NODENAME:-$(hostname)}"
 echo "Config: ${CHOICEBENCH_CONFIG:-config/toy_experiment.yaml}"
 echo "Run ID: ${CHOICEBENCH_RUN_ID:-hpc_test_${SLURM_JOB_ID:-manual}}"
 
+# Idempotent and required on a cold clone: the toy dataset is generated in the
+# configured ChoiceBench workspace, never assumed to exist in the source tree.
+python scripts/prepare_toy_data.py
+
+# Requeue note: the default toy config sets run.resume: false, so a requeued
+# job reusing the same run ID is refused (exit 1) with instructions instead of
+# touching the existing run. Real experiments should set run.resume: true (as
+# config/experiment_template.yaml does) so requeues verify and continue.
+
 python scripts/run_experiment.py \
     --config "${CHOICEBENCH_CONFIG:-config/toy_experiment.yaml}" \
     --run-id "${CHOICEBENCH_RUN_ID:-hpc_test_${SLURM_JOB_ID:-manual}}" \

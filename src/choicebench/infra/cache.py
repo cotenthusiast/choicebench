@@ -7,6 +7,8 @@ import hashlib
 import json
 import logging
 from pathlib import Path
+from choicebench.identity import integrity_digest
+from choicebench.infra.artifacts import atomic_write_json
 
 from choicebench.clients.types import (
     ModelRequest,
@@ -32,6 +34,7 @@ def _cache_key(request: ModelRequest) -> str:
         "temperature": request.temperature,
         "max_tokens": request.max_tokens,
         "seed": request.seed,
+        "request_logprobs": request.request_logprobs,
     }
     fingerprint = json.dumps(key_data, sort_keys=True)
     return hashlib.sha256(fingerprint.encode()).hexdigest()
@@ -45,8 +48,9 @@ class ResponseCache:
     for large caches.
     """
 
-    def __init__(self, cache_dir: Path) -> None:
+    def __init__(self, cache_dir: Path, namespace: str | None = None) -> None:
         self._dir = cache_dir
+        self._namespace = namespace or Path(cache_dir).name
         self._dir.mkdir(parents=True, exist_ok=True)
 
     def _path(self, key: str) -> Path:
@@ -59,7 +63,17 @@ class ResponseCache:
             return None
         try:
             with p.open() as f:
-                return json.load(f)
+                record = json.load(f)
+            if record.get("schema_version") != "choicebench.response-cache.v1":
+                return None
+            if record.get("namespace") != self._namespace:
+                return None
+            payload = record.get("payload")
+            expected = integrity_digest({"namespace": self._namespace, "cache_key": key, "payload": payload})
+            if record.get("payload_digest") != expected:
+                logger.warning("Ignoring corrupt response cache entry %s", p)
+                return None
+            return payload
         except (json.JSONDecodeError, OSError):
             return None
 
@@ -67,11 +81,15 @@ class ResponseCache:
         """Write payload dict to cache atomically."""
         p = self._path(key)
         p.parent.mkdir(parents=True, exist_ok=True)
-        tmp = p.with_suffix(".tmp")
         try:
-            with tmp.open("w") as f:
-                json.dump(payload, f)
-            tmp.replace(p)
+            atomic_write_json(p, {
+                "schema_version": "choicebench.response-cache.v1",
+                "namespace": self._namespace,
+                "payload": payload,
+                "payload_digest": integrity_digest({
+                    "namespace": self._namespace, "cache_key": key, "payload": payload,
+                }),
+            })
         except OSError as exc:
             logger.warning("Cache write failed for key %s: %s", key[:8], exc)
 

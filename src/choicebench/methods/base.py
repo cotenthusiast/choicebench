@@ -25,6 +25,7 @@ from choicebench.pipeline.options import (
     serialize_choices,
 )
 from choicebench.pipeline.prompt_builder import load_prompt_templates
+from choicebench.identity import redact_text
 from choicebench.scoring.scorer import score_prediction
 from choicebench.scoring.types import ScoreResult
 
@@ -171,7 +172,7 @@ class ExperimentRunner(ABC):
                 model_name=self.backend.model_name,
                 status=FAILURE_STATUS,
                 latency_seconds=0.0,
-                error=ErrorInfo(type(exc).__name__, str(exc), False, "backend_generate"),
+                error=ErrorInfo(type(exc).__name__, redact_text(exc), False, "backend_generate"),
             )
         return ModelResponse(
             provider=self.backend.provider,
@@ -259,7 +260,7 @@ class ExperimentRunner(ABC):
             "error_message": (
                 model_response.error.message
                 if model_response and model_response.error
-                else error
+                else (redact_text(error) if error is not None else None)
             ),
             "error_stage": (
                 model_response.error.stage

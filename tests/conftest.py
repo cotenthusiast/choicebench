@@ -1,7 +1,23 @@
 # tests/conftest.py
 
-import json
+import atexit
+import os
+import shutil
+import sys
+import tempfile
 from pathlib import Path
+
+# Isolate the ChoiceBench workspace BEFORE any choicebench import below:
+# config.paths resolves ROOT_DIR / PROCESSED_DIR / RUNS_DIR / REPORTS_DIR from
+# CHOICEBENCH_HOME at import time. Without this, the suite would read and
+# write the repository's own data/, runs/ and reports/ directories and depend
+# on previously prepared repo state. Each pytest process (including xdist
+# workers) gets its own private workspace.
+_TEST_HOME = Path(tempfile.mkdtemp(prefix="choicebench-test-home-"))
+os.environ["CHOICEBENCH_HOME"] = str(_TEST_HOME)
+atexit.register(shutil.rmtree, _TEST_HOME, ignore_errors=True)
+
+import json
 from typing import Any
 
 import pandas as pd
@@ -15,6 +31,24 @@ from choicebench.clients.types import (
     ModelResponse,
     UsageInfo,
 )
+
+
+@pytest.fixture(scope="session", autouse=True)
+def prepared_toy_dataset():
+    """Prepare the deterministic toy dataset once per test session.
+
+    Uses the official preparation entry point so tests exercise the same
+    artifact layout users get from ``choicebench-prepare-toy``. The artifact
+    lands in this session's private CHOICEBENCH_HOME workspace, so a clean
+    clone passes ``pytest`` with no manual preparation step and nothing is
+    written into the repository.
+    """
+    from unittest import mock
+
+    from choicebench.cli.prepare_toy_data import main as prepare_toy_main
+
+    with mock.patch.object(sys, "argv", ["choicebench-prepare-toy"]):
+        prepare_toy_main()
 
 
 # ---------------------------------------------------------------------------

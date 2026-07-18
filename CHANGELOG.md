@@ -2,6 +2,75 @@
 
 Notable changes to ChoiceBench. Newest first.
 
+## v0.2.0 - 2026-07-12
+
+- Added protocol-v2 immutable run manifests, deterministic experiment and
+  condition identities, verified resume compatibility, and manifest-driven
+  evaluation. Legacy nonempty run directories are rejected unless reset.
+- Replaced generic normalized CSV reuse with split-addressed, source-spec
+  addressed prepared artifacts carrying semantic SHA-256 content digests and
+  verified metadata. Calibration now loads its actual requested split and
+  rejects normalized stem/option overlap with evaluation data.
+- Results and checkpoints are keyed by canonical condition IDs. Parameterized
+  methods and same-display-name models with different configurations cannot
+  overwrite or aggregate into one condition.
+- Packaged prompt resources with `importlib.resources`, added installed console
+  entry points, and made `CHOICEBENCH_HOME`/the current directory the explicit
+  writable workspace rather than deriving paths from `site-packages`.
+- Added strict numeric and boolean validation across experiment configuration,
+  requests, and clients, plus clean-wheel and adversarial provenance tests.
+- Final release hardening moved identity to protocol/manifest v2: local model
+  trees and resolved Hub commits are bound to model IDs, external method/metric
+  modules are fingerprinted, result/cache/PriDe artifacts are integrity-checked,
+  and one process lock protects each run ID and reset operation.
+- Source-clone scripts are now thin wrappers around the installed CLI modules.
+  Prepared artifacts use normalization v2; duplicate question IDs are rejected,
+  and the explicit `unique_question_ids_v1` preparation transform supports
+  datasets such as MMLU that contain duplicate content-derived IDs.
+- Run-local dataset and prompt snapshots are revalidated before evaluation.
+  Evaluation verifies metric implementation identity, records parser/scorer
+  identity for `--reparse`, accounts for gated and failed conditions, and
+  writes a `<run_id>_<evaluation_id>_metrics.json` report whose evaluation ID
+  binds the exact validated result contents (per-condition statuses and result
+  digests): identical result sets share one ID, materially different results
+  get distinct IDs, and an existing report with different contents is never
+  silently overwritten.
+- Runs with failed conditions remain evaluable: completed conditions get
+  metrics, failed conditions are accounted (status plus redacted error, no
+  invented metrics), and the report carries `run_status` (`complete`/`partial`)
+  with per-status counts. Unfinished (pending) conditions still refuse
+  evaluation.
+- Rerunning an identical experiment under an existing run ID with `run.resume`
+  disabled is refused up front with an actionable message; it no longer
+  downgrades completed conditions to `failed`. Resume refusals and lock
+  conflicts now exit with a clean error naming the differing identity
+  sections instead of a traceback.
+- Row-ownership validation fails closed: a result row with a missing/null
+  identity value is rejected at write and at read instead of being silently
+  dropped from metric samples.
+- Credential handling is schema-aware: unambiguous credential-named keys
+  (`api_key`, `authorization`, `client_secret`, …) are refused in scientific
+  configuration instead of being redacted before hashing, so secret-shaped but
+  scientific parameter names (`token`, `secret_strength`, …) keep their
+  identity-affecting values. Embedded URL credentials are still sanitized.
+- `do_sample` no longer enters API model identity (the API backend never
+  consumes it); HuggingFace identities still bind it. `MAD`'s bootstrap uses a
+  masked divide (identical values, no spurious warnings). The test suite is
+  self-contained: it prepares its own toy data in a temporary
+  `CHOICEBENCH_HOME`, so a clean clone passes `pytest` with no manual step.
+
+**Migration from v0.1.2:** generic `data/processed/*_normalized.csv` files and
+root-level run CSVs are unverified legacy artifacts. Re-run preparation for each
+split (and declared transform), choose a new run ID, and use the manifest-driven
+evaluator. Existing v0.1.2 result directories remain readable by the dedicated
+historical analysis scripts but cannot be resumed as v0.2 experiments.
+
+**Scoped guarantees:** ChoiceBench prevents concurrent writers to one run ID;
+Slurm tasks must use distinct IDs. Remote APIs can still be nondeterministic and
+cannot always expose immutable server-side model revisions. Hub acquisition is
+pinned when the Hub provides a commit; exact selected rows are also archived in
+the run directory.
+
 ## v0.1.2 — 2026-07-06
 
 - Committed the PriDe reproduction's evidence files under

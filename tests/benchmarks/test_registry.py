@@ -203,12 +203,8 @@ def test_normalizer_produces_normalized_schema(name, make_df):
 # ---------------------------------------------------------------------------
 
 def _load_run_experiment():
-    spec = importlib.util.spec_from_file_location(
-        "run_experiment_under_test", _REPO_ROOT / "scripts" / "run_experiment.py"
-    )
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    import choicebench.cli.run_experiment as module
+    return importlib.reload(module)
 
 
 @pytest.mark.parametrize("name,hf_path,hf_subset,default_split", _EXPECTED_BENCHMARKS)
@@ -220,15 +216,12 @@ def test_load_benchmark_missing_csv_generates_correct_command(
     # Hermetic: resolve the normalized-CSV path into an empty tmp dir so the
     # "missing CSV" branch is exercised regardless of whatever the developer
     # has prepared under data/processed locally.
-    monkeypatch.setattr(
-        run_exp, "get_benchmark_path",
-        lambda bench_name: tmp_path / f"{bench_name}_normalized.csv",
-    )
+    monkeypatch.setattr(run_exp, "PROCESSED_DIR", tmp_path)
 
     from choicebench.config.schema import BenchmarkConfig
 
     with pytest.raises(FileNotFoundError) as exc_info:
-        run_exp.load_benchmark(BenchmarkConfig(name=name), run_seed=42)
+        run_exp.load_benchmark(BenchmarkConfig(name=name, split=default_split), run_seed=42)
 
     msg = str(exc_info.value)
     assert f"--hf-path {hf_path}" in msg
@@ -268,12 +261,8 @@ def test_load_benchmark_unregistered_huggingface_gives_non_circular_error():
 # ---------------------------------------------------------------------------
 
 def _load_prepare_data():
-    spec = importlib.util.spec_from_file_location(
-        "prepare_data_under_test", _REPO_ROOT / "scripts" / "prepare_data.py"
-    )
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    import choicebench.cli.prepare_data as module
+    return importlib.reload(module)
 
 
 @pytest.mark.parametrize("name,make_df,hf_path,hf_subset", [

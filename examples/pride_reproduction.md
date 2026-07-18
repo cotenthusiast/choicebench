@@ -40,12 +40,10 @@ This is the full, unmodified contents of `examples/pride_reproduction.yaml`:
 # Running PriDe here would waste GPU time re-deriving what that script
 # already gets from these two methods' logprobs.
 #
-# Prerequisite — prepare the permutation-filtered MMLU CSV first:
-#   python scripts/prepare_data.py --hf-path cais/mmlu --hf-subset all \
-#       --filter-permutation-unsafe --output-name mmlu_filtered
-# This writes data/processed/mmlu_filtered_normalized.csv (~13,592 of 14,042
-# rows survive per the paper's ~3.2% exclusion) plus a
-# mmlu_filtered_permutation_filter.json accounting sidecar.
+# Prerequisite - prepare the verified v0.2 MMLU artifact first:
+#   choicebench-prepare --hf-path cais/mmlu --hf-subset all --split test \
+#       --filter-permutation-unsafe --exclude-duplicate-question-ids \
+#       --output-name mmlu_filtered
 
 experiment:
   name: pride_reproduction_mmlu_llama13b_0shot
@@ -74,15 +72,14 @@ models:
 # VRAM sizing that assumes it.
 
 benchmarks:
-  # NOTE: name: huggingface (not name: mmlu) — a registered benchmark name's
-  # CSV path is hardcoded to "<name>_normalized.csv" and ignores output_name,
-  # which would silently point this run at the *unfiltered* mmlu_normalized.csv.
-  # The generic huggingface path is the only one that honors output_name.
+  # The explicit transforms prevent filtered/raw or duplicate/unique artifacts
+  # from resolving to the same prepared-data identity.
   - name: huggingface
     hf_path: cais/mmlu
     hf_subset: all
     split: test
     output_name: mmlu_filtered
+    transforms: [permutation_safe_v1, unique_question_ids_v1]
     n_samples: null
     subject_filter: null
 
@@ -150,7 +147,10 @@ one sentence each:
 
 ## Running it
 
-**1. Prepare the permutation-filtered MMLU CSV.** Re-run for this walkthrough
+**1. Prepare the permutation-filtered MMLU data.** The command/output transcript
+below is the preserved v0.1.2 reproduction receipt. For a v0.2 run, use the
+verified command in the config above; it writes a split-addressed norm-v2
+artifact and excludes duplicate IDs before inference.
 (HuggingFace's dataset cache made this a local cache hit, not a fresh
 download — the "Name or service not known" line below is `datasets`
 routinely trying the network first and cleanly falling back):
@@ -244,9 +244,9 @@ for run in ['20260705_204054', '20260705_204054_dedup']:
 20260705_204054_dedup rows: 13564  dup qids: 0
 ```
 
-This is a known-issue follow-up, not something fixed here: the benchmark
-loader should warn on duplicate `question_id`s at load time so this doesn't
-depend on a downstream script's guard to surface it.
+In v0.2 this is enforced earlier: preparation/loading rejects duplicate
+`question_id` values. The `unique_question_ids_v1` transform removes every row
+in a duplicate-ID group and is recorded in dataset and condition identity.
 
 **Reconciling against prior reports of MMLU duplication.** On the raw
 14,042-row MMLU test split (`cais/mmlu`, `all`, `test`), strict matching on

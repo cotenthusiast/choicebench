@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from choicebench.identity import redact_text
 
 from choicebench.backends.base import BaseBackend
 from choicebench.clients.types import FAILURE_STATUS, SUCCESS_STATUS
@@ -94,11 +95,11 @@ class DirectLogprobRunner(ExperimentRunner):
             scores = self.backend.score_options(prompt, letters)
             lp_map = dict(zip(letters, scores))
         except Exception as exc:
-            scoring_error = str(exc)
+            scoring_error = redact_text(exc)
             logger.warning(
                 "direct_logprob: score_options failed for question %s — %s",
                 question_row["question_id"],
-                exc,
+                redact_text(exc),
             )
 
         final_letter: str | None = None

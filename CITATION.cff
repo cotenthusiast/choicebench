@@ -8,8 +8,8 @@ authors:
 repository-code: "https://github.com/cotenthusiast/choicebench"
 url: "https://github.com/cotenthusiast/choicebench"
 license: MIT
-version: "0.1.2"
-date-released: "2026-07-06"
+version: "0.2.0"
+date-released: "2026-07-12"
 keywords:
   - "large language models"
   - "multiple choice questions"

@@ -36,6 +36,7 @@ class HuggingFaceBackend(BaseBackend):
         model_name_or_path: str,
         device: str = "cuda",
         add_bos_token: bool = True,
+        revision: str | None = None,
         **generation_kwargs,
     ) -> None:
         """
@@ -56,6 +57,7 @@ class HuggingFaceBackend(BaseBackend):
         self._model_path = model_name_or_path
         self._device = device
         self._add_bos_token = add_bos_token
+        self._revision = revision
         self._default_generation_kwargs = generation_kwargs
         self._model = None
         self._tokenizer = None
@@ -97,15 +99,20 @@ class HuggingFaceBackend(BaseBackend):
         self._tokenizer = AutoTokenizer.from_pretrained(
             self._model_path,
             trust_remote_code=True,
+            revision=self._revision,
         )
 
         logger.info("Loading model: %s  device=%s", self._model_path, self._device)
-        self._model = AutoModelForCausalLM.from_pretrained(
-            self._model_path,
-            torch_dtype=torch.float16,
-            device_map=self._device,
-            trust_remote_code=True,
-        )
+        load_kwargs = {
+            "torch_dtype": torch.float32 if self._device == "cpu" else torch.float16,
+            "trust_remote_code": True,
+            "revision": self._revision,
+        }
+        if self._device == "auto":
+            load_kwargs["device_map"] = "auto"
+        self._model = AutoModelForCausalLM.from_pretrained(self._model_path, **load_kwargs)
+        if self._device != "auto":
+            self._model.to(self._device)
         self._model.eval()
         self._loaded = True
         logger.info("Model ready: %s", self._model_path)

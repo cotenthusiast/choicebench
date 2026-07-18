@@ -1,6 +1,9 @@
 # src/choicebench/pipeline/prompt_builder.py
 
 from pathlib import Path
+from importlib import resources
+
+from choicebench.identity import integrity_digest, short_id
 
 
 _TEMPLATE_NAMES = ("direct_mcq", "free_text", "option_matching")
@@ -11,7 +14,7 @@ def _build_options_block(options: dict[str, str]) -> str:
     return "\n".join(f"{letter}. {text}" for letter, text in options.items())
 
 
-def load_prompt_templates(version: str, prompts_dir: Path) -> dict[str, str]:
+def load_prompt_templates(version: str, prompts_dir: Path | None = None) -> dict[str, str]:
     """Load all prompt templates for a given version from disk.
 
     Templates are plain text files with Python str.format-style placeholders.
@@ -31,7 +34,10 @@ def load_prompt_templates(version: str, prompts_dir: Path) -> dict[str, str]:
     Raises:
         FileNotFoundError: If the version directory or any template file is missing.
     """
-    version_dir = prompts_dir / version
+    if not version or version in {".", ".."} or "/" in version or "\\" in version:
+        raise ValueError(f"Invalid logical prompt version: {version!r}")
+    root = prompts_dir or resources.files("choicebench.resources").joinpath("prompts")
+    version_dir = root / version
     if not version_dir.is_dir():
         raise FileNotFoundError(
             f"Prompt version directory not found: {version_dir}. "
@@ -50,6 +56,13 @@ def load_prompt_templates(version: str, prompts_dir: Path) -> dict[str, str]:
         templates[name] = path.read_text(encoding="utf-8")
 
     return templates
+
+
+def prompt_bundle_identity(version: str, prompts_dir: Path | None = None) -> dict[str, object]:
+    templates = load_prompt_templates(version, prompts_dir)
+    files = {name: {"sha256": integrity_digest(text), "content": text} for name, text in templates.items()}
+    payload = {"version": version, "files": files}
+    return {"prompt_id": f"prompt_{integrity_digest(payload)[:16]}", **payload}
 
 
 def build_direct_mcq_prompt(

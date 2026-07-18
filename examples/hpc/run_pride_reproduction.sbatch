@@ -47,14 +47,9 @@ echo "Node: ${SLURMD_NODENAME:-$(hostname)}"
 echo "Config: $CONFIG"
 echo "Run ID: $RUN_ID"
 
-# Prerequisite: the permutation-filtered MMLU CSV must already exist (see the
-# comment atop examples/pride_reproduction.yaml for the prepare_data.py
-# invocation) — this job does not download/filter data itself.
-if [[ ! -f "$REPO_ROOT/data/processed/mmlu_filtered_normalized.csv" ]]; then
-    echo "ERROR: data/processed/mmlu_filtered_normalized.csv not found." >&2
-    echo "Run: python scripts/prepare_data.py --hf-path cais/mmlu --hf-subset all --filter-permutation-unsafe --output-name mmlu_filtered" >&2
-    exit 1
-fi
+# The runner resolves and verifies the exact split-addressed norm-v2 artifact.
+# If absent, it prints the required preparation command. This job deliberately
+# does not download data on a compute node.
 
 python scripts/run_experiment.py \
     --config "$CONFIG" \

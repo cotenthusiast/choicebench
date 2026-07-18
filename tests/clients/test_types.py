@@ -54,6 +54,8 @@ class TestModelResponseValidation:
             ("bad_status", 0.2),
             ("success", -1.0),
             ("success", "fast"),
+            ("success", float("nan")),
+            ("success", float("inf")),
         ],
     )
     def test_fails_for_invalid_status_or_latency(

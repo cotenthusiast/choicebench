@@ -5,7 +5,7 @@
 # module is loaded from its file path.
 
 import asyncio
-import importlib.util
+import importlib
 import pathlib
 import sys
 import types
@@ -29,12 +29,8 @@ _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
 def _load_run_experiment():
-    spec = importlib.util.spec_from_file_location(
-        "run_experiment_under_test", _REPO_ROOT / "scripts" / "run_experiment.py"
-    )
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    import choicebench.cli.run_experiment as module
+    return importlib.reload(module)
 
 
 def _model(backend: str, **kwargs) -> ModelConfig:
@@ -293,7 +289,7 @@ def test_instantiate_runner_unsupported_param_has_clear_error(monkeypatch):
     monkeypatch.setitem(run_exp.METHOD_REGISTRY, "no_param_method", _NoParamRunner)
 
     method = MethodConfig(name="no_param_method", params={"unsupported": True})
-    with pytest.raises(TypeError, match="no_param_method.*unsupported.*YAML should remove"):
+    with pytest.raises(TypeError, match="no_param_method.*configured params.*YAML should remove"):
         run_exp.instantiate_runner(
             _experiment(method),
             _model("dummy"),
@@ -445,16 +441,13 @@ def test_run_method_resume_false_starts_fresh_without_loading(tmp_path, monkeypa
 
 def test_load_benchmark_applies_subject_filter(monkeypatch):
     run_exp = _load_run_experiment()
-    monkeypatch.setattr(
-        run_exp,
-        "read_benchmark",
-        lambda path: pd.DataFrame(
-            [
-                {"question_id": "q1", "subject": "math"},
-                {"question_id": "q2", "subject": "history"},
-            ]
-        ),
+    artifact = types.SimpleNamespace(
+        dataframe=pd.DataFrame([
+            {"question_id": "q1", "subject": "math"},
+            {"question_id": "q2", "subject": "history"},
+        ]), artifact_id="ds", content_digest="digest",
     )
+    monkeypatch.setattr(run_exp, "load_prepared_dataset", lambda *a, **k: artifact)
 
     questions = run_exp.load_benchmark(
         BenchmarkConfig(name="toy", subject_filter=["math"]),
@@ -466,13 +459,11 @@ def test_load_benchmark_applies_subject_filter(monkeypatch):
 
 def test_load_benchmark_subject_filter_rejects_empty_result(monkeypatch):
     run_exp = _load_run_experiment()
-    monkeypatch.setattr(
-        run_exp,
-        "read_benchmark",
-        lambda path: pd.DataFrame(
-            [{"question_id": "q1", "subject": "math"}]
-        ),
+    artifact = types.SimpleNamespace(
+        dataframe=pd.DataFrame([{"question_id": "q1", "subject": "math"}]),
+        artifact_id="ds", content_digest="digest",
     )
+    monkeypatch.setattr(run_exp, "load_prepared_dataset", lambda *a, **k: artifact)
 
     with pytest.raises(ValueError, match="subject_filter.*removed all rows"):
         run_exp.load_benchmark(

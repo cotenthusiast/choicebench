@@ -27,8 +27,12 @@ import pandas as pd
 
 from choicebench.clients.types import SUCCESS_STATUS
 from choicebench.config.paths import RUNS_DIR
+from choicebench.config.paths import validate_run_id
 from choicebench.constants import letters_for
-from choicebench.io.readers import read_all_run_results
+from choicebench.io.readers import read_all_run_results, read_manifest_results
+from choicebench.identity import file_digest, short_id
+from choicebench.infra.artifacts import atomic_write_json
+from choicebench.manifest import validate_manifest
 from choicebench.methods.library.pride_math import (
     average_prior_probability_vectors,
     equation1_cyclic_debiased_content_probs,
@@ -89,7 +93,11 @@ def _load_method_frame(run_dir: Path, method_name: str) -> pd.DataFrame:
             PriDe from an ambiguous set of rows would silently pick one at
             random via pandas indexing, so this fails loudly instead.
     """
-    df = read_all_run_results(run_dir, method_name=method_name)
+    if (run_dir / "manifest.json").exists():
+        df, _ = read_manifest_results(run_dir)
+        df = df[df["method_name"] == method_name].copy()
+    else:
+        df = read_all_run_results(run_dir, method_name=method_name)
     if df.empty:
         raise FileNotFoundError(
             f"No {method_name!r} result CSVs found under {run_dir}. This script "
@@ -210,6 +218,10 @@ def sample_calibration_ids(full_ids: list[str], alpha: float, seed: int) -> list
         ValueError: floor(alpha * N) rounds down to zero — PriDe needs at
             least one calibration question to estimate a prior.
     """
+    if isinstance(alpha, bool) or not np.isfinite(alpha) or not 0.0 < alpha <= 1.0:
+        raise ValueError(f"alpha must be a finite fraction in (0, 1]; got {alpha!r}.")
+    if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
+        raise ValueError(f"seed must be a non-negative integer; got {seed!r}.")
     n = len(full_ids)
     k = int(np.floor(alpha * n))
     if k == 0:
@@ -293,7 +305,10 @@ def compute_pride_cell(
         predictions[qid] = _predict_eq8(records[qid], global_prior)
 
     metrics = _compute_metrics(records, full_ids, predictions)
-    summary = {"alpha": alpha, "seed": seed, "n": n, "k": k, **metrics}
+    summary = {
+        "alpha": alpha, "seed": seed, "n": n, "k": k,
+        "calibration_question_ids": calibration_ids, **metrics,
+    }
     return predictions, summary
 
 
@@ -390,9 +405,28 @@ def run(
         run_dir: Path | None = None,
 ) -> dict:
     """Recompute the full PriDe grid for one run. Returns the output JSON dict."""
+    run_id = validate_run_id(run_id)
+    if len(alphas) != len(set(alphas)):
+        raise ValueError("alphas contains duplicate coordinates; every grid cell must be unique.")
+    if len(seeds) != len(set(seeds)):
+        raise ValueError("seeds contains duplicate coordinates; every grid cell must be unique.")
     run_dir = run_dir if run_dir is not None else (RUNS_DIR / run_id)
     direct_df = _load_method_frame(run_dir, "direct_logprob")
     cyclic_df = _load_method_frame(run_dir, "cyclic_logprob")
+    manifest_path = run_dir / "manifest.json"
+    if manifest_path.exists():
+        manifest = json.loads(manifest_path.read_text())
+        validate_manifest(manifest)
+        source_identity = {
+            "provenance_status": "verified-v2",
+            "experiment_id": manifest["experiment_id"],
+            "experiment_digest": manifest["experiment_digest"],
+            "protocol_version": manifest["payload"]["protocol_version"],
+            "direct_condition_ids": sorted(direct_df["condition_id"].astype(str).unique()),
+            "cyclic_condition_ids": sorted(cyclic_df["condition_id"].astype(str).unique()),
+        }
+    else:
+        source_identity = {"provenance_status": "legacy-unverified", "run_id": run_id}
 
     records = build_question_records(direct_df, cyclic_df)
     full_ids = sorted(records)
@@ -415,12 +449,18 @@ def run(
         cells = []
         for seed in seeds:
             _predictions, cell = compute_pride_cell(records, full_ids, alpha, seed)
+            cell_identity = {
+                "source": source_identity,
+                "alpha": alpha, "seed": seed,
+                "calibration_question_ids": cell["calibration_question_ids"],
+            }
+            cell["condition_id"] = short_id("pridecell", cell_identity)
             logger.info(
                 "alpha=%.2f seed=%d  N=%d K=%d  acc=%.1f rstd=%.1f mad=%.1f",
                 alpha, seed, cell["n"], cell["k"],
                 cell["accuracy"] * 100, cell["rstd"], cell["mad"],
             )
-            per_cell[f"alpha={alpha}/seed={seed}"] = cell
+            per_cell[cell["condition_id"]] = cell
             cells.append(cell)
         per_alpha[alpha] = aggregate_alpha(cells)
 
@@ -428,7 +468,11 @@ def run(
     comparison = build_comparison(default_row, cyclic_row, per_alpha, targets)
 
     output = {
+        "schema_version": "choicebench.pride-grid.v2",
         "run_id": run_id,
+        "source": source_identity,
+        "implementation_sha256": file_digest(Path(__file__)),
+        "targets": {"path": targets_path.name, "sha256": file_digest(targets_path)},
         "n_scored": n,
         "alphas": alphas,
         "seeds": seeds,
@@ -462,7 +506,7 @@ def main() -> None:
     args = parse_args()
     output = run(args.run_id, args.alphas, args.seeds, args.targets)
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(json.dumps(output, indent=2))
+    atomic_write_json(args.out, output)
     logger.info("PriDe grid saved to %s", args.out)
 
 

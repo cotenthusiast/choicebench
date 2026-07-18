@@ -32,11 +32,14 @@ class APIBackend(BaseBackend):
         max_tokens: int,
         seed: int,
         concurrency_limit: int = 10,
+        cache_identity: str | None = None,
     ) -> None:
         self._provider = provider
         self._model_name = model_name
         self._raw_client = client  # unwrapped; exposed for introspection (e.g. client-level config)
-        self._client = CachingClientWrapper(client, ResponseCache(cache_dir=cache_dir))
+        self._client = CachingClientWrapper(
+            client, ResponseCache(cache_dir=cache_dir, namespace=cache_identity)
+        )
         self._temperature = temperature
         self._max_tokens = max_tokens
         self._seed = seed
