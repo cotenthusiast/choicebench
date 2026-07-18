@@ -1,17 +1,38 @@
+import pytest
+
 from choicebench.cli import evaluate_run
 from choicebench.io.readers import read_manifest_results
 from choicebench.manifest import validate_manifest
+from tests.importing import conftest as importing_conftest
 
 
-def test_v2_fixture_validates_without_rewrite(synthetic_v2_run):
+@pytest.fixture
+def publication_reader_calls(monkeypatch):
+    calls = []
+    original = importing_conftest.read_manifest_results
+
+    def tracked_read_manifest_results(run_dir):
+        calls.append(run_dir)
+        return original(run_dir)
+
+    monkeypatch.setattr(
+        importing_conftest, "read_manifest_results", tracked_read_manifest_results
+    )
+    return calls
+
+
+def test_v2_fixture_validates_without_rewrite(
+    publication_reader_calls, synthetic_v2_run
+):
     run_dir, manifest, _ = synthetic_v2_run
+    assert publication_reader_calls == []
     before = {
         p.relative_to(run_dir): p.read_bytes()
         for p in run_dir.rglob("*")
         if p.is_file()
     }
     validate_manifest(manifest)
-    frame, loaded = read_manifest_results(run_dir)
+    frame, loaded = importing_conftest.read_manifest_results(run_dir)
     after = {
         p.relative_to(run_dir): p.read_bytes()
         for p in run_dir.rglob("*")
@@ -19,6 +40,7 @@ def test_v2_fixture_validates_without_rewrite(synthetic_v2_run):
     }
     assert loaded["schema_version"] == "choicebench.manifest.v2"
     assert frame["question_id"].astype(str).tolist() == ["q1", "q2"]
+    assert publication_reader_calls == [run_dir]
     assert after == before
 
 

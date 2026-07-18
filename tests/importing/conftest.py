@@ -203,9 +203,9 @@ def synthetic_v2_run(tmp_path, monkeypatch) -> tuple[Path, dict, str]:
     write_run_state(run_dir, state)
 
     monkeypatch.setattr(evaluate_run, "RUNS_DIR", run_dir.parent)
-    frame, loaded = read_manifest_results(run_dir)
+    frame = pd.read_csv(result_path)
     report = evaluate_run.build_evaluation_report(
-        run_dir.name, frame, loaded, reparse=False
+        run_dir.name, frame, manifest, reparse=False
     )
     assert report["evaluation_id"] == EXPECTED_EVALUATION_ID
 
