@@ -11,17 +11,35 @@ from choicebench import __version__
 from choicebench.identity import canonicalize, integrity_digest, short_id
 from choicebench.importing.dataset_reference import ExpectedDataset
 from choicebench.importing.schema import (
-    ImportConditionSpec,
     CsvDialectSpec,
+    ImportConditionSpec,
+    ImportSpecError,
     ImportMethodSpec,
     ImportModelSpec,
     ImportPromptSpec,
+    validate_csv_dialect_identity,
+    validate_implementation_identity_record,
+    validate_native_method_payload,
+    validate_native_model_payload,
+    validate_numeric_columns_identity,
+    validate_option_mapping_identity,
 )
 from choicebench.provenance import implementation_identity
 
 
 class ImportIdentityError(ValueError):
     """Raised when an importer identity is cyclic, unsafe, or inconsistent."""
+
+
+class RuntimeImporterImplementation(dict[str, Any]):
+    """Marker for implementation identity derived from live runtime callables."""
+
+    def __init__(self, record: Mapping[str, Any]) -> None:
+        super().__init__(record)
+        self._runtime_digest = integrity_digest(record)
+
+    def is_unmodified(self) -> bool:
+        return integrity_digest(dict(self)) == self._runtime_digest
 
 
 @dataclass(frozen=True)
@@ -76,6 +94,13 @@ _SOURCE_KEYS = {
     "sha256",
     "provenance",
 }
+_SOURCE_PROVENANCE_KEYS = {
+    "source_run_id",
+    "source_repository",
+    "source_commit",
+    "notes_digest",
+    "evidence_digest",
+}
 _PARSING_POLICY_KEYS = {
     "dialect",
     "mapping",
@@ -106,7 +131,10 @@ _FORBIDDEN_IDENTITY_KEYS = {
     "choicebench_home",
     "experiment_id",
     "final_csv_sha256",
+    "final_result_digest",
+    "host",
     "hostname",
+    "import_date",
     "import_timestamp",
     "output_path",
     "output_root",
@@ -119,6 +147,9 @@ _FORBIDDEN_IDENTITY_KEYS = {
     "source_path",
     "temporary_path",
     "timestamp",
+    "machine_id",
+    "cwd",
+    "child_lineage_id",
 }
 
 
@@ -161,7 +192,7 @@ def _reject_forbidden(
                 raise ImportIdentityError(f"{where} contains a non-string field name.")
             normalized = key.casefold()
             unsafe_alias = (
-                key in _FORBIDDEN_IDENTITY_KEYS
+                normalized in _FORBIDDEN_IDENTITY_KEYS
                 or (normalized not in allowed_path_keys and normalized.endswith("_path"))
                 or normalized in {"path", "created_at", "updated_at", "import_state"}
                 or "timestamp" in normalized
@@ -176,6 +207,95 @@ def _reject_forbidden(
     elif isinstance(value, (list, tuple)):
         for item in value:
             _reject_forbidden(item, where, allowed_path_keys=allowed_path_keys)
+
+
+def _is_machine_path(value: str) -> bool:
+    return bool(
+        value.startswith(("/", "./", "../", "~/", "~\\"))
+        or re.match(r"^[A-Za-z]:[\\/]", value)
+    )
+
+
+def _validate_stable_values(value: Any, where: str) -> None:
+    _reject_forbidden(value, where)
+    if isinstance(value, Mapping):
+        for item in value.values():
+            _validate_stable_values(item, where)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            _validate_stable_values(item, where)
+    elif isinstance(value, str) and _is_machine_path(value):
+        raise ImportIdentityError(f"{where} contains a machine-local path value.")
+
+
+def _validate_condition_identity(value: Mapping[str, Any]) -> None:
+    benchmark = _exact_mapping(
+        value["benchmark"],
+        {"name", "split", "selection_id", "artifact_id"},
+        "Semantic condition benchmark",
+    )
+    for field in ("name", "split"):
+        if not isinstance(benchmark[field], str) or not benchmark[field]:
+            raise ImportIdentityError(
+                f"Semantic condition benchmark {field} must be non-empty."
+            )
+    for field, prefix in (
+        ("selection_id", "sel"),
+        ("artifact_id", "ds"),
+        ("model_id", "model"),
+        ("method_id", "method"),
+        ("prompt_id", "prompt"),
+    ):
+        identifier = benchmark[field] if field in benchmark else value[field]
+        if not isinstance(identifier, str) or not re.fullmatch(
+            rf"{prefix}_[0-9a-f]{{16}}", identifier
+        ):
+            raise ImportIdentityError(
+                f"Semantic condition {field} is not a valid {prefix} identity."
+            )
+    preflight = value["preflight"]
+    if preflight is not None:
+        if not isinstance(preflight, Mapping):
+            raise ImportIdentityError("Semantic condition preflight must be a mapping or null.")
+        if set(preflight) == {"value", "reason"}:
+            if preflight["value"] is not None or not isinstance(
+                preflight["reason"], str
+            ) or not preflight["reason"].strip():
+                raise ImportIdentityError(
+                    "Semantic condition unknown preflight must include a reason."
+                )
+        else:
+            native = _exact_mapping(
+                preflight,
+                {"artifact_id", "selection_id", "split", "content_digest"},
+                "Semantic condition preflight",
+            )
+            if not re.fullmatch(r"ds_[0-9a-f]{16}", str(native["artifact_id"])):
+                raise ImportIdentityError("Semantic condition preflight artifact_id is invalid.")
+            if not re.fullmatch(r"sel_[0-9a-f]{16}", str(native["selection_id"])):
+                raise ImportIdentityError("Semantic condition preflight selection_id is invalid.")
+            if not isinstance(native["split"], str) or not native["split"]:
+                raise ImportIdentityError("Semantic condition preflight split is invalid.")
+            _validate_digest(native["content_digest"], "preflight.content_digest")
+    seed = value["seed"]
+    if not (
+        isinstance(seed, int)
+        and not isinstance(seed, bool)
+        or (
+            isinstance(seed, Mapping)
+            and set(seed) == {"value", "reason"}
+            and seed.get("value") is None
+            and isinstance(seed.get("reason"), str)
+            and bool(seed["reason"].strip())
+        )
+    ):
+        raise ImportIdentityError("Semantic condition seed is invalid.")
+    if "protocol_settings" in value:
+        if not isinstance(value["protocol_settings"], Mapping):
+            raise ImportIdentityError("Semantic condition protocol_settings must be a mapping.")
+        _validate_stable_values(
+            value["protocol_settings"], "Semantic condition protocol_settings"
+        )
 
 
 def _exact_mapping(value: Any, keys: set[str], where: str) -> Mapping[str, Any]:
@@ -249,30 +369,15 @@ def _semantic_child_records(
             raise ImportIdentityError(
                 "An unknown model backend cannot be upgraded by a native identity claim."
             )
-        native_model_keys = {
-            "dummy": {"backend", "model_name_or_path"},
-            "api": {
-                "backend",
-                "provider",
-                "model_name_or_path",
-                "base_url",
-                "generation_kwargs",
-            },
-            "huggingface": {
-                "backend",
-                "model",
-                "device",
-                "add_bos_token",
-                "generation_kwargs",
-                "loader",
-            },
-        }
-        if model.backend not in native_model_keys or set(model_payload) != native_model_keys[
-            model.backend
-        ]:
+        try:
+            validated_model_payload = validate_native_model_payload(model_payload)
+        except ImportSpecError as exc:
+            raise ImportIdentityError(f"Invalid validated native model payload: {exc}") from exc
+        if canonicalize(validated_model_payload) != canonicalize(model_payload):
             raise ImportIdentityError(
                 "Validated native model payload does not match the current backend schema."
             )
+        model_payload = validated_model_payload
         for nullable_field in ("provider", "revision"):
             value = getattr(model, nullable_field)
             reason = model.unknown_reasons.get(nullable_field)
@@ -299,16 +404,34 @@ def _semantic_child_records(
             raise ImportIdentityError(
                 "Validated native model name conflicts with its declaration."
             )
-        if condition.generation_parameters:
-            native_generation = model_payload.get("generation_kwargs")
-            if not isinstance(native_generation, Mapping) or any(
-                native_generation.get(name) != value
-                for name, value in condition.generation_parameters.items()
-            ):
+        if model.backend == "huggingface":
+            resolved_model = model_payload["model"]
+            declared_name = (
+                resolved_model["repo_id"]
+                if resolved_model["kind"] == "huggingface-hub"
+                else resolved_model["logical_name"]
+            )
+            if declared_name != model.display_name:
                 raise ImportIdentityError(
-                    "Condition generation parameters are not bound by the validated "
-                    "native model identity."
+                    "Validated native model name conflicts with its declaration."
                 )
+            if resolved_model.get("requested_revision") != model.revision:
+                raise ImportIdentityError(
+                    "Validated native model revision conflicts with its declaration."
+                )
+        expected_generation = dict(model.effective_parameters)
+        for name, value in condition.generation_parameters.items():
+            if name in expected_generation and expected_generation[name] != value:
+                raise ImportIdentityError(
+                    f"Generation parameter {name!r} conflicts with model effective parameters."
+                )
+            expected_generation[name] = value
+        native_generation = model_payload.get("generation_kwargs", {})
+        if canonicalize(native_generation) != canonicalize(expected_generation):
+            raise ImportIdentityError(
+                "Condition generation parameters are not bound by the validated "
+                "native model identity."
+            )
         model_mode = "native_compatibility"
     else:
         effective_parameters = dict(model.effective_parameters)
@@ -361,15 +484,17 @@ def _semantic_child_records(
             claimed_id=native["method_id"],
             claimed_digest=native["digest"],
         )
-        if set(method_payload) != {
-            "name",
-            "effective_params",
-            "preflight",
-            "implementation",
-        }:
+        try:
+            validated_method_payload = validate_native_method_payload(method_payload)
+        except ImportSpecError as exc:
+            raise ImportIdentityError(
+                f"Invalid validated native method payload: {exc}"
+            ) from exc
+        if canonicalize(validated_method_payload) != canonicalize(method_payload):
             raise ImportIdentityError(
                 "Validated native method payload does not match the current schema."
             )
+        method_payload = validated_method_payload
         if method.implementation is None:
             raise ImportIdentityError(
                 "An unknown method implementation cannot be upgraded by a native "
@@ -548,6 +673,7 @@ def make_semantic_condition(
         raise ImportIdentityError(
             "Semantic condition prompt snapshot path must be derived from prompt_id."
         )
+    _validate_condition_identity(identity)
     _reject_forbidden(
         identity,
         "Semantic condition identity",
@@ -582,6 +708,13 @@ def build_import_semantic_identity(
     prompt: ImportPromptSpec,
 ) -> ImportSemanticRecords:
     """Build semantic children and a current-shape scientific condition."""
+    if dataset.identity_mode not in {
+        "imported_semantic_fallback",
+        "native_compatibility",
+    }:
+        raise ImportIdentityError(
+            f"Unsupported expected dataset identity mode {dataset.identity_mode!r}."
+        )
     references = (
         ("dataset_id", condition.dataset_id, dataset.dataset_id),
         ("model_key", condition.model_key, model.model_key),
@@ -711,8 +844,18 @@ def make_lineage_component(
     _validate_digest(authorization_digest, "authorization_digest", optional=True)
     _validate_digest(input_digest, "input_digest")
     _validate_digest(preownership_output_digest, "preownership_output_digest")
-    _reject_forbidden(implementation, "Lineage implementation")
-    _reject_forbidden(parameters, "Lineage parameters")
+    try:
+        validated_implementation = validate_implementation_identity_record(
+            implementation
+        )
+    except ImportSpecError as exc:
+        raise ImportIdentityError(f"Invalid lineage implementation: {exc}") from exc
+    if "source_digest" not in validated_implementation:
+        raise ImportIdentityError(
+            "Lineage implementation requires an inspectable source digest."
+        )
+    _validate_stable_values(validated_implementation, "Lineage implementation")
+    _validate_stable_values(parameters, "Lineage parameters")
     payload = canonicalize(
         {
             "schema_version": "choicebench.lineage-component.v1",
@@ -721,7 +864,7 @@ def make_lineage_component(
             "parent_digests": sorted(parent_digests),
             "source_digests": sorted(source_digests),
             "authorization_digest": authorization_digest,
-            "implementation": implementation,
+            "implementation": validated_implementation,
             "parameters": parameters,
             "input_digest": input_digest,
             "preownership_output_digest": preownership_output_digest,
@@ -799,7 +942,7 @@ def make_result_origin(
 
 def importer_implementation_identity(
     *, adapter: Callable[..., Any], validator: Callable[..., Any]
-) -> dict[str, Any]:
+) -> RuntimeImporterImplementation:
     """Bind installed ChoiceBench plus registered adapter and validator code."""
     records: dict[str, Mapping[str, Any]] = {}
     for role, target in (("adapter", adapter), ("validator", validator)):
@@ -814,13 +957,15 @@ def importer_implementation_identity(
                 f"Importer {role} lacks an inspectable source identity."
             )
         records[role] = record
-    return canonicalize(
-        {
-            "schema_version": "choicebench.importer-implementation.v1",
-            "package": {"name": "choicebench", "version": __version__},
-            "adapter": records["adapter"],
-            "validator": records["validator"],
-        }
+    return RuntimeImporterImplementation(
+        canonicalize(
+            {
+                "schema_version": "choicebench.importer-implementation.v1",
+                "package": {"name": "choicebench", "version": __version__},
+                "adapter": records["adapter"],
+                "validator": records["validator"],
+            }
+        )
     )
 
 
@@ -902,9 +1047,26 @@ def _validate_realization_identity(value: Mapping[str, Any]) -> dict[str, Any]:
         if not isinstance(source["format_version"], str) or not source["format_version"]:
             raise ImportIdentityError("Realization source format_version is invalid.")
         _validate_digest(source["sha256"], f"sources[{index}].sha256")
-        if not isinstance(source["provenance"], Mapping):
-            raise ImportIdentityError("Realization source provenance must be a mapping.")
-        _reject_forbidden(source["provenance"], "Realization source provenance")
+        provenance = _exact_mapping(
+            source["provenance"],
+            _SOURCE_PROVENANCE_KEYS,
+            f"Realization sources[{index}].provenance",
+        )
+        for field in ("source_run_id", "source_repository", "source_commit"):
+            value = provenance[field]
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ImportIdentityError(
+                    f"Realization source provenance {field} must be null or non-empty."
+                )
+            if isinstance(value, str) and _is_machine_path(value):
+                raise ImportIdentityError(
+                    f"Realization source provenance {field} contains a machine-local path."
+                )
+        for field in ("notes_digest", "evidence_digest"):
+            _validate_digest(
+                provenance[field], f"sources[{index}].provenance.{field}", optional=True
+            )
+        source = {**source, "provenance": canonicalize(provenance)}
         seen_source_ids.add(source_id)
         normalized_sources.append(canonicalize(source))
 
@@ -916,18 +1078,33 @@ def _validate_realization_identity(value: Mapping[str, Any]) -> dict[str, Any]:
     for field, digest in expected.items():
         _validate_digest(digest, f"expected_dataset.{field}")
 
+    raw_importer = raw["importer_implementation"]
+    if not isinstance(raw_importer, RuntimeImporterImplementation) or not (
+        raw_importer.is_unmodified()
+    ):
+        raise ImportIdentityError(
+            "Realization importer implementation must be derived from runtime callables."
+        )
     importer = _exact_mapping(
-        raw["importer_implementation"],
+        raw_importer,
         {"schema_version", "package", "adapter", "validator"},
         "Realization importer_implementation",
     )
     if importer["schema_version"] != "choicebench.importer-implementation.v1":
         raise ImportIdentityError("Realization importer implementation schema is invalid.")
+    package = _exact_mapping(
+        importer["package"], {"name", "version"}, "Realization importer package"
+    )
+    if package != {"name": "choicebench", "version": __version__}:
+        raise ImportIdentityError("Realization importer package identity is invalid.")
     for role in ("adapter", "validator"):
-        component = importer[role]
-        if not isinstance(component, Mapping) or not isinstance(
-            component.get("source_digest"), str
-        ):
+        try:
+            component = validate_implementation_identity_record(importer[role])
+        except ImportSpecError as exc:
+            raise ImportIdentityError(
+                f"Realization importer {role} identity is invalid: {exc}"
+            ) from exc
+        if not isinstance(component.get("source_digest"), str):
             raise ImportIdentityError(
                 f"Realization importer {role} lacks a source identity."
             )
@@ -936,18 +1113,45 @@ def _validate_realization_identity(value: Mapping[str, Any]) -> dict[str, Any]:
     parsing = _exact_mapping(
         raw["parsing_policy"], _PARSING_POLICY_KEYS, "Realization parsing_policy"
     )
-    dialect = _exact_mapping(
+    _exact_mapping(
         parsing["dialect"], _DIALECT_KEYS, "Realization parsing_policy.dialect"
     )
-    if not isinstance(parsing["mapping"], Mapping):
+    try:
+        dialect = validate_csv_dialect_identity(parsing["dialect"])
+    except ImportSpecError as exc:
+        raise ImportIdentityError(f"Invalid realization parsing dialect: {exc}") from exc
+    mapping = parsing["mapping"]
+    if not isinstance(mapping, Mapping):
         raise ImportIdentityError("Realization parsing mapping must be a mapping.")
-    for sequence_field in ("null_values", "numeric_columns"):
-        if not isinstance(parsing[sequence_field], (list, tuple)):
+    normalized_mapping: dict[str, str] = {}
+    for semantic_field, source_column in mapping.items():
+        if not isinstance(semantic_field, str) or not semantic_field.strip():
             raise ImportIdentityError(
-                f"Realization parsing {sequence_field} must be a list."
+                "Realization parsing mapping keys must be non-empty strings."
             )
-    if not isinstance(parsing["option_mapping"], Mapping):
-        raise ImportIdentityError("Realization option_mapping must be a mapping.")
+        if not isinstance(source_column, str) or not source_column.strip():
+            raise ImportIdentityError(
+                "Realization parsing mapping values must be non-empty source columns."
+            )
+        normalized_mapping[semantic_field] = source_column
+    if len(normalized_mapping.values()) != len(set(normalized_mapping.values())):
+        raise ImportIdentityError("Realization parsing mapping reuses a source column.")
+    null_values = parsing["null_values"]
+    if not isinstance(null_values, (list, tuple)) or not all(
+        isinstance(item, str) for item in null_values
+    ):
+        raise ImportIdentityError(
+            "Realization parsing null_values must be a string list."
+        )
+    if len(null_values) != len(set(null_values)):
+        raise ImportIdentityError("Realization parsing null_values contains duplicates.")
+    try:
+        numeric_columns = validate_numeric_columns_identity(
+            parsing["numeric_columns"]
+        )
+        option_mapping = validate_option_mapping_identity(parsing["option_mapping"])
+    except ImportSpecError as exc:
+        raise ImportIdentityError(f"Invalid realization parsing policy: {exc}") from exc
     if parsing["extra_field_policy"] not in {
         "preserve_unmapped",
         "reject_unmapped",
@@ -1006,18 +1210,65 @@ def _validate_realization_identity(value: Mapping[str, Any]) -> dict[str, Any]:
         normalized_overlay = {}
         for field, digest in overlay.items():
             normalized_overlay[field] = _validate_digest(
-                digest, f"overlay.{field}", optional=(field not in {"source_sha256", "replacement_digest"})
+                digest,
+                f"overlay.{field}",
+                optional=(field not in {"source_sha256", "replacement_digest"}),
             )
+
+    derivation_origin = result_origin["derivation_origin"]
+    derived = derivation_origin in {"repair_overlay", "offline_transformation"}
+    if derived:
+        if authorization_digest is None:
+            raise ImportIdentityError(
+                f"{derivation_origin} realization requires an authorization digest."
+            )
+        if not normalized_parents["realization_digests"]:
+            raise ImportIdentityError(
+                f"{derivation_origin} realization requires a parent realization digest."
+            )
+        if normalized_overlay is None:
+            raise ImportIdentityError(
+                f"{derivation_origin} realization requires an overlay identity."
+            )
+        if derivation_origin == "offline_transformation" and any(
+            normalized_overlay[field] is None
+            for field in (
+                "transformation_input_digest",
+                "preownership_output_digest",
+                "implementation_digest",
+            )
+        ):
+            raise ImportIdentityError(
+                "offline_transformation overlay requires input, output, and "
+                "implementation digests."
+            )
+        if derivation_origin == "repair_overlay" and not (
+            {"native_inference", "external_repair_inference"}
+            & set(result_origin["prediction_origins"])
+        ):
+            raise ImportIdentityError(
+                "repair_overlay requires at least one repair prediction origin."
+            )
+    elif authorization_digest is not None or normalized_overlay is not None:
+        raise ImportIdentityError(
+            f"{derivation_origin} realization cannot claim repair authorization or overlay."
+        )
 
     normalized = {
         "import_spec_digest": raw["import_spec_digest"],
         "sources": normalized_sources,
         "expected_dataset": canonicalize(expected),
         "importer_implementation": canonicalize(importer),
-        "parsing_policy": {
-            **canonicalize(parsing),
-            "dialect": canonicalize(dialect),
-        },
+        "parsing_policy": canonicalize(
+            {
+                "dialect": dialect,
+                "mapping": normalized_mapping,
+                "null_values": list(null_values),
+                "numeric_columns": numeric_columns,
+                "option_mapping": option_mapping,
+                "extra_field_policy": parsing["extra_field_policy"],
+            }
+        ),
         "validation": canonicalize(validation),
         "evidence": canonicalize(evidence),
         "result_origin": result_origin,

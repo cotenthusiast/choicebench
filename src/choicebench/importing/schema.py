@@ -1178,6 +1178,57 @@ def _validate_prompt_native(value: Any, where: str) -> dict[str, Any]:
     return {"prompt_id": prompt_id, **payload}
 
 
+def validate_csv_dialect_identity(value: Any) -> dict[str, Any]:
+    """Validate and normalize an identity-bearing CSV dialect declaration."""
+    prepared = dict(value) if isinstance(value, Mapping) else value
+    if isinstance(prepared, dict) and isinstance(
+        prepared.get("line_terminators"), tuple
+    ):
+        prepared["line_terminators"] = list(prepared["line_terminators"])
+    return asdict(_build_dialect(prepared, "parsing_policy.dialect"))
+
+
+def validate_numeric_columns_identity(value: Any) -> list[dict[str, Any]]:
+    """Validate identity-bearing numeric-column declarations."""
+    if not isinstance(value, (list, tuple)):
+        raise ImportSpecError("parsing_policy.numeric_columns must be a list.")
+    records = [
+        asdict(_build_numeric(item, f"parsing_policy.numeric_columns[{index}]"))
+        for index, item in enumerate(value)
+    ]
+    columns = [record["source_column"] for record in records]
+    if len(columns) != len(set(columns)):
+        raise ImportSpecError(
+            "parsing_policy.numeric_columns contains duplicate source columns."
+        )
+    return records
+
+
+def validate_option_mapping_identity(value: Any) -> dict[str, Any]:
+    """Validate and normalize an identity-bearing option mapping."""
+    prepared = dict(value) if isinstance(value, Mapping) else value
+    if isinstance(prepared, dict) and isinstance(
+        prepared.get("ordered_columns"), tuple
+    ):
+        prepared["ordered_columns"] = list(prepared["ordered_columns"])
+    return asdict(_build_option(prepared, "parsing_policy.option_mapping"))
+
+
+def validate_native_model_payload(value: Any) -> dict[str, Any]:
+    """Validate a claimed current-native model identity payload."""
+    return _validate_model_payload(value, "native_model.payload")
+
+
+def validate_native_method_payload(value: Any) -> dict[str, Any]:
+    """Validate a claimed current-native method identity payload."""
+    return _validate_method_payload(value, "native_method.payload")
+
+
+def validate_implementation_identity_record(value: Any) -> dict[str, Any]:
+    """Validate the closed runtime implementation-identity record shape."""
+    return _validate_implementation(value, "implementation")
+
+
 def _validate_simple_native(
     value: Any, where: str, prefix: str, payload_validator
 ) -> dict[str, Any]:
