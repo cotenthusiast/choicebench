@@ -20,8 +20,8 @@ from choicebench.metrics import BUILTIN_METRICS
 from choicebench.provenance import implementation_identity
 
 
-EXPECTED_EXPERIMENT_ID = "exp_d1b8b8ddecd1f16f"
-EXPECTED_EVALUATION_ID = "eval_a1be80926996d03a"
+EXPECTED_EXPERIMENT_ID = "exp_cd53979b257867df"
+EXPECTED_EVALUATION_ID = "eval_93b022690174ec36"
 
 
 @pytest.fixture
