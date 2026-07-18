@@ -24,7 +24,7 @@ from choicebench.importing.identity import (
     build_import_semantic_identity,
     importer_implementation_identity,
     make_lineage_component,
-    make_realization,
+    make_realization as _make_realization,
     make_result_origin,
     make_semantic_condition,
 )
@@ -47,6 +47,14 @@ def _adapter(value: str) -> str:
 
 def _validator(value: str) -> bool:
     return bool(value)
+
+
+def _transform(value: str) -> str:
+    return value.strip()
+
+
+def make_realization(**kwargs):
+    return _make_realization(adapter=_adapter, validator=_validator, **kwargs)
 
 
 def _dataset():
@@ -168,6 +176,12 @@ def _condition() -> ImportConditionSpec:
 
 
 def _records(**condition_changes):
+    if condition_changes.get("seed") is not None and "unknown_reasons" not in condition_changes:
+        condition_changes["unknown_reasons"] = {
+            key: value
+            for key, value in _condition().unknown_reasons.items()
+            if key != "seed"
+        }
     condition = replace(_condition(), **condition_changes)
     return build_import_semantic_identity(
         condition=condition,
@@ -478,6 +492,7 @@ def test_native_child_claims_must_match_their_semantic_declarations():
             method=replace(
                 _method(),
                 implementation={"qualified_name": "historical:SemanticMatching"},
+                unknown_reasons={},
                 native_compatibility_identity=native_method,
             ),
             prompt=_prompt(),
@@ -632,6 +647,7 @@ def test_native_method_payload_requires_authoritative_implementation_shape():
             method=replace(
                 _method(),
                 implementation={"qualified_name": "historical:Matcher"},
+                unknown_reasons={},
                 native_compatibility_identity=native,
             ),
             prompt=_prompt(),
@@ -921,6 +937,7 @@ def _mutate_realization(identity: dict, field: str, value) -> None:
     elif field == "authorization_digest":
         identity["authorization_digest"] = value
         identity["parent_digests"]["realization_digests"] = ["d" * 64]
+        identity["parent_digests"]["evidence_digests"] = ["0" * 64]
         identity["overlay"] = {
             "source_sha256": "e" * 64,
             "replacement_digest": "f" * 64,
@@ -938,6 +955,7 @@ def _mutate_realization(identity: dict, field: str, value) -> None:
     elif field == "overlay_sha256":
         identity["authorization_digest"] = "c" * 64
         identity["parent_digests"]["realization_digests"] = ["d" * 64]
+        identity["parent_digests"]["evidence_digests"] = ["0" * 64]
         identity["overlay"] = {
             "source_sha256": value,
             "replacement_digest": "a" * 64,
@@ -1130,6 +1148,7 @@ def test_base_repair_and_transformation_are_distinct_realizations_of_one_conditi
         if derivation != "external_import":
             identity["authorization_digest"] = "c" * 64
             identity["parent_digests"]["realization_digests"] = ["d" * 64]
+            identity["parent_digests"]["evidence_digests"] = ["0" * 64]
             identity["overlay"] = {
                 "source_sha256": "e" * 64,
                 "replacement_digest": "f" * 64,
@@ -1165,11 +1184,12 @@ def test_derived_realization_requires_authorization_parent_and_overlay(derivatio
         derivation_origin=derivation,
         row_assignments=(("q1", "external_historical_inference", f"lin_{'a' * 16}"),),
     )
-    for field in ("authorization_digest", "overlay", "parent"):
+    for field in ("authorization_digest", "overlay", "parent", "evidence"):
         candidate = _realization_identity()
         candidate["result_origin"] = identity["result_origin"]
         candidate["authorization_digest"] = "c" * 64
         candidate["parent_digests"]["realization_digests"] = ["d" * 64]
+        candidate["parent_digests"]["evidence_digests"] = ["0" * 64]
         candidate["overlay"] = {
             "source_sha256": "e" * 64,
             "replacement_digest": "f" * 64,
@@ -1179,6 +1199,8 @@ def test_derived_realization_requires_authorization_parent_and_overlay(derivatio
         }
         if field == "parent":
             candidate["parent_digests"]["realization_digests"] = []
+        elif field == "evidence":
+            candidate["parent_digests"]["evidence_digests"] = []
         else:
             candidate[field] = None
         with pytest.raises(ImportIdentityError, match="authorization|overlay|parent"):
@@ -1305,6 +1327,19 @@ def test_realization_requires_runtime_derived_importer_implementation_identity()
         )
 
 
+def test_realization_recomputes_implementation_identity_from_supplied_callables():
+    condition = _records().condition
+    with pytest.raises(ImportIdentityError, match="runtime|callable|implementation"):
+        _make_realization(
+            condition_id=condition["condition_id"],
+            condition_digest=condition["condition_digest"],
+            identity=_realization_identity(),
+            fields={},
+            adapter=_validator,
+            validator=_adapter,
+        )
+
+
 def test_semantic_condition_refuses_nested_audit_metadata_and_invalid_children():
     original = _records().condition
     nested_audit = {
@@ -1328,6 +1363,120 @@ def test_expected_dataset_identity_mode_is_closed():
         )
 
 
+@pytest.mark.parametrize("mutation", ["unexpected_key", "false_content_digest"])
+def test_expected_dataset_payloads_are_bound_to_exact_schema_and_frames(mutation):
+    dataset = _dataset()
+    artifact_payload = dict(dataset.artifact_payload)
+    if mutation == "unexpected_key":
+        artifact_payload["unexpected"] = "smuggled"
+    else:
+        artifact_payload["content_digest"] = "f" * 64
+    artifact_digest = integrity_digest(artifact_payload)
+    artifact_id = short_id("ds", artifact_payload)
+    selection_payload = {
+        **dataset.selection_payload,
+        "artifact_id": artifact_id,
+    }
+    forged = replace(
+        dataset,
+        artifact_payload=artifact_payload,
+        artifact_digest=artifact_digest,
+        artifact_id=artifact_id,
+        selection_payload=selection_payload,
+        selection_digest=integrity_digest(selection_payload),
+        selection_id=short_id("sel", selection_payload),
+    )
+    with pytest.raises(ImportIdentityError, match="dataset|artifact|content"):
+        build_import_semantic_identity(
+            condition=_condition(),
+            dataset=forged,
+            model=_model(),
+            method=_method(),
+            prompt=_prompt(),
+        )
+
+
+@pytest.mark.parametrize(
+    "protocol_settings",
+    [
+        {"audit": {"operator": "alice"}},
+        {"source_sha256": "a" * 64},
+        {"evidence_status": "complete"},
+        {"authorization_digest": "b" * 64},
+        {"machine": "host-a"},
+        {"recorded_at": "2026-07-19"},
+        {"working_directory": "work"},
+        {"artifact_location": "results/final.csv"},
+    ],
+)
+def test_semantic_protocol_settings_refuse_realization_and_audit_metadata(
+    protocol_settings,
+):
+    identity = dict(_records().condition["identity"])
+    identity["protocol_settings"] = protocol_settings
+    with pytest.raises(ImportIdentityError, match="protocol|forbidden|metadata"):
+        make_semantic_condition(identity=identity, fields={})
+
+
+def test_native_dummy_cannot_discard_a_known_revision():
+    payload = {"backend": "dummy", "model_name_or_path": "historical-model"}
+    native = {
+        "payload": payload,
+        "digest": integrity_digest(payload),
+        "model_id": short_id("model", payload),
+    }
+    with pytest.raises(ImportIdentityError, match="revision|fallback"):
+        build_import_semantic_identity(
+            condition=replace(_condition(), generation_parameters={}),
+            dataset=_dataset(),
+            model=replace(
+                _model(),
+                backend="dummy",
+                revision="publisher-r1",
+                effective_parameters={},
+                unknown_reasons={"provider": "not applicable"},
+                native_compatibility_identity=native,
+            ),
+            method=_method(),
+            prompt=_prompt(),
+        )
+
+
+@pytest.mark.parametrize("kind", ["model", "prompt", "condition"])
+def test_direct_dataclasses_reject_contradictory_unknown_reasons(kind):
+    condition = _condition()
+    model = _model()
+    prompt = _prompt()
+    if kind == "model":
+        model = replace(
+            model,
+            backend="dummy",
+            unknown_reasons={**model.unknown_reasons, "backend": "not recorded"},
+        )
+    elif kind == "prompt":
+        prompt = replace(
+            prompt,
+            template_identity="known",
+            template_digest="a" * 64,
+            template_contents={"direct_mcq": "known"},
+            unknown_reason="not recorded",
+        )
+    else:
+        condition = replace(
+            condition,
+            seed=7,
+            unknown_reasons={**condition.unknown_reasons, "seed": "not recorded"},
+        )
+    with pytest.raises(ImportIdentityError, match="unknown reason|contradict"):
+        build_import_semantic_identity(
+            condition=condition,
+            dataset=_dataset(),
+            model=model,
+            method=_method(),
+            prompt=prompt,
+        )
+
+
 def test_lineage_component_is_parent_derived_and_has_no_child_edge():
     component = make_lineage_component(
         operation_type="offline_transformation",
@@ -1335,10 +1484,7 @@ def test_lineage_component_is_parent_derived_and_has_no_child_edge():
         parent_digests=("2" * 64, "1" * 64),
         source_digests=("4" * 64, "3" * 64),
         authorization_digest="5" * 64,
-        implementation={
-            "qualified_name": "choicebench.transforms:rematch",
-            "source_digest": "8" * 64,
-        },
+        implementation=_transform,
         parameters={"matcher": "v1"},
         input_digest="6" * 64,
         preownership_output_digest="7" * 64,
@@ -1363,6 +1509,13 @@ def test_lineage_refuses_child_paths_timestamps_and_final_csv_hashes():
         "machine_id",
         "child_lineage_id",
         "final_result_digest",
+        "lineage_id",
+        "next_lineage_id",
+        "child_component_id",
+        "machine",
+        "recorded_at",
+        "working_directory",
+        "artifact_location",
     ):
         with pytest.raises(ImportIdentityError, match=forbidden):
             make_lineage_component(
@@ -1371,7 +1524,7 @@ def test_lineage_refuses_child_paths_timestamps_and_final_csv_hashes():
                 parent_digests=(),
                 source_digests=("1" * 64,),
                 authorization_digest=None,
-                implementation={"qualified_name": "x:y", "source_digest": "9" * 64},
+                implementation=_transform,
                 parameters={forbidden: "bad"},
                 input_digest="2" * 64,
                 preownership_output_digest="3" * 64,
@@ -1407,7 +1560,7 @@ def test_lineage_refuses_duplicate_parent_or_source_edges():
                 parent_digests=parents,
                 source_digests=sources,
                 authorization_digest=None,
-                implementation={"qualified_name": "x:y", "source_digest": "3" * 64},
+                implementation=_transform,
                 parameters={},
                 input_digest="4" * 64,
                 preownership_output_digest="5" * 64,
