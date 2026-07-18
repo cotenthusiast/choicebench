@@ -18,6 +18,7 @@ from choicebench.importing.schema import CsvDialectSpec, SourceArtifactSpec
 
 _UTF8_BOM = b"\xef\xbb\xbf"
 _TERMINATORS = {"crlf": b"\r\n", "lf": b"\n", "cr": b"\r"}
+_ACTUAL_TERMINATORS = (b"\r\n", b"\n", b"\r")
 _INTEGER_RE = re.compile(r"[+-]?\d+\Z")
 _FLOAT_RE = re.compile(
     r"[+-]?(?:(?:\d+(?:\.\d*)?)|(?:\.\d+))(?:[eE][+-]?\d+)?\Z"
@@ -102,7 +103,7 @@ def scan_csv_logical_records(
     if not isinstance(data, bytes):
         raise TypeError(f"data must be bytes; got {type(data).__name__}.")
     delimiter, quote, escape = _dialect_bytes(dialect)
-    terminators = _declared_terminators(dialect)
+    declared_terminators = set(_declared_terminators(dialect))
     spans: list[LogicalRecordSpan] = []
     observed_terminators: set[bytes] = set()
     start = 0
@@ -112,6 +113,7 @@ def scan_csv_logical_records(
         index = len(_UTF8_BOM)
     else:
         index = 0
+    content_start = index
     in_quotes = False
     at_field_start = True
 
@@ -146,12 +148,21 @@ def scan_csv_logical_records(
             index += 2
             continue
         terminator = next(
-            (candidate for candidate in terminators if data.startswith(candidate, index)),
+            (
+                candidate
+                for candidate in _ACTUAL_TERMINATORS
+                if data.startswith(candidate, index)
+            ),
             None,
         )
         if terminator is not None:
+            if terminator not in declared_terminators:
+                raise CsvAdapterError(
+                    f"CSV contains undeclared line terminator {terminator!r} "
+                    f"at byte {index}."
+                )
             end = index + len(terminator)
-            if index == start:
+            if index == content_start:
                 raise CsvAdapterError(f"CSV blank logical record at byte {start} is forbidden.")
             observed_terminators.add(terminator)
             if (
@@ -162,6 +173,7 @@ def scan_csv_logical_records(
             spans.append(LogicalRecordSpan(len(spans), start, end, terminator))
             start = end
             index = end
+            content_start = end
             at_field_start = True
             continue
         if byte == delimiter:
@@ -212,14 +224,16 @@ def _decode_record(
     strip_bom: bool,
 ) -> list[str]:
     record = data[span.start : span.end - len(span.terminator) if span.terminator else span.end]
+    stripped_prefix_size = 0
     if strip_bom:
+        stripped_prefix_size = len(_UTF8_BOM)
         record = record[len(_UTF8_BOM) :]
     try:
         text = record.decode("utf-8", errors="strict")
     except UnicodeDecodeError as exc:
         raise CsvAdapterError(
             f"Invalid UTF-8 in CSV logical record {span.index} at source byte "
-            f"{span.start + exc.start}."
+            f"{span.start + stripped_prefix_size + exc.start}."
         ) from exc
     try:
         parsed = list(

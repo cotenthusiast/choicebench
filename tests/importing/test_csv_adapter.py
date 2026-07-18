@@ -162,11 +162,48 @@ def test_forbidden_mixed_terminators_are_rejected():
         scan_csv_logical_records(data, dialect)
 
 
+@pytest.mark.parametrize(
+    ("declared", "actual"),
+    [
+        (("lf",), b"\r\n"),
+        (("lf",), b"\r"),
+        (("crlf",), b"\n"),
+        (("crlf",), b"\r"),
+        (("cr",), b"\r\n"),
+        (("cr",), b"\n"),
+    ],
+)
+def test_actual_undeclared_terminator_is_rejected(
+    declared: tuple[str, ...], actual: bytes
+):
+    data = b"id,value" + actual + b"q1,x" + actual
+    dialect = CsvDialectSpec(line_terminators=declared)
+    with pytest.raises(CsvAdapterError, match="undeclared line terminator"):
+        scan_csv_logical_records(data, dialect)
+
+
+def test_mixed_policy_compares_actual_crlf_and_lf_terminators():
+    data = b"id,value\r\nq1,x\n"
+    dialect = CsvDialectSpec(
+        line_terminators=("crlf", "lf"), mixed_line_terminators="forbid"
+    )
+    with pytest.raises(CsvAdapterError, match="mixed line terminators"):
+        scan_csv_logical_records(data, dialect)
+
+
 @pytest.mark.parametrize("blank", [b"\n", b"\r", b"\r\n"])
 def test_blank_logical_records_are_rejected(blank: bytes):
     data = b"id,value\n" + blank + b"q1,x\n"
     with pytest.raises(CsvAdapterError, match="blank logical record"):
         scan_csv_logical_records(data, CsvDialectSpec())
+
+
+@pytest.mark.parametrize("terminator", [b"\n", b"\r", b"\r\n"])
+def test_bom_strip_rejects_blank_first_logical_record_directly(terminator: bytes):
+    data = b"\xef\xbb\xbf" + terminator + b"q1,x" + terminator
+    dialect = CsvDialectSpec(bom_policy="strip_utf8_bom")
+    with pytest.raises(CsvAdapterError, match="blank logical record"):
+        scan_csv_logical_records(data, dialect)
 
 
 def test_bom_is_forbidden_by_default(tmp_path: Path):
@@ -196,6 +233,13 @@ def test_invalid_utf8_is_rejected_without_replacement(tmp_path: Path):
     data = b"id,value\nq1,\xff\n"
     with pytest.raises(CsvAdapterError, match="UTF-8.*logical record 1"):
         _parse(tmp_path, data)
+
+
+def test_invalid_utf8_offset_in_bom_stripped_header_uses_original_bytes(tmp_path: Path):
+    data = b"\xef\xbb\xbfid,\xff\nq1,x\n"
+    dialect = CsvDialectSpec(bom_policy="strip_utf8_bom")
+    with pytest.raises(CsvAdapterError, match=r"logical record 0 at source byte 6"):
+        _parse(tmp_path, data, dialect=dialect)
 
 
 def test_header_order_and_raw_row_hash_are_preserved(tmp_path: Path):
