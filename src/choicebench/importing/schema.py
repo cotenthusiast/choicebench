@@ -1092,7 +1092,7 @@ def _validate_model_payload(value: Any, where: str) -> dict[str, Any]:
 
 _IMPLEMENTATION_KEYS = {
     "qualified_name", "source_file", "source_digest", "distribution",
-    "distribution_version", "package_tree_digest",
+    "distribution_version", "package_tree_digest", "package_file_count",
 }
 
 
@@ -1102,9 +1102,20 @@ def _validate_implementation(value: Any, where: str) -> dict[str, Any]:
         raise ImportSpecError(f"Missing required field 'qualified_name' in {where}.")
     result = _canonical_mapping(raw, where)
     _nonempty(result["qualified_name"], f"{where}.qualified_name")
+    for key in ("source_file", "distribution", "distribution_version"):
+        if key in result:
+            _nonempty(result[key], f"{where}.{key}")
     for key in ("source_digest", "package_tree_digest"):
         if key in result:
             _sha256(result[key], f"{where}.{key}")
+    has_package_digest = "package_tree_digest" in result
+    has_package_count = "package_file_count" in result
+    if has_package_digest != has_package_count:
+        raise ImportSpecError(
+            f"{where}.package_tree_digest and {where}.package_file_count must appear together."
+        )
+    if has_package_count:
+        _strict_int(result["package_file_count"], f"{where}.package_file_count", minimum=1)
     return result
 
 

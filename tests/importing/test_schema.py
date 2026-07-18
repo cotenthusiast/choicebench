@@ -16,6 +16,7 @@ from choicebench.importing.schema import (
 )
 from choicebench.metrics import BUILTIN_METRICS
 from choicebench.pipeline.prompt_builder import prompt_bundle_identity
+from choicebench.provenance import implementation_identity
 
 
 SHA_A = "a" * 64
@@ -910,6 +911,77 @@ def test_validates_exact_native_compatibility_identities(
         spec.prompts[0].native_compatibility_identity
         == prompt_bundle_identity("v1")
     )
+
+
+def test_accepts_external_package_implementation_identity_in_native_method(
+    tmp_path: Path, minimal_raw: dict
+):
+    implementation = implementation_identity(yaml.YAMLObject)
+    assert implementation["package_file_count"] > 0
+    payload = deepcopy(_native_compatibility_payloads()["methods"]["payload"])
+    payload["implementation"] = implementation
+    identity = _native_identity("method", payload)
+    raw = deepcopy(minimal_raw)
+    raw["methods"][0]["native_compatibility_identity"] = identity
+
+    spec = _load(tmp_path, raw)
+
+    assert spec.methods[0].native_compatibility_identity == identity
+
+
+@pytest.mark.parametrize("package_file_count", [0, True])
+def test_rejects_non_positive_or_non_strict_package_file_count(
+    tmp_path: Path, minimal_raw: dict, package_file_count: object
+):
+    implementation = implementation_identity(yaml.YAMLObject)
+    implementation["package_file_count"] = package_file_count
+    payload = deepcopy(_native_compatibility_payloads()["methods"]["payload"])
+    payload["implementation"] = implementation
+    raw = deepcopy(minimal_raw)
+    raw["methods"][0]["native_compatibility_identity"] = _native_identity(
+        "method", payload
+    )
+
+    with pytest.raises(
+        ImportSpecError,
+        match=r"package_file_count.*(?:must be an integer|must be >= 1)",
+    ):
+        _load(tmp_path, raw)
+
+
+@pytest.mark.parametrize("missing_key", ["package_tree_digest", "package_file_count"])
+def test_requires_package_tree_digest_and_file_count_together(
+    tmp_path: Path, minimal_raw: dict, missing_key: str
+):
+    implementation = implementation_identity(yaml.YAMLObject)
+    implementation.pop(missing_key)
+    payload = deepcopy(_native_compatibility_payloads()["methods"]["payload"])
+    payload["implementation"] = implementation
+    raw = deepcopy(minimal_raw)
+    raw["methods"][0]["native_compatibility_identity"] = _native_identity(
+        "method", payload
+    )
+
+    with pytest.raises(ImportSpecError, match="package_tree_digest.*package_file_count.*together"):
+        _load(tmp_path, raw)
+
+
+@pytest.mark.parametrize(
+    "field", ["source_file", "distribution", "distribution_version"]
+)
+def test_rejects_empty_optional_implementation_string(
+    tmp_path: Path, minimal_raw: dict, field: str
+):
+    implementation = {"qualified_name": "external:Target", field: ""}
+    payload = deepcopy(_native_compatibility_payloads()["methods"]["payload"])
+    payload["implementation"] = implementation
+    raw = deepcopy(minimal_raw)
+    raw["methods"][0]["native_compatibility_identity"] = _native_identity(
+        "method", payload
+    )
+
+    with pytest.raises(ImportSpecError, match=field):
+        _load(tmp_path, raw)
 
 
 def test_native_prompt_identity_uses_exact_contents_without_redaction(
