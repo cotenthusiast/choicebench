@@ -12,7 +12,6 @@ from typing import Any, Literal, Mapping
 import pandas as pd
 
 from choicebench.datasets import (
-    NORMALIZATION_VERSION,
     dataset_content_digest,
     dataset_sample_identities,
     validate_normalized_dataset,
@@ -35,9 +34,13 @@ class ExpectedDataset:
     split: str
     artifact_id: str
     artifact_digest: str
+    artifact_payload: Mapping[str, Any]
     selection_id: str
     selection_digest: str
+    selection_payload: Mapping[str, Any]
     selection_semantics: Mapping[str, Any]
+    selection_unknown_reasons: Mapping[str, str]
+    identity_mode: Literal["imported_semantic_fallback", "native_compatibility"]
     frame: pd.DataFrame
     selected_question_ids: tuple[str, ...]
     reference_kind: Literal[
@@ -54,6 +57,44 @@ class ExpectedDataset:
 _SNAPSHOT_SCHEMA = "choicebench.expected-dataset.v1"
 _REFERENCE_SCHEMA = "choicebench.dataset-reference.v1"
 _REQUIRED_FIELDS = ("question_id", "question_text", "correct_option")
+_NATIVE_DATASET_SPEC_KEYS = {
+    "benchmark",
+    "split",
+    "hf_path",
+    "hf_subset",
+    "source_revision",
+    "normalization_version",
+    "transforms",
+    "output_name",
+}
+_SNAPSHOT_RECORD_KEYS = {
+    "schema_version",
+    "dataset_id",
+    "benchmark_name",
+    "split",
+    "artifact_id",
+    "artifact_digest",
+    "artifact_payload",
+    "selection_id",
+    "selection_digest",
+    "selection_payload",
+    "selection_semantics",
+    "selection_unknown_reasons",
+    "identity_mode",
+    "selected_question_ids",
+    "question_set_digest",
+    "snapshot_digest",
+    "reference_kind",
+    "trust_label",
+    "derivation",
+    "derivation_digest",
+    "limitations",
+    "run_snapshot_path",
+    "reference_metadata_path",
+    "snapshot_sha256",
+    "row_count",
+    "record_digest",
+}
 
 
 def _source_frame(source_id: str, source: OpenedSource) -> pd.DataFrame:
@@ -140,23 +181,57 @@ def _normalize_source(
                     f"for question_id {question_id!r}."
                 )
             normalized_choices = []
+            source_indices: set[int] = set()
             for index, item in enumerate(choices):
                 if not isinstance(item, Mapping) or not isinstance(item.get("text"), str):
                     raise DatasetReferenceError(
                         f"Expected dataset source {source_id!r} has malformed ordered options "
                         f"for question_id {question_id!r}."
                     )
+                raw_source_index = item.get("source_index", index)
+                try:
+                    if isinstance(raw_source_index, bool):
+                        raise ValueError
+                    source_index = int(raw_source_index)
+                except (TypeError, ValueError) as exc:
+                    raise DatasetReferenceError(
+                        f"Expected dataset source {source_id!r} has an invalid source_index "
+                        f"for question_id {question_id!r}."
+                    ) from exc
+                if source_index < 0 or source_index in source_indices:
+                    raise DatasetReferenceError(
+                        f"Expected dataset source {source_id!r} has an invalid source_index "
+                        f"for question_id {question_id!r}."
+                    )
+                if not item["text"].strip():
+                    raise DatasetReferenceError(
+                        f"Expected dataset source {source_id!r} has an empty structured "
+                        f"option for question_id {question_id!r}."
+                    )
+                source_indices.add(source_index)
                 normalized_choices.append(
                     {
                         "text": item["text"],
-                        "source_index": int(item.get("source_index", index)),
+                        "source_index": source_index,
                     }
                 )
         else:
+            choice_values = [str(raw_row[mapping[key]]) for key in choice_keys]
+            nonempty_indices = [
+                index for index, value in enumerate(choice_values) if value.strip()
+            ]
+            if nonempty_indices:
+                last_nonempty = nonempty_indices[-1]
+                if any(not value.strip() for value in choice_values[:last_nonempty]):
+                    raise DatasetReferenceError(
+                        f"Expected dataset source {source_id!r} has an empty option followed "
+                        f"by a populated option for question_id {question_id!r}."
+                    )
+                choice_values = choice_values[: last_nonempty + 1]
             normalized_choices = [
-                {"text": raw_row[mapping[key]], "source_index": index}
-                for index, key in enumerate(choice_keys)
-                if str(raw_row[mapping[key]]).strip()
+                {"text": value, "source_index": index}
+                for index, value in enumerate(choice_values)
+                if value.strip()
             ]
         record["choices_json"] = json.dumps(
             normalized_choices, ensure_ascii=True, separators=(",", ":")
@@ -246,21 +321,14 @@ def _profile_groups(declaration: DatasetReferenceSpec) -> tuple[tuple[str, ...],
     return tuple(groups)
 
 
-def _artifact_payload(dataset: ExpectedDataset | pd.DataFrame, declaration: DatasetReferenceSpec) -> dict[str, Any]:
-    frame = dataset.frame if isinstance(dataset, ExpectedDataset) else dataset
+def _fallback_artifact_payload(
+    frame: pd.DataFrame, declaration: DatasetReferenceSpec
+) -> dict[str, Any]:
     return {
-        "spec": {
-            "benchmark": declaration.benchmark_name,
-            "split": declaration.split,
-            "hf_path": None,
-            "hf_subset": None,
-            "source_revision": None,
-            "normalization_version": NORMALIZATION_VERSION,
-            "transforms": [],
-            "output_name": declaration.benchmark_name,
-        },
+        "schema_version": "choicebench.semantic-dataset.v1",
+        "benchmark": declaration.benchmark_name,
+        "split": declaration.split,
         "content_digest": dataset_content_digest(frame),
-        "source": {},
     }
 
 
@@ -275,6 +343,98 @@ def _selection_payload(
         "n_samples": declaration.selection_n_samples,
         "subject_filter": sorted(declaration.subject_filter),
     }
+
+
+def _validated_identity_records(
+    frame: pd.DataFrame, declaration: DatasetReferenceSpec
+) -> tuple[
+    Mapping[str, Any],
+    str,
+    str,
+    Mapping[str, Any],
+    str,
+    str,
+    Literal["imported_semantic_fallback", "native_compatibility"],
+]:
+    native = declaration.native_compatibility_identity
+    if native is None:
+        artifact_payload = canonicalize(_fallback_artifact_payload(frame, declaration))
+        artifact_digest = integrity_digest(artifact_payload)
+        artifact_id = short_id("ds", artifact_payload)
+        selection_payload = canonicalize(
+            _selection_payload(frame, declaration, artifact_id)
+        )
+        return (
+            artifact_payload,
+            artifact_digest,
+            artifact_id,
+            selection_payload,
+            integrity_digest(selection_payload),
+            short_id("sel", selection_payload),
+            "imported_semantic_fallback",
+        )
+
+    required = {
+        "artifact_payload",
+        "artifact_digest",
+        "artifact_id",
+        "selection_payload",
+        "selection_digest",
+        "selection_id",
+    }
+    if not isinstance(native, Mapping) or set(native) != required:
+        raise DatasetReferenceError(
+            "Expected dataset native compatibility identity has invalid fields."
+        )
+    artifact_payload = canonicalize(native["artifact_payload"])
+    selection_payload = canonicalize(native["selection_payload"])
+    artifact_digest = integrity_digest(artifact_payload)
+    artifact_id = short_id("ds", artifact_payload)
+    selection_digest = integrity_digest(selection_payload)
+    selection_id = short_id("sel", selection_payload)
+    if (
+        native["artifact_digest"] != artifact_digest
+        or native["artifact_id"] != artifact_id
+        or native["selection_digest"] != selection_digest
+        or native["selection_id"] != selection_id
+    ):
+        raise DatasetReferenceError(
+            "Expected dataset native compatibility identity claims are invalid."
+        )
+    if not isinstance(artifact_payload, Mapping) or set(artifact_payload) != {
+        "spec",
+        "content_digest",
+        "source",
+    }:
+        raise DatasetReferenceError(
+            "Expected dataset native compatibility artifact payload is invalid."
+        )
+    spec = artifact_payload.get("spec")
+    if (
+        not isinstance(spec, Mapping)
+        or set(spec) != _NATIVE_DATASET_SPEC_KEYS
+        or not isinstance(artifact_payload.get("source"), Mapping)
+        or spec.get("benchmark") != declaration.benchmark_name
+        or spec.get("split") != declaration.split
+        or artifact_payload.get("content_digest") != dataset_content_digest(frame)
+    ):
+        raise DatasetReferenceError(
+            "Expected dataset native compatibility content does not own the selected rows."
+        )
+    expected_selection = _selection_payload(frame, declaration, artifact_id)
+    if selection_payload != canonicalize(expected_selection):
+        raise DatasetReferenceError(
+            "Expected dataset native compatibility selection does not own the selected rows."
+        )
+    return (
+        artifact_payload,
+        artifact_digest,
+        artifact_id,
+        selection_payload,
+        selection_digest,
+        selection_id,
+        "native_compatibility",
+    )
 
 
 def build_expected_dataset(
@@ -314,12 +474,31 @@ def build_expected_dataset(
     except Exception as exc:
         raise DatasetReferenceError(f"Expected dataset reference is invalid: {exc}") from exc
 
-    artifact_payload = _artifact_payload(frame, declaration)
-    artifact_digest = integrity_digest(artifact_payload)
-    artifact_id = short_id("ds", artifact_payload)
-    selection_payload = _selection_payload(frame, declaration, artifact_id)
-    selection_digest = integrity_digest(selection_payload)
-    selection_id = short_id("sel", selection_payload)
+    unknown_reasons = canonicalize(dict(declaration.selection_unknown_reasons))
+    expected_unknown_keys = {
+        field
+        for field, value in (
+            ("selection_seed", declaration.selection_seed),
+            ("selection_n_samples", declaration.selection_n_samples),
+        )
+        if value is None
+    }
+    if set(unknown_reasons) != expected_unknown_keys or not all(
+        isinstance(reason, str) and reason.strip()
+        for reason in unknown_reasons.values()
+    ):
+        raise DatasetReferenceError(
+            "Expected dataset selection unknown reasons do not match null semantics."
+        )
+    (
+        artifact_payload,
+        artifact_digest,
+        artifact_id,
+        selection_payload,
+        selection_digest,
+        selection_id,
+        identity_mode,
+    ) = _validated_identity_records(frame, declaration)
     selection_semantics = canonicalize(
         {
             "seed": declaration.selection_seed,
@@ -359,6 +538,8 @@ def build_expected_dataset(
             "declared_derivation": dict(declaration.derivation),
             "selected_question_ids": list(declaration.expected_question_ids),
             "selection_semantics": selection_semantics,
+            "selection_unknown_reasons": unknown_reasons,
+            "identity_mode": identity_mode,
             "limitations": limitations,
         }
     )
@@ -380,9 +561,13 @@ def build_expected_dataset(
         split=declaration.split,
         artifact_id=artifact_id,
         artifact_digest=artifact_digest,
+        artifact_payload=artifact_payload,
         selection_id=selection_id,
         selection_digest=selection_digest,
+        selection_payload=selection_payload,
         selection_semantics=selection_semantics,
+        selection_unknown_reasons=unknown_reasons,
+        identity_mode=identity_mode,
         frame=frame,
         selected_question_ids=tuple(declaration.expected_question_ids),
         reference_kind=declaration.reference_kind,
@@ -404,6 +589,27 @@ def _safe_relative_path(value: Any, field: str) -> Path:
     return Path(*pure.parts)
 
 
+def _contained_path(root: Path, value: Any, field: str) -> Path:
+    relative = _safe_relative_path(value, field)
+    try:
+        canonical_root = root.resolve(strict=True)
+    except OSError as exc:
+        raise DatasetReferenceError("Expected dataset output root is unreadable.") from exc
+    candidate = canonical_root / relative
+    current = canonical_root
+    for part in relative.parts:
+        current = current / part
+        if current.is_symlink():
+            raise DatasetReferenceError(
+                f"Expected dataset {field} contains an unsafe symlink."
+            )
+    try:
+        candidate.resolve(strict=False).relative_to(canonical_root)
+    except (OSError, ValueError) as exc:
+        raise DatasetReferenceError(f"Expected dataset {field} is unsafe.") from exc
+    return candidate
+
+
 def _snapshot_record(dataset: ExpectedDataset) -> dict[str, Any]:
     snapshot_path = f"artifacts/datasets/{dataset.selection_id}.csv"
     metadata_path = f"artifacts/datasets/{dataset.selection_id}.reference.json"
@@ -415,9 +621,13 @@ def _snapshot_record(dataset: ExpectedDataset) -> dict[str, Any]:
         "split": dataset.split,
         "artifact_id": dataset.artifact_id,
         "artifact_digest": dataset.artifact_digest,
+        "artifact_payload": dataset.artifact_payload,
         "selection_id": dataset.selection_id,
         "selection_digest": dataset.selection_digest,
+        "selection_payload": dataset.selection_payload,
         "selection_semantics": dataset.selection_semantics,
+        "selection_unknown_reasons": dataset.selection_unknown_reasons,
+        "identity_mode": dataset.identity_mode,
         "selected_question_ids": list(dataset.selected_question_ids),
         "question_set_digest": dataset.question_set_digest,
         "snapshot_digest": dataset.snapshot_digest,
@@ -439,8 +649,9 @@ def write_expected_snapshot(staged_run: Path, dataset: ExpectedDataset) -> dict[
     """Atomically write the selected semantic CSV and its self-digesting record."""
     root = Path(staged_run)
     record = _snapshot_record(dataset)
-    snapshot_path = root / _safe_relative_path(record["run_snapshot_path"], "run_snapshot_path")
-    metadata_path = root / _safe_relative_path(
+    snapshot_path = _contained_path(root, record["run_snapshot_path"], "run_snapshot_path")
+    metadata_path = _contained_path(
+        root,
         record["reference_metadata_path"], "reference_metadata_path"
     )
     atomic_write_text(snapshot_path, dataset.frame.to_csv(index=False, lineterminator="\n"))
@@ -448,16 +659,79 @@ def write_expected_snapshot(staged_run: Path, dataset: ExpectedDataset) -> dict[
     return record
 
 
+def _validate_snapshot_record_shape(record: Mapping[str, Any]) -> None:
+    if set(record) != _SNAPSHOT_RECORD_KEYS:
+        raise DatasetReferenceError("Expected dataset reference record fields are invalid.")
+    if record["schema_version"] != _SNAPSHOT_SCHEMA:
+        raise DatasetReferenceError("Expected dataset reference schema is unsupported.")
+    nonempty_strings = {
+        "dataset_id",
+        "benchmark_name",
+        "split",
+        "artifact_id",
+        "artifact_digest",
+        "selection_id",
+        "selection_digest",
+        "question_set_digest",
+        "snapshot_digest",
+        "trust_label",
+        "derivation_digest",
+        "run_snapshot_path",
+        "reference_metadata_path",
+        "snapshot_sha256",
+        "record_digest",
+    }
+    if any(
+        not isinstance(record[field], str) or not record[field]
+        for field in nonempty_strings
+    ):
+        raise DatasetReferenceError("Expected dataset reference record fields are invalid.")
+    if record["reference_kind"] not in {
+        "independent_input_snapshot",
+        "profile_derived_reference_snapshot",
+    } or record["identity_mode"] not in {
+        "imported_semantic_fallback",
+        "native_compatibility",
+    }:
+        raise DatasetReferenceError("Expected dataset reference record fields are invalid.")
+    if not all(
+        isinstance(record[field], Mapping)
+        for field in (
+            "artifact_payload",
+            "selection_payload",
+            "selection_semantics",
+            "selection_unknown_reasons",
+            "derivation",
+        )
+    ):
+        raise DatasetReferenceError("Expected dataset reference record fields are invalid.")
+    selected = record["selected_question_ids"]
+    limitations = record["limitations"]
+    if (
+        not isinstance(selected, list)
+        or not selected
+        or not all(isinstance(value, str) and value for value in selected)
+        or len(selected) != len(set(selected))
+        or not isinstance(limitations, list)
+        or not all(isinstance(value, str) for value in limitations)
+        or isinstance(record["row_count"], bool)
+        or not isinstance(record["row_count"], int)
+        or record["row_count"] < 1
+    ):
+        raise DatasetReferenceError("Expected dataset reference record fields are invalid.")
+
+
 def validate_expected_snapshot(run_dir: Path, record: Mapping[str, Any]) -> None:
     """Recompute every snapshot, semantic identity, and reference digest."""
+    _validate_snapshot_record_shape(record)
     root = Path(run_dir)
     raw_record = dict(record)
     claimed_digest = raw_record.pop("record_digest", None)
     if claimed_digest != integrity_digest(raw_record):
         raise DatasetReferenceError("Expected dataset reference record integrity failed.")
-    snapshot_path = root / _safe_relative_path(record.get("run_snapshot_path"), "run_snapshot_path")
-    metadata_path = root / _safe_relative_path(
-        record.get("reference_metadata_path"), "reference_metadata_path"
+    snapshot_path = _contained_path(root, record["run_snapshot_path"], "run_snapshot_path")
+    metadata_path = _contained_path(
+        root, record["reference_metadata_path"], "reference_metadata_path"
     )
     try:
         persisted = json.loads(metadata_path.read_text(encoding="utf-8"))
@@ -487,25 +761,38 @@ def validate_expected_snapshot(run_dir: Path, record: Mapping[str, Any]) -> None
     if integrity_digest(derivation) != record.get("derivation_digest"):
         raise DatasetReferenceError("Expected dataset derivation integrity failed.")
 
-    artifact_payload = {
-        "spec": {
-            "benchmark": record.get("benchmark_name"),
-            "split": record.get("split"),
-            "hf_path": None,
-            "hf_subset": None,
-            "source_revision": None,
-            "normalization_version": NORMALIZATION_VERSION,
-            "transforms": [],
-            "output_name": record.get("benchmark_name"),
-        },
-        "content_digest": dataset_content_digest(frame),
-        "source": {},
-    }
+    artifact_payload = canonicalize(record["artifact_payload"])
+    if record["identity_mode"] == "imported_semantic_fallback":
+        expected_artifact_payload = {
+            "schema_version": "choicebench.semantic-dataset.v1",
+            "benchmark": record["benchmark_name"],
+            "split": record["split"],
+            "content_digest": dataset_content_digest(frame),
+        }
+        if artifact_payload != expected_artifact_payload:
+            raise DatasetReferenceError("Expected dataset artifact identity is invalid.")
+    else:
+        if not isinstance(artifact_payload, Mapping) or set(artifact_payload) != {
+            "spec",
+            "content_digest",
+            "source",
+        }:
+            raise DatasetReferenceError("Expected dataset artifact identity is invalid.")
+        native_spec = artifact_payload["spec"]
+        if (
+            not isinstance(native_spec, Mapping)
+            or set(native_spec) != _NATIVE_DATASET_SPEC_KEYS
+            or not isinstance(artifact_payload["source"], Mapping)
+            or native_spec.get("benchmark") != record["benchmark_name"]
+            or native_spec.get("split") != record["split"]
+            or artifact_payload["content_digest"] != dataset_content_digest(frame)
+        ):
+            raise DatasetReferenceError("Expected dataset artifact identity is invalid.")
     artifact_digest = integrity_digest(artifact_payload)
     artifact_id = short_id("ds", artifact_payload)
     if artifact_digest != record.get("artifact_digest") or artifact_id != record.get("artifact_id"):
         raise DatasetReferenceError("Expected dataset artifact identity is invalid.")
-    selection_semantics = record.get("selection_semantics")
+    selection_semantics = record["selection_semantics"]
     if (
         not isinstance(selection_semantics, Mapping)
         or set(selection_semantics) != {"seed", "n_samples", "subject_filter"}
@@ -532,6 +819,22 @@ def validate_expected_snapshot(run_dir: Path, record: Mapping[str, Any]) -> None
         "n_samples": selection_semantics["n_samples"],
         "subject_filter": selection_semantics["subject_filter"],
     }
+    if canonicalize(record["selection_payload"]) != selection_payload:
+        raise DatasetReferenceError("Expected dataset selection identity is invalid.")
+    unknown_reasons = record["selection_unknown_reasons"]
+    expected_unknown_keys = {
+        field
+        for field, value in (
+            ("selection_seed", selection_semantics["seed"]),
+            ("selection_n_samples", selection_semantics["n_samples"]),
+        )
+        if value is None
+    }
+    if set(unknown_reasons) != expected_unknown_keys or not all(
+        isinstance(reason, str) and reason.strip()
+        for reason in unknown_reasons.values()
+    ):
+        raise DatasetReferenceError("Expected dataset selection semantics are invalid.")
     if (
         integrity_digest(selection_payload) != record.get("selection_digest")
         or short_id("sel", selection_payload) != record.get("selection_id")

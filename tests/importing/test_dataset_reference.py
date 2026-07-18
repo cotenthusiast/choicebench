@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from hashlib import sha256
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -128,18 +129,10 @@ def _derived_declaration(**changes: object) -> DatasetReferenceSpec:
 
 def _semantic_payloads(dataset) -> tuple[dict, dict]:
     artifact_payload = {
-        "spec": {
-            "benchmark": dataset.benchmark_name,
-            "split": dataset.split,
-            "hf_path": None,
-            "hf_subset": None,
-            "source_revision": None,
-            "normalization_version": NORMALIZATION_VERSION,
-            "transforms": [],
-            "output_name": dataset.benchmark_name,
-        },
+        "schema_version": "choicebench.semantic-dataset.v1",
+        "benchmark": dataset.benchmark_name,
+        "split": dataset.split,
         "content_digest": dataset_content_digest(dataset.frame),
-        "source": {},
     }
     selection_payload = {
         "artifact_id": short_id("ds", artifact_payload),
@@ -162,8 +155,15 @@ def test_independent_reference_builds_full_semantic_identities_and_stable_order(
     assert dataset.frame["question_id"].tolist() == ["q2", "q1"]
     assert dataset.artifact_digest == integrity_digest(artifact_payload)
     assert dataset.artifact_id == short_id("ds", artifact_payload)
+    assert dataset.artifact_payload == artifact_payload
     assert dataset.selection_digest == integrity_digest(selection_payload)
     assert dataset.selection_id == short_id("sel", selection_payload)
+    assert dataset.selection_payload == selection_payload
+    assert dataset.identity_mode == "imported_semantic_fallback"
+    assert dataset.selection_unknown_reasons == {
+        "selection_seed": "not recorded by producer",
+        "selection_n_samples": "not recorded by producer",
+    }
     assert dataset.question_set_digest == integrity_digest(["q2", "q1"])
     assert dataset.reference_kind == "independent_input_snapshot"
 
@@ -434,3 +434,183 @@ def test_snapshot_self_validation_preserves_known_selection_semantics(tmp_path: 
         "subject_filter": ["science"],
     }
     validate_expected_snapshot(tmp_path, record)
+
+
+def test_validated_native_compatibility_identity_is_preserved_exactly():
+    fallback = build_expected_dataset(
+        _declaration(), {"reference": _source("reference", _rows())}
+    )
+    native_artifact_payload = {
+        "spec": {
+            "benchmark": "synthetic",
+            "split": "test",
+            "hf_path": "publisher/synthetic",
+            "hf_subset": None,
+            "source_revision": "immutable-r1",
+            "normalization_version": NORMALIZATION_VERSION,
+            "transforms": [],
+            "output_name": "synthetic",
+        },
+        "content_digest": dataset_content_digest(fallback.frame),
+        "source": {"revision": "immutable-r1"},
+    }
+    artifact_digest = integrity_digest(native_artifact_payload)
+    artifact_id = short_id("ds", native_artifact_payload)
+    native_selection_payload = {
+        "artifact_id": artifact_id,
+        "content_digest": dataset_content_digest(fallback.frame),
+        "sample_identities": dataset_sample_identities(fallback.frame),
+        "seed": 23,
+        "n_samples": 2,
+        "subject_filter": ["science"],
+    }
+    native = {
+        "artifact_payload": native_artifact_payload,
+        "artifact_digest": artifact_digest,
+        "artifact_id": artifact_id,
+        "selection_payload": native_selection_payload,
+        "selection_digest": integrity_digest(native_selection_payload),
+        "selection_id": short_id("sel", native_selection_payload),
+    }
+    declaration = replace(
+        _declaration(),
+        selection_seed=23,
+        selection_n_samples=2,
+        subject_filter=("science",),
+        selection_unknown_reasons={},
+        native_compatibility_identity=native,
+    )
+
+    dataset = build_expected_dataset(
+        declaration, {"reference": _source("reference", _rows())}
+    )
+
+    assert dataset.identity_mode == "native_compatibility"
+    assert dataset.artifact_payload == native_artifact_payload
+    assert dataset.selection_payload == native_selection_payload
+    assert dataset.artifact_id == artifact_id
+    assert dataset.selection_id == native["selection_id"]
+
+
+def test_native_compatibility_identity_must_own_the_selected_semantic_rows():
+    fallback = build_expected_dataset(
+        _declaration(), {"reference": _source("reference", _rows())}
+    )
+    artifact_payload = {
+        "spec": {
+            "benchmark": "synthetic",
+            "split": "test",
+            "hf_path": None,
+            "hf_subset": None,
+            "source_revision": None,
+            "normalization_version": NORMALIZATION_VERSION,
+            "transforms": [],
+            "output_name": "synthetic",
+        },
+        "content_digest": "0" * 64,
+        "source": {},
+    }
+    artifact_id = short_id("ds", artifact_payload)
+    selection_payload = {
+        "artifact_id": artifact_id,
+        "content_digest": dataset_content_digest(fallback.frame),
+        "sample_identities": dataset_sample_identities(fallback.frame),
+        "seed": 1,
+        "n_samples": 2,
+        "subject_filter": [],
+    }
+    native = {
+        "artifact_payload": artifact_payload,
+        "artifact_digest": integrity_digest(artifact_payload),
+        "artifact_id": artifact_id,
+        "selection_payload": selection_payload,
+        "selection_digest": integrity_digest(selection_payload),
+        "selection_id": short_id("sel", selection_payload),
+    }
+    declaration = replace(
+        _declaration(),
+        selection_seed=1,
+        selection_n_samples=2,
+        selection_unknown_reasons={},
+        native_compatibility_identity=native,
+    )
+
+    with pytest.raises(DatasetReferenceError, match="native compatibility.*content"):
+        build_expected_dataset(
+            declaration, {"reference": _source("reference", _rows())}
+        )
+
+
+@pytest.mark.parametrize("source_index", ["not-an-integer", -1, 1])
+def test_structured_choice_source_indices_fail_closed(source_index):
+    rows = [
+        {
+            "qid": "q1",
+            "stem": "First?",
+            "gold": "A",
+            "choices": json.dumps(
+                [
+                    {"text": "one", "source_index": source_index},
+                    {"text": "two", "source_index": 1},
+                ]
+            ),
+        }
+    ]
+    declaration = _declaration(
+        expected_question_ids=("q1",),
+        columns={
+            "question_id": "qid",
+            "question_text": "stem",
+            "correct_option": "gold",
+            "choices_json": "choices",
+        },
+    )
+
+    with pytest.raises(DatasetReferenceError, match="source_index"):
+        build_expected_dataset(
+            declaration, {"reference": _source("reference", rows)}
+        )
+
+
+def test_ordered_options_reject_an_empty_middle_value():
+    rows = _rows()
+    rows[0]["option_2"] = ""
+
+    with pytest.raises(DatasetReferenceError, match="empty option.*followed"):
+        build_expected_dataset(
+            _declaration(expected_question_ids=("q1",)),
+            {"reference": _source("reference", rows)},
+        )
+
+
+@pytest.mark.parametrize("mutation", ["schema", "extra_field"])
+def test_snapshot_record_schema_is_exact_and_fail_closed(tmp_path: Path, mutation: str):
+    dataset = build_expected_dataset(
+        _declaration(), {"reference": _source("reference", _rows())}
+    )
+    record = write_expected_snapshot(tmp_path, dataset)
+    if mutation == "schema":
+        record["schema_version"] = "choicebench.expected-dataset.v999"
+    else:
+        record["unexpected"] = "not allowed"
+    unsigned = dict(record)
+    unsigned.pop("record_digest")
+    record["record_digest"] = integrity_digest(unsigned)
+
+    with pytest.raises(DatasetReferenceError, match="schema|fields"):
+        validate_expected_snapshot(tmp_path, record)
+
+
+def test_snapshot_validation_rejects_symlinked_artifact_paths(tmp_path: Path):
+    dataset = build_expected_dataset(
+        _declaration(), {"reference": _source("reference", _rows())}
+    )
+    record = write_expected_snapshot(tmp_path, dataset)
+    snapshot = tmp_path / record["run_snapshot_path"]
+    outside = tmp_path.parent / f"{tmp_path.name}-outside.csv"
+    outside.write_bytes(snapshot.read_bytes())
+    snapshot.unlink()
+    snapshot.symlink_to(outside)
+
+    with pytest.raises(DatasetReferenceError, match="symlink|unsafe"):
+        validate_expected_snapshot(tmp_path, record)
