@@ -210,6 +210,14 @@ def test_fallback_child_payloads_are_exact_and_unknowns_are_explicit():
         "template_digest": unknown_prompt,
         "template_identity": unknown_prompt,
     }
+    assert records.selection["identity"] == {
+        "artifact_id": records.dataset_artifact["artifact_id"],
+        "content_digest": records.selection["identity"]["content_digest"],
+        "sample_identities": records.selection["identity"]["sample_identities"],
+        "seed": None,
+        "n_samples": 2,
+        "subject_filter": [],
+    }
 
 
 def test_child_records_have_full_digests_and_existing_short_prefixes():
@@ -291,6 +299,31 @@ def test_make_semantic_condition_rejects_arbitrary_prompt_path_injection():
 
     with pytest.raises(ImportIdentityError, match="prompt.*path"):
         make_semantic_condition(identity=identity, fields={"condition_key": "x"})
+
+
+def test_semantic_condition_fields_are_closed_and_cannot_contradict_identity():
+    identity = _records().condition["identity"]
+    for fields in (
+        {"model_id": "model_conflict"},
+        {"source_sha256": "1" * 64},
+        {"realization_id": "real_child"},
+    ):
+        with pytest.raises(ImportIdentityError, match="condition fields"):
+            make_semantic_condition(identity=identity, fields=fields)
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement"),
+    [
+        ("dataset_id", "wrong-dataset"),
+        ("model_key", "wrong-model"),
+        ("method_key", "wrong-method"),
+        ("prompt_key", "wrong-prompt"),
+    ],
+)
+def test_semantic_builder_refuses_cross_wired_child_registry_keys(field, replacement):
+    with pytest.raises(ImportIdentityError, match=field):
+        _records(**{field: replacement})
 
 
 def test_native_compatibility_children_are_preserved_without_fabrication():
@@ -379,7 +412,15 @@ def test_native_model_identity_refuses_unbound_generation_parameters():
         build_import_semantic_identity(
             condition=_condition(),
             dataset=_dataset(),
-            model=replace(_model(), native_compatibility_identity=native),
+            model=replace(
+                _model(),
+                backend="dummy",
+                unknown_reasons={
+                    "provider": "not applicable",
+                    "revision": "not applicable",
+                },
+                native_compatibility_identity=native,
+            ),
             method=_method(),
             prompt=_prompt(),
         )
@@ -426,7 +467,11 @@ def test_native_child_claims_must_match_their_semantic_declarations():
             ),
             dataset=_dataset(),
             model=_model(),
-            method=replace(_method(), native_compatibility_identity=native_method),
+            method=replace(
+                _method(),
+                implementation={"qualified_name": "historical:SemanticMatching"},
+                native_compatibility_identity=native_method,
+            ),
             prompt=_prompt(),
         )
 
@@ -454,6 +499,71 @@ def test_native_prompt_contents_must_match_the_semantic_declaration():
                 unknown_reason=None,
                 native_compatibility_identity=native,
             ),
+        )
+
+    bad_payload = {
+        **payload,
+        "files": {
+            **payload["files"],
+            "direct_mcq": {"sha256": "0" * 64, "content": "direct_mcq"},
+        },
+    }
+    bad_native = {"prompt_id": short_id("prompt", bad_payload), **bad_payload}
+    with pytest.raises(ImportIdentityError, match="prompt.*hash|prompt.*digest"):
+        build_import_semantic_identity(
+            condition=_condition(),
+            dataset=_dataset(),
+            model=_model(),
+            method=_method(),
+            prompt=replace(
+                _prompt(),
+                template_identity="v1",
+                template_digest=integrity_digest(bad_payload["files"]),
+                template_contents={
+                    name: item["content"] for name, item in bad_payload["files"].items()
+                },
+                unknown_reason=None,
+                native_compatibility_identity=bad_native,
+            ),
+        )
+
+
+def test_unknown_declarations_cannot_be_upgraded_by_native_claims():
+    method_payload = {
+        "name": "semantic_matching_v1",
+        "effective_params": {"matching": "semantic"},
+        "preflight": {"reason": "not recorded", "value": None},
+        "implementation": {"qualified_name": "fabricated:Current"},
+    }
+    native_method = {
+        "payload": method_payload,
+        "digest": integrity_digest(method_payload),
+        "method_id": short_id("method", method_payload),
+    }
+    with pytest.raises(ImportIdentityError, match="unknown.*native|implementation"):
+        build_import_semantic_identity(
+            condition=_condition(),
+            dataset=_dataset(),
+            model=_model(),
+            method=replace(_method(), native_compatibility_identity=native_method),
+            prompt=_prompt(),
+        )
+
+    prompt_payload = {
+        "version": "v1",
+        "files": {
+            name: {"sha256": integrity_digest(name), "content": name}
+            for name in ("direct_mcq", "free_text", "option_matching")
+        },
+    }
+    native_prompt = {"prompt_id": short_id("prompt", prompt_payload), **prompt_payload}
+    with pytest.raises(ImportIdentityError, match="unknown.*native|prompt"):
+        build_import_semantic_identity(
+            condition=_condition(),
+            dataset=_dataset(),
+            model=_model(),
+            method=_method(),
+            prompt=replace(_prompt(), native_compatibility_identity=native_prompt),
         )
 
 
@@ -607,21 +717,83 @@ def _realization_identity() -> dict:
     origin = make_result_origin(
         derivation_origin="external_import",
         row_assignments=(
-            ("q2", "external_historical_inference", "lin_a"),
-            ("q1", "external_historical_inference", "lin_b"),
+            ("q2", "external_historical_inference", f"lin_{'a' * 16}"),
+            ("q1", "external_historical_inference", f"lin_{'b' * 16}"),
         ),
     )
     return {
         "import_spec_digest": "1" * 64,
-        "source_sha256": "2" * 64,
-        "mapping": {"question_id": "qid"},
-        "dialect": {"delimiter": ","},
-        "evidence_status": "complete",
-        "scope": "included",
+        "sources": [
+            {
+                "source_id": "results",
+                "logical_path": "publisher/results.csv",
+                "classification": "canonical",
+                "format": "csv",
+                "format_version": "1",
+                "sha256": "2" * 64,
+                "provenance": {"source_run_id": None},
+            }
+        ],
+        "expected_dataset": {
+            "snapshot_digest": "3" * 64,
+            "question_set_digest": "4" * 64,
+            "derivation_digest": "5" * 64,
+        },
+        "importer_implementation": importer_implementation_identity(
+            adapter=_adapter, validator=_validator
+        ),
+        "parsing_policy": {
+            "dialect": asdict(CsvDialectSpec()),
+            "mapping": {"question_id": "qid"},
+            "null_values": [],
+            "numeric_columns": [],
+            "option_mapping": {"mode": "ordered_columns", "columns": ["a", "b"]},
+            "extra_field_policy": "preserve_unmapped",
+        },
+        "validation": {"findings_digest": "6" * 64},
+        "evidence": {
+            "evidence_status": "complete",
+            "qualification_digest": "7" * 64,
+            "limitation_digest": "8" * 64,
+            "defect_digest": "9" * 64,
+            "scope_disposition": "included",
+        },
+        "result_origin": origin,
+        "parent_digests": {
+            "realization_digests": [],
+            "evidence_digests": [],
+            "result_digests": [],
+        },
         "authorization_digest": None,
-        "overlay_sha256": None,
-        "prediction_origins": origin,
+        "overlay": None,
     }
+
+
+def _mutate_realization(identity: dict, field: str, value) -> None:
+    if field == "source_sha256":
+        identity["sources"][0]["sha256"] = value
+    elif field == "mapping":
+        identity["parsing_policy"]["mapping"] = value
+    elif field == "dialect":
+        identity["parsing_policy"]["dialect"].update(value)
+    elif field == "evidence_status":
+        identity["evidence"]["evidence_status"] = value
+    elif field == "scope":
+        identity["evidence"]["scope_disposition"] = value
+    elif field == "authorization_digest":
+        identity["authorization_digest"] = value
+    elif field == "overlay_sha256":
+        identity["overlay"] = {
+            "source_sha256": value,
+            "replacement_digest": "a" * 64,
+            "transformation_input_digest": None,
+            "preownership_output_digest": None,
+            "implementation_digest": None,
+        }
+    elif field == "prediction_origins":
+        identity["result_origin"] = value
+    else:
+        raise AssertionError(field)
 
 
 @pytest.mark.parametrize(
@@ -634,7 +806,16 @@ def _realization_identity() -> dict:
         ("scope", "superseded"),
         ("authorization_digest", "4" * 64),
         ("overlay_sha256", "5" * 64),
-        ("prediction_origins", {"ordered_row_origin_digest": "6" * 64}),
+        (
+            "prediction_origins",
+            make_result_origin(
+                derivation_origin="repair_overlay",
+                row_assignments=(
+                    ("q2", "native_inference", f"lin_{'c' * 16}"),
+                    ("q1", "external_historical_inference", f"lin_{'b' * 16}"),
+                ),
+            ),
+        ),
     ],
 )
 def test_realization_changes_leave_condition_fixed(field, value):
@@ -646,7 +827,7 @@ def test_realization_changes_leave_condition_fixed(field, value):
         fields={"audit": {"source_path": "/machine-a/results.csv"}},
     )
     changed_identity = _realization_identity()
-    changed_identity[field] = value
+    _mutate_realization(changed_identity, field, value)
     changed = make_realization(
         condition_id=condition["condition_id"],
         condition_digest=condition["condition_digest"],
@@ -701,9 +882,12 @@ def test_every_csv_decoding_and_dialect_field_changes_realization_not_condition(
     condition = _records().condition
     base_dialect = asdict(CsvDialectSpec())
     first_identity = _realization_identity()
-    first_identity["dialect"] = base_dialect
+    first_identity["parsing_policy"]["dialect"] = base_dialect
     changed_identity = _realization_identity()
-    changed_identity["dialect"] = {**base_dialect, field: value}
+    changed_identity["parsing_policy"]["dialect"] = {
+        **base_dialect,
+        field: value,
+    }
     first = make_realization(
         condition_id=condition["condition_id"],
         condition_digest=condition["condition_digest"],
@@ -725,7 +909,13 @@ def test_base_repair_and_transformation_are_distinct_realizations_of_one_conditi
     identities = []
     for derivation in ("external_import", "repair_overlay", "offline_transformation"):
         identity = _realization_identity()
-        identity["derivation_origin"] = derivation
+        identity["result_origin"] = make_result_origin(
+            derivation_origin=derivation,
+            row_assignments=(
+                ("q2", "external_historical_inference", f"lin_{'a' * 16}"),
+                ("q1", "external_historical_inference", f"lin_{'b' * 16}"),
+            ),
+        )
         identities.append(
             make_realization(
                 condition_id=condition["condition_id"],
@@ -760,6 +950,61 @@ def test_realization_refuses_post_publication_or_machine_local_identity_fields()
             )
 
 
+def test_realization_schema_is_closed_complete_and_origin_consistent():
+    condition = _records().condition
+    cases = []
+    missing = _realization_identity()
+    missing.pop("validation")
+    cases.append(missing)
+    extra = _realization_identity()
+    extra["import_state"] = "validated"
+    cases.append(extra)
+    incomplete_dialect = _realization_identity()
+    incomplete_dialect["parsing_policy"]["dialect"] = {"delimiter": ","}
+    cases.append(incomplete_dialect)
+    bare_mixed = _realization_identity()
+    bare_mixed["result_origin"] = {
+        "derivation_origin": "repair_overlay",
+        "prediction_origins": ["mixed"],
+    }
+    cases.append(bare_mixed)
+    for identity in cases:
+        with pytest.raises(ImportIdentityError):
+            make_realization(
+                condition_id=condition["condition_id"],
+                condition_digest=condition["condition_digest"],
+                identity=identity,
+                fields={},
+            )
+
+
+def test_realization_condition_short_id_must_match_full_digest():
+    condition = _records().condition
+    with pytest.raises(ImportIdentityError, match="condition_id.*digest"):
+        make_realization(
+            condition_id="cond_0000000000000000",
+            condition_digest=condition["condition_digest"],
+            identity=_realization_identity(),
+            fields={},
+        )
+
+
+def test_realization_fields_are_audit_only_and_cannot_repeat_identity_claims():
+    condition = _records().condition
+    for fields in (
+        {"evidence_status": "qualified"},
+        {"scope_disposition": "held"},
+        {"result_origin": {}},
+    ):
+        with pytest.raises(ImportIdentityError, match="Realization fields"):
+            make_realization(
+                condition_id=condition["condition_id"],
+                condition_digest=condition["condition_digest"],
+                identity=_realization_identity(),
+                fields=fields,
+            )
+
+
 def test_lineage_component_is_parent_derived_and_has_no_child_edge():
     component = make_lineage_component(
         operation_type="offline_transformation",
@@ -781,7 +1026,15 @@ def test_lineage_component_is_parent_derived_and_has_no_child_edge():
 
 
 def test_lineage_refuses_child_paths_timestamps_and_final_csv_hashes():
-    for forbidden in ("realization_id", "output_path", "timestamp", "final_csv_sha256"):
+    for forbidden in (
+        "realization_id",
+        "child_realization_id",
+        "output_path",
+        "result_path",
+        "timestamp",
+        "created_at",
+        "final_csv_sha256",
+    ):
         with pytest.raises(ImportIdentityError, match=forbidden):
             make_lineage_component(
                 operation_type="offline_transformation",
@@ -797,13 +1050,33 @@ def test_lineage_refuses_child_paths_timestamps_and_final_csv_hashes():
             )
 
 
+def test_lineage_refuses_duplicate_parent_or_source_edges():
+    for parents, sources in (
+        (("1" * 64, "1" * 64), ("2" * 64,)),
+        (("1" * 64,), ("2" * 64, "2" * 64)),
+    ):
+        with pytest.raises(ImportIdentityError, match="duplicate"):
+            make_lineage_component(
+                operation_type="external_import",
+                question_id="q1",
+                parent_digests=parents,
+                source_digests=sources,
+                authorization_digest=None,
+                implementation={"qualified_name": "x:y", "source_digest": "3" * 64},
+                parameters={},
+                input_digest="4" * 64,
+                preownership_output_digest="5" * 64,
+                prediction_origin="external_historical_inference",
+            )
+
+
 def test_result_origin_records_constituents_counts_and_ordered_per_row_mapping():
     origin = make_result_origin(
         derivation_origin="repair_overlay",
         row_assignments=(
-            ("q1", "external_historical_inference", "lin_base"),
-            ("q2", "native_inference", "lin_repair"),
-            ("q3", "native_inference", "lin_repair_2"),
+            ("q1", "external_historical_inference", f"lin_{'a' * 16}"),
+            ("q2", "native_inference", f"lin_{'b' * 16}"),
+            ("q3", "native_inference", f"lin_{'c' * 16}"),
         ),
     )
 
@@ -823,14 +1096,21 @@ def test_result_origin_records_constituents_counts_and_ordered_per_row_mapping()
     assert origin["ordered_row_origin_digest"] == integrity_digest(
         origin["row_assignments"]
     )
+    identity = {
+        key: value
+        for key, value in origin.items()
+        if key not in {"origin_id", "origin_digest"}
+    }
+    assert origin["origin_digest"] == integrity_digest(identity)
+    assert origin["origin_id"] == short_id("origin", identity)
 
 
 def test_result_origin_rejects_bare_mixed_duplicate_rows_and_invalid_origins():
     for assignments in (
-        (("q1", "mixed", "lin_a"),),
+        (("q1", "mixed", f"lin_{'a' * 16}"),),
         (
-            ("q1", "external_historical_inference", "lin_a"),
-            ("q1", "native_inference", "lin_b"),
+            ("q1", "external_historical_inference", f"lin_{'a' * 16}"),
+            ("q1", "native_inference", f"lin_{'b' * 16}"),
         ),
     ):
         with pytest.raises(ImportIdentityError):
@@ -843,7 +1123,7 @@ def test_offline_transformation_keeps_underlying_prediction_origin():
     origin = make_result_origin(
         derivation_origin="offline_transformation",
         row_assignments=(
-            ("q1", "external_historical_inference", "lin_rematch"),
+            ("q1", "external_historical_inference", f"lin_{'a' * 16}"),
         ),
     )
     assert origin["derivation_origin"] == "offline_transformation"
@@ -860,3 +1140,8 @@ def test_importer_implementation_identity_binds_package_adapter_and_validator():
     assert identity["validator"]["qualified_name"].endswith(":_validator")
     changed = importer_implementation_identity(adapter=_validator, validator=_adapter)
     assert integrity_digest(identity) != integrity_digest(changed)
+
+
+def test_importer_implementation_identity_refuses_uninspectable_callables():
+    with pytest.raises(ImportIdentityError, match="source identity"):
+        importer_implementation_identity(adapter=len, validator=_validator)
