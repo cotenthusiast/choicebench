@@ -41,6 +41,7 @@ class ExpectedDataset:
     selection_semantics: Mapping[str, Any]
     selection_unknown_reasons: Mapping[str, str]
     identity_mode: Literal["imported_semantic_fallback", "native_compatibility"]
+    artifact_frame: pd.DataFrame
     frame: pd.DataFrame
     selected_question_ids: tuple[str, ...]
     reference_kind: Literal[
@@ -151,6 +152,14 @@ def _normalize_source(
     has_structured_choices = "choices_json" in mapping
     if not choice_keys and not has_structured_choices:
         raise DatasetReferenceError("Expected dataset mapping declares no ordered options.")
+    if choice_keys:
+        expected_keys = tuple(
+            f"choice_{chr(ord('a') + index)}" for index in range(len(choice_keys))
+        )
+        if choice_keys != expected_keys:
+            raise DatasetReferenceError(
+                "Expected dataset ordered choice keys must be contiguous from choice_a."
+            )
 
     ordinary_keys = sorted(
         key for key in mapping if key not in choice_keys and key != "choices_json"
@@ -346,7 +355,9 @@ def _selection_payload(
 
 
 def _validated_identity_records(
-    frame: pd.DataFrame, declaration: DatasetReferenceSpec
+    artifact_frame: pd.DataFrame,
+    selected_frame: pd.DataFrame,
+    declaration: DatasetReferenceSpec,
 ) -> tuple[
     Mapping[str, Any],
     str,
@@ -358,11 +369,13 @@ def _validated_identity_records(
 ]:
     native = declaration.native_compatibility_identity
     if native is None:
-        artifact_payload = canonicalize(_fallback_artifact_payload(frame, declaration))
+        artifact_payload = canonicalize(
+            _fallback_artifact_payload(artifact_frame, declaration)
+        )
         artifact_digest = integrity_digest(artifact_payload)
         artifact_id = short_id("ds", artifact_payload)
         selection_payload = canonicalize(
-            _selection_payload(frame, declaration, artifact_id)
+            _selection_payload(selected_frame, declaration, artifact_id)
         )
         return (
             artifact_payload,
@@ -416,12 +429,13 @@ def _validated_identity_records(
         or not isinstance(artifact_payload.get("source"), Mapping)
         or spec.get("benchmark") != declaration.benchmark_name
         or spec.get("split") != declaration.split
-        or artifact_payload.get("content_digest") != dataset_content_digest(frame)
+        or artifact_payload.get("content_digest")
+        != dataset_content_digest(artifact_frame)
     ):
         raise DatasetReferenceError(
             "Expected dataset native compatibility content does not own the selected rows."
         )
-    expected_selection = _selection_payload(frame, declaration, artifact_id)
+    expected_selection = _selection_payload(selected_frame, declaration, artifact_id)
     if selection_payload != canonicalize(expected_selection):
         raise DatasetReferenceError(
             "Expected dataset native compatibility selection does not own the selected rows."
@@ -454,6 +468,15 @@ def build_expected_dataset(
         source_id: _normalize_source(declaration, source_id, opened_sources[source_id])
         for source_id in declaration.source_ids
     }
+    for source_id, source_frame in normalized.items():
+        try:
+            validate_normalized_dataset(
+                source_frame, source=f"expected dataset source {source_id!r}"
+            )
+        except Exception as exc:
+            raise DatasetReferenceError(
+                f"Expected dataset source {source_id!r} is invalid: {exc}"
+            ) from exc
     selected = {
         source_id: _selected_frame(frame, declaration.expected_question_ids)
         for source_id, frame in normalized.items()
@@ -468,6 +491,7 @@ def build_expected_dataset(
                     f"Profile-derived reference source {source_id!r} has {disagreement}."
                 )
 
+    artifact_frame = normalized[declaration.selection_source_id].copy()
     frame = selected[declaration.selection_source_id].copy()
     try:
         validate_normalized_dataset(frame, source="expected dataset reference")
@@ -498,7 +522,7 @@ def build_expected_dataset(
         selection_digest,
         selection_id,
         identity_mode,
-    ) = _validated_identity_records(frame, declaration)
+    ) = _validated_identity_records(artifact_frame, frame, declaration)
     selection_semantics = canonicalize(
         {
             "seed": declaration.selection_seed,
@@ -568,6 +592,7 @@ def build_expected_dataset(
         selection_semantics=selection_semantics,
         selection_unknown_reasons=unknown_reasons,
         identity_mode=identity_mode,
+        artifact_frame=artifact_frame,
         frame=frame,
         selected_question_ids=tuple(declaration.expected_question_ids),
         reference_kind=declaration.reference_kind,
@@ -763,13 +788,15 @@ def validate_expected_snapshot(run_dir: Path, record: Mapping[str, Any]) -> None
 
     artifact_payload = canonicalize(record["artifact_payload"])
     if record["identity_mode"] == "imported_semantic_fallback":
-        expected_artifact_payload = {
-            "schema_version": "choicebench.semantic-dataset.v1",
-            "benchmark": record["benchmark_name"],
-            "split": record["split"],
-            "content_digest": dataset_content_digest(frame),
-        }
-        if artifact_payload != expected_artifact_payload:
+        if (
+            not isinstance(artifact_payload, Mapping)
+            or set(artifact_payload)
+            != {"schema_version", "benchmark", "split", "content_digest"}
+            or artifact_payload["schema_version"]
+            != "choicebench.semantic-dataset.v1"
+            or artifact_payload["benchmark"] != record["benchmark_name"]
+            or artifact_payload["split"] != record["split"]
+        ):
             raise DatasetReferenceError("Expected dataset artifact identity is invalid.")
     else:
         if not isinstance(artifact_payload, Mapping) or set(artifact_payload) != {
@@ -785,9 +812,15 @@ def validate_expected_snapshot(run_dir: Path, record: Mapping[str, Any]) -> None
             or not isinstance(artifact_payload["source"], Mapping)
             or native_spec.get("benchmark") != record["benchmark_name"]
             or native_spec.get("split") != record["split"]
-            or artifact_payload["content_digest"] != dataset_content_digest(frame)
         ):
             raise DatasetReferenceError("Expected dataset artifact identity is invalid.")
+    content_digest = artifact_payload.get("content_digest")
+    if (
+        not isinstance(content_digest, str)
+        or len(content_digest) != 64
+        or any(character not in "0123456789abcdef" for character in content_digest)
+    ):
+        raise DatasetReferenceError("Expected dataset artifact identity is invalid.")
     artifact_digest = integrity_digest(artifact_payload)
     artifact_id = short_id("ds", artifact_payload)
     if artifact_digest != record.get("artifact_digest") or artifact_id != record.get("artifact_id"):

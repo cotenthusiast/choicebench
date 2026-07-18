@@ -132,7 +132,7 @@ def _semantic_payloads(dataset) -> tuple[dict, dict]:
         "schema_version": "choicebench.semantic-dataset.v1",
         "benchmark": dataset.benchmark_name,
         "split": dataset.split,
-        "content_digest": dataset_content_digest(dataset.frame),
+        "content_digest": dataset_content_digest(dataset.artifact_frame),
     }
     selection_payload = {
         "artifact_id": short_id("ds", artifact_payload),
@@ -389,8 +389,11 @@ def test_semantic_content_membership_and_order_change_applicable_identities():
         {"reference": _source("reference", base_rows)},
     )
 
-    for changed in (changed_gold, changed_option, changed_membership, changed_order):
+    for changed in (changed_gold, changed_option):
         assert changed.artifact_id != base.artifact_id
+        assert changed.selection_id != base.selection_id
+    for changed in (changed_membership, changed_order):
+        assert changed.artifact_id == base.artifact_id
         assert changed.selection_id != base.selection_id
 
 
@@ -437,8 +440,9 @@ def test_snapshot_self_validation_preserves_known_selection_semantics(tmp_path: 
 
 
 def test_validated_native_compatibility_identity_is_preserved_exactly():
-    fallback = build_expected_dataset(
-        _declaration(), {"reference": _source("reference", _rows())}
+    full_artifact = build_expected_dataset(
+        _declaration(expected_question_ids=("q1", "q2", "q3")),
+        {"reference": _source("reference", _rows())},
     )
     native_artifact_payload = {
         "spec": {
@@ -451,15 +455,15 @@ def test_validated_native_compatibility_identity_is_preserved_exactly():
             "transforms": [],
             "output_name": "synthetic",
         },
-        "content_digest": dataset_content_digest(fallback.frame),
+        "content_digest": dataset_content_digest(full_artifact.frame),
         "source": {"revision": "immutable-r1"},
     }
     artifact_digest = integrity_digest(native_artifact_payload)
     artifact_id = short_id("ds", native_artifact_payload)
     native_selection_payload = {
         "artifact_id": artifact_id,
-        "content_digest": dataset_content_digest(fallback.frame),
-        "sample_identities": dataset_sample_identities(fallback.frame),
+        "content_digest": dataset_content_digest(full_artifact.frame.iloc[[1, 0]]),
+        "sample_identities": dataset_sample_identities(full_artifact.frame.iloc[[1, 0]]),
         "seed": 23,
         "n_samples": 2,
         "subject_filter": ["science"],
@@ -490,6 +494,8 @@ def test_validated_native_compatibility_identity_is_preserved_exactly():
     assert dataset.selection_payload == native_selection_payload
     assert dataset.artifact_id == artifact_id
     assert dataset.selection_id == native["selection_id"]
+    assert len(dataset.artifact_frame) == 3
+    assert len(dataset.frame) == 2
 
 
 def test_native_compatibility_identity_must_own_the_selected_semantic_rows():
@@ -541,6 +547,22 @@ def test_native_compatibility_identity_must_own_the_selected_semantic_rows():
         )
 
 
+def test_unselected_semantic_content_changes_artifact_and_selection_identity():
+    rows = _rows()
+    original = build_expected_dataset(
+        _declaration(), {"reference": _source("reference", rows)}
+    )
+    changed_rows = [dict(row) for row in rows]
+    changed_rows[2]["stem"] = "Changed unselected question?"
+    changed = build_expected_dataset(
+        _declaration(), {"reference": _source("reference", changed_rows)}
+    )
+
+    assert dataset_content_digest(original.frame) == dataset_content_digest(changed.frame)
+    assert original.artifact_id != changed.artifact_id
+    assert original.selection_id != changed.selection_id
+
+
 @pytest.mark.parametrize("source_index", ["not-an-integer", -1, 1])
 def test_structured_choice_source_indices_fail_closed(source_index):
     rows = [
@@ -580,6 +602,24 @@ def test_ordered_options_reject_an_empty_middle_value():
         build_expected_dataset(
             _declaration(expected_question_ids=("q1",)),
             {"reference": _source("reference", rows)},
+        )
+
+
+def test_ordered_option_mapping_requires_contiguous_semantic_keys():
+    declaration = _declaration(
+        expected_question_ids=("q1",),
+        columns={
+            "question_id": "qid",
+            "question_text": "stem",
+            "correct_option": "gold",
+            "choice_a": "option_1",
+            "choice_c": "option_3",
+        },
+    )
+
+    with pytest.raises(DatasetReferenceError, match="contiguous"):
+        build_expected_dataset(
+            declaration, {"reference": _source("reference", _rows())}
         )
 
 
