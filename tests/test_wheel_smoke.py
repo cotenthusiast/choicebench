@@ -1,10 +1,25 @@
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
 import zipfile
 from pathlib import Path
+
+
+def _run_checked(command, **kwargs):
+    result = subprocess.run(
+        command, check=False, capture_output=True, text=True, **kwargs,
+    )
+    if result.returncode != 0:
+        raise AssertionError(
+            f"Command failed ({result.returncode}): "
+            f"{shlex.join(str(part) for part in command)}\n"
+            f"stdout:\n{result.stdout or '<empty>'}\n"
+            f"stderr:\n{result.stderr or '<empty>'}"
+        )
+    return result
 
 
 def _run_workflow(venv: Path, workspace: Path, label: str) -> None:
@@ -41,9 +56,8 @@ run:
         ("choicebench-evaluate", ["--run-id", label]),
     ]
     for command, args in commands:
-        subprocess.run(
+        _run_checked(
             [str(venv / "bin" / command), *args], cwd=workspace, env=env,
-            check=True, capture_output=True, text=True,
         )
     assert (workspace / "runs" / label / "manifest.json").exists()
     reports = list((workspace / "reports").glob(f"{label}_eval_*_metrics.json"))
@@ -57,9 +71,9 @@ def test_built_wheel_and_sdist_run_outside_repository(tmp_path):
     root = Path(__file__).resolve().parents[1]
     dist = tmp_path / "dist"
     build_python = shutil.which("python3") or sys.executable
-    subprocess.run(
-        [build_python, "-m", "build", "--no-isolation", "--outdir", str(dist), str(root)],
-        cwd=tmp_path, check=True, capture_output=True, text=True,
+    _run_checked(
+        [build_python, "-m", "build", "--outdir", str(dist), str(root)],
+        cwd=tmp_path,
     )
     wheel = next(dist.glob("choicebench-*.whl"))
     sdist = next(dist.glob("choicebench-*.tar.gz"))
@@ -70,15 +84,14 @@ def test_built_wheel_and_sdist_run_outside_repository(tmp_path):
 
     clean_venv = tmp_path / "clean-venv"
     subprocess.run([sys.executable, "-m", "venv", str(clean_venv)], check=True)
-    subprocess.run(
+    _run_checked(
         [str(clean_venv / "bin" / "pip"), "install", "--no-deps", str(wheel)],
-        check=True, capture_output=True, text=True,
     )
-    subprocess.run(
+    _run_checked(
         [str(clean_venv / "bin" / "python"), "-c",
          "import choicebench; from choicebench.pipeline.prompt_builder import load_prompt_templates; "
          "assert 'Answer' in load_prompt_templates('v1')['direct_mcq']"],
-        cwd=tmp_path, check=True, capture_output=True, text=True,
+        cwd=tmp_path,
     )
 
     # Functional CLI smoke reuses the test environment's already-installed
@@ -87,14 +100,11 @@ def test_built_wheel_and_sdist_run_outside_repository(tmp_path):
     venv = tmp_path / "workflow-venv"
     subprocess.run([sys.executable, "-m", "venv", "--system-site-packages", str(venv)], check=True)
     pip = venv / "bin" / "pip"
-    subprocess.run([str(pip), "install", "--no-deps", str(wheel)], check=True, capture_output=True, text=True)
+    _run_checked([str(pip), "install", "--no-deps", str(wheel)])
     for command in ("choicebench-prepare-toy", "choicebench-run", "choicebench-evaluate", "choicebench-prepare"):
-        subprocess.run([str(venv / "bin" / command), "--help"], check=True, capture_output=True, text=True)
+        _run_checked([str(venv / "bin" / command), "--help"])
     _run_workflow(venv, tmp_path / "wheel workspace é", "wheel")
 
-    subprocess.run([str(pip), "uninstall", "-y", "choicebench"], check=True, capture_output=True, text=True)
-    subprocess.run(
-        [str(pip), "install", "--no-deps", "--no-build-isolation", str(sdist)],
-        check=True, capture_output=True, text=True,
-    )
+    _run_checked([str(pip), "uninstall", "-y", "choicebench"])
+    _run_checked([str(pip), "install", "--no-deps", str(sdist)])
     _run_workflow(venv, tmp_path / "sdist workspace é", "sdist")
