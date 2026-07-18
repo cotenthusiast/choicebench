@@ -555,6 +555,26 @@ def _string_mapping(value: Any, where: str) -> dict[str, str]:
     }
 
 
+def _validate_unknown_reasons(
+    values: Mapping[str, Any], reasons: Mapping[str, str], where: str
+) -> None:
+    unknown = sorted(set(reasons) - set(values))
+    if unknown:
+        raise ImportSpecError(f"{where} contains unknown reason key(s) {unknown}.")
+    missing = sorted(key for key, value in values.items() if value is None and key not in reasons)
+    if missing:
+        raise ImportSpecError(
+            f"{where} must document every unknown nullable field; missing {missing}."
+        )
+    contradictory = sorted(
+        key for key, value in values.items() if value is not None and key in reasons
+    )
+    if contradictory:
+        raise ImportSpecError(
+            f"{where} gives unknown reasons for known field(s) {contradictory}."
+        )
+
+
 def _sha_mapping(value: Any, where: str) -> dict[str, str]:
     raw = _mapping(value, where)
     return {
@@ -806,6 +826,36 @@ def _build_source(value: Any, index: int) -> SourceArtifactSpec:
         raise ImportSpecError(
             f"{where}.ignored_columns references unknown expected columns {missing_ignored}."
         )
+    mapped_values = list(columns.values())
+    if len(mapped_values) != len(set(mapped_values)):
+        raise ImportSpecError(
+            f"{where}.columns assigns one source column to multiple mapped dispositions."
+        )
+    mapped_columns = set(mapped_values)
+    ignored_set = set(ignored_columns)
+    conflicts = sorted(
+        (mapped_columns & option_columns)
+        | (mapped_columns & ignored_set)
+        | (option_columns & ignored_set)
+    )
+    if conflicts:
+        raise ImportSpecError(
+            f"{where} source column disposition conflicts for {conflicts}; mapped, "
+            "option, and ignored columns must be pairwise disjoint."
+        )
+    extra_field_policy = _enum(
+        raw["extra_field_policy"],
+        {"preserve_unmapped", "reject_unmapped"},
+        f"{where}.extra_field_policy",
+    )
+    disposed_columns = mapped_columns | option_columns | ignored_set
+    if extra_field_policy == "reject_unmapped":
+        undisposed = sorted(set(expected_columns) - disposed_columns)
+        if undisposed:
+            raise ImportSpecError(
+                f"{where} reject_unmapped requires one explicit disposition per source "
+                f"column; missing {undisposed}."
+            )
     path_text = _nonempty(raw["path"], f"{where}.path")
     return SourceArtifactSpec(
         source_id=_nonempty(raw["source_id"], f"{where}.source_id"),
@@ -831,11 +881,7 @@ def _build_source(value: Any, index: int) -> SourceArtifactSpec:
         ),
         numeric_columns=numeric_columns,
         option_mapping=option_mapping,
-        extra_field_policy=_enum(
-            raw["extra_field_policy"],
-            {"preserve_unmapped", "reject_unmapped"},
-            f"{where}.extra_field_policy",
-        ),
+        extra_field_policy=extra_field_policy,
         preserve_namespace=_nonempty(
             raw["preserve_namespace"], f"{where}.preserve_namespace"
         ),
@@ -1087,17 +1133,38 @@ def _validate_method_payload(value: Any, where: str) -> dict[str, Any]:
 def _validate_prompt_payload(value: Any, where: str) -> dict[str, Any]:
     raw = _exact_keys(value, {"version", "files"}, where)
     files_raw = _mapping(raw["files"], f"{where}.files")
-    if not files_raw:
-        raise ImportSpecError(f"{where}.files must not be empty.")
+    template_names = {"direct_mcq", "free_text", "option_matching"}
+    if set(files_raw) != template_names:
+        raise ImportSpecError(
+            f"{where}.files must contain exactly the current template names "
+            f"{sorted(template_names)}."
+        )
     files: dict[str, Any] = {}
-    for name, item in files_raw.items():
+    for name in ("direct_mcq", "free_text", "option_matching"):
+        item = files_raw[name]
         record = _exact_keys(item, {"sha256", "content"}, f"{where}.files.{name}")
-        content = _nonempty(record["content"], f"{where}.files.{name}.content")
+        content = record["content"]
+        if not isinstance(content, str):
+            raise ImportSpecError(f"{where}.files.{name}.content must be a string.")
         digest = _sha256(record["sha256"], f"{where}.files.{name}.sha256")
         if digest != integrity_digest(content):
             raise ImportSpecError(f"{where}.files.{name}.sha256 does not match content.")
-        files[_nonempty(name, f"{where}.files key")] = {"sha256": digest, "content": content}
+        files[name] = {"sha256": digest, "content": content}
     return {"version": _nonempty(raw["version"], f"{where}.version"), "files": files}
+
+
+def _validate_prompt_native(value: Any, where: str) -> dict[str, Any]:
+    raw = _exact_keys(value, {"prompt_id", "version", "files"}, where)
+    payload = _validate_prompt_payload(
+        {"version": raw["version"], "files": raw["files"]}, where
+    )
+    prompt_id = _nonempty(raw["prompt_id"], f"{where}.prompt_id")
+    expected_id = f"prompt_{integrity_digest(payload)[:16]}"
+    if prompt_id != expected_id:
+        raise ImportSpecError(
+            f"{where}.prompt_id does not match prompt_bundle_identity semantics."
+        )
+    return {"prompt_id": prompt_id, **payload}
 
 
 def _validate_simple_native(
@@ -1121,6 +1188,21 @@ def _build_dataset(value: Any, index: int) -> DatasetReferenceSpec:
     where = f"datasets[{index}]"
     raw = _exact_keys(value, _DATASET_KEYS, where)
     native = raw["native_compatibility_identity"]
+    selection_seed = _optional_int(raw["selection_seed"], f"{where}.selection_seed")
+    selection_n_samples = _optional_int(
+        raw["selection_n_samples"], f"{where}.selection_n_samples", minimum=1
+    )
+    selection_unknown_reasons = _string_mapping(
+        raw["selection_unknown_reasons"], f"{where}.selection_unknown_reasons"
+    )
+    _validate_unknown_reasons(
+        {
+            "selection_seed": selection_seed,
+            "selection_n_samples": selection_n_samples,
+        },
+        selection_unknown_reasons,
+        f"{where}.selection_unknown_reasons",
+    )
     return DatasetReferenceSpec(
         dataset_id=_nonempty(raw["dataset_id"], f"{where}.dataset_id"),
         benchmark_name=_nonempty(raw["benchmark_name"], f"{where}.benchmark_name"),
@@ -1134,10 +1216,10 @@ def _build_dataset(value: Any, index: int) -> DatasetReferenceSpec:
         source_ids=_strings(raw["source_ids"], f"{where}.source_ids", nonempty=True, unique=True),
         selection_source_id=_nonempty(raw["selection_source_id"], f"{where}.selection_source_id"),
         expected_question_ids=_strings(raw["expected_question_ids"], f"{where}.expected_question_ids", nonempty=True, unique=True),
-        selection_seed=_optional_int(raw["selection_seed"], f"{where}.selection_seed"),
-        selection_n_samples=_optional_int(raw["selection_n_samples"], f"{where}.selection_n_samples", minimum=1),
+        selection_seed=selection_seed,
+        selection_n_samples=selection_n_samples,
         subject_filter=_strings(raw["subject_filter"], f"{where}.subject_filter", unique=True),
-        selection_unknown_reasons=_string_mapping(raw["selection_unknown_reasons"], f"{where}.selection_unknown_reasons"),
+        selection_unknown_reasons=selection_unknown_reasons,
         columns=_string_mapping(raw["columns"], f"{where}.columns"),
         revision=_optional_string(raw["revision"], f"{where}.revision"),
         fingerprint=_optional_string(raw["fingerprint"], f"{where}.fingerprint"),
@@ -1153,14 +1235,23 @@ def _build_model(value: Any, index: int) -> ImportModelSpec:
     where = f"models[{index}]"
     raw = _exact_keys(value, _MODEL_KEYS, where)
     native = raw["native_compatibility_identity"]
+    backend = _optional_string(raw["backend"], f"{where}.backend")
+    provider = _optional_string(raw["provider"], f"{where}.provider")
+    revision = _optional_string(raw["revision"], f"{where}.revision")
+    unknown_reasons = _string_mapping(raw["unknown_reasons"], f"{where}.unknown_reasons")
+    _validate_unknown_reasons(
+        {"backend": backend, "provider": provider, "revision": revision},
+        unknown_reasons,
+        f"{where}.unknown_reasons",
+    )
     return ImportModelSpec(
         model_key=_nonempty(raw["model_key"], f"{where}.model_key"),
         display_name=_nonempty(raw["display_name"], f"{where}.display_name"),
-        backend=_optional_string(raw["backend"], f"{where}.backend"),
-        provider=_optional_string(raw["provider"], f"{where}.provider"),
-        revision=_optional_string(raw["revision"], f"{where}.revision"),
+        backend=backend,
+        provider=provider,
+        revision=revision,
         effective_parameters=_canonical_mapping(raw["effective_parameters"], f"{where}.effective_parameters"),
-        unknown_reasons=_string_mapping(raw["unknown_reasons"], f"{where}.unknown_reasons"),
+        unknown_reasons=unknown_reasons,
         native_compatibility_identity=(
             None if native is None else _validate_simple_native(
                 native, f"{where}.native_compatibility_identity", "model", _validate_model_payload
@@ -1174,12 +1265,23 @@ def _build_method(value: Any, index: int) -> ImportMethodSpec:
     raw = _exact_keys(value, _METHOD_KEYS, where)
     implementation = raw["implementation"]
     native = raw["native_compatibility_identity"]
+    implementation = (
+        None
+        if implementation is None
+        else _validate_implementation(implementation, f"{where}.implementation")
+    )
+    unknown_reasons = _string_mapping(raw["unknown_reasons"], f"{where}.unknown_reasons")
+    _validate_unknown_reasons(
+        {"implementation": implementation},
+        unknown_reasons,
+        f"{where}.unknown_reasons",
+    )
     return ImportMethodSpec(
         method_key=_nonempty(raw["method_key"], f"{where}.method_key"),
         name=_nonempty(raw["name"], f"{where}.name"),
         effective_parameters=_canonical_mapping(raw["effective_parameters"], f"{where}.effective_parameters"),
-        implementation=(None if implementation is None else _validate_implementation(implementation, f"{where}.implementation")),
-        unknown_reasons=_string_mapping(raw["unknown_reasons"], f"{where}.unknown_reasons"),
+        implementation=implementation,
+        unknown_reasons=unknown_reasons,
         native_compatibility_identity=(
             None if native is None else _validate_simple_native(
                 native, f"{where}.native_compatibility_identity", "method", _validate_method_payload
@@ -1193,16 +1295,39 @@ def _build_prompt(value: Any, index: int) -> ImportPromptSpec:
     raw = _exact_keys(value, _PROMPT_KEYS, where)
     contents = raw["template_contents"]
     native = raw["native_compatibility_identity"]
+    template_identity = _optional_string(
+        raw["template_identity"], f"{where}.template_identity"
+    )
+    template_digest = _optional_sha256(
+        raw["template_digest"], f"{where}.template_digest"
+    )
+    template_contents = (
+        None
+        if contents is None
+        else _string_mapping(contents, f"{where}.template_contents")
+    )
+    unknown_reason = _optional_string(raw["unknown_reason"], f"{where}.unknown_reason")
+    has_unknown = any(
+        item is None for item in (template_identity, template_digest, template_contents)
+    )
+    if has_unknown and unknown_reason is None:
+        raise ImportSpecError(
+            f"{where}.unknown_reason must explain unrecoverable prompt fields."
+        )
+    if not has_unknown and unknown_reason is not None:
+        raise ImportSpecError(
+            f"{where}.unknown_reason contradicts fully known prompt fields."
+        )
     return ImportPromptSpec(
         prompt_key=_nonempty(raw["prompt_key"], f"{where}.prompt_key"),
-        template_identity=_optional_string(raw["template_identity"], f"{where}.template_identity"),
-        template_digest=_optional_sha256(raw["template_digest"], f"{where}.template_digest"),
-        template_contents=(None if contents is None else _string_mapping(contents, f"{where}.template_contents")),
-        unknown_reason=_optional_string(raw["unknown_reason"], f"{where}.unknown_reason"),
+        template_identity=template_identity,
+        template_digest=template_digest,
+        template_contents=template_contents,
+        unknown_reason=unknown_reason,
         native_compatibility_identity=(
-            None if native is None else _validate_simple_native(
-                native, f"{where}.native_compatibility_identity", "prompt", _validate_prompt_payload
-            )
+            None
+            if native is None
+            else _validate_prompt_native(native, f"{where}.native_compatibility_identity")
         ),
     )
 
@@ -1229,6 +1354,23 @@ def _build_result_origin(value: Any, where: str) -> ResultOriginSpec:
 def _build_condition(value: Any, index: int) -> ImportConditionSpec:
     where = f"conditions[{index}]"
     raw = _exact_keys(value, _CONDITION_KEYS, where)
+    seed = _optional_int(raw["seed"], f"{where}.seed")
+    calibration_identity = _canonical_mapping_or_none(
+        raw["calibration_identity"], f"{where}.calibration_identity"
+    )
+    preflight_identity = _canonical_mapping_or_none(
+        raw["preflight_identity"], f"{where}.preflight_identity"
+    )
+    unknown_reasons = _string_mapping(raw["unknown_reasons"], f"{where}.unknown_reasons")
+    _validate_unknown_reasons(
+        {
+            "seed": seed,
+            "calibration_identity": calibration_identity,
+            "preflight_identity": preflight_identity,
+        },
+        unknown_reasons,
+        f"{where}.unknown_reasons",
+    )
     return ImportConditionSpec(
         condition_key=_nonempty(raw["condition_key"], f"{where}.condition_key"),
         source_ids=_strings(raw["source_ids"], f"{where}.source_ids", nonempty=True, unique=True),
@@ -1236,12 +1378,12 @@ def _build_condition(value: Any, index: int) -> ImportConditionSpec:
         model_key=_nonempty(raw["model_key"], f"{where}.model_key"),
         method_key=_nonempty(raw["method_key"], f"{where}.method_key"),
         prompt_key=_nonempty(raw["prompt_key"], f"{where}.prompt_key"),
-        seed=_optional_int(raw["seed"], f"{where}.seed"),
-        calibration_identity=_canonical_mapping_or_none(raw["calibration_identity"], f"{where}.calibration_identity"),
-        preflight_identity=_canonical_mapping_or_none(raw["preflight_identity"], f"{where}.preflight_identity"),
+        seed=seed,
+        calibration_identity=calibration_identity,
+        preflight_identity=preflight_identity,
         protocol_settings=_canonical_mapping(raw["protocol_settings"], f"{where}.protocol_settings"),
         generation_parameters=_canonical_mapping(raw["generation_parameters"], f"{where}.generation_parameters"),
-        unknown_reasons=_string_mapping(raw["unknown_reasons"], f"{where}.unknown_reasons"),
+        unknown_reasons=unknown_reasons,
         expected_question_ids=_strings(raw["expected_question_ids"], f"{where}.expected_question_ids", nonempty=True, unique=True),
         evidence_status=_enum(raw["evidence_status"], _EVIDENCE_STATUSES, f"{where}.evidence_status"),
         scope_disposition=_enum(raw["scope_disposition"], _SCOPE_DISPOSITIONS, f"{where}.scope_disposition"),
@@ -1264,14 +1406,26 @@ def _build_authorization(value: Any, index: int) -> AuthorizationSpec:
         )
         for condition, question_reasons in reasons_raw.items()
     }
+    authorization_type = _enum(
+        raw["authorization_type"],
+        {"inference_repair", "offline_transformation"},
+        f"{where}.authorization_type",
+    )
+    executable = _strict_bool(raw["executable"], f"{where}.executable")
+    expected_executable = authorization_type == "inference_repair"
+    if executable is not expected_executable:
+        raise ImportSpecError(
+            f"{where}.authorization_type={authorization_type!r} requires "
+            f"executable={expected_executable!r}."
+        )
     return AuthorizationSpec(
         authorization_id=_nonempty(raw["authorization_id"], f"{where}.authorization_id"),
-        authorization_type=_enum(raw["authorization_type"], {"inference_repair", "offline_transformation"}, f"{where}.authorization_type"),
+        authorization_type=authorization_type,
         source_id=_nonempty(raw["source_id"], f"{where}.source_id"),
         condition_question_reasons=reasons,
         authority=_nonempty(raw["authority"], f"{where}.authority"),
         purpose=_nonempty(raw["purpose"], f"{where}.purpose"),
-        executable=_strict_bool(raw["executable"], f"{where}.executable"),
+        executable=executable,
         input_evidence_digests=_sha_mapping(raw["input_evidence_digests"], f"{where}.input_evidence_digests"),
         expected_snapshot_digests=_sha_mapping(raw["expected_snapshot_digests"], f"{where}.expected_snapshot_digests"),
     )
@@ -1367,6 +1521,20 @@ def _require_references(spec: ImportSpec) -> None:
         if not origin_questions <= expected:
             raise ImportSpecError(
                 f"Condition {condition.condition_key!r} has origins for unknown question IDs."
+            )
+        evaluable = (
+            condition.evidence_status in {"complete", "qualified"}
+            and condition.scope_disposition == "included"
+        )
+        if (
+            evaluable
+            and condition.result_origin.default_prediction_origin is None
+            and origin_questions != expected
+        ):
+            missing_origins = sorted(expected - origin_questions)
+            raise ImportSpecError(
+                f"Condition {condition.condition_key!r} has evaluable rows without a "
+                f"prediction origin: {missing_origins}."
             )
 
     for authorization in spec.authorizations:

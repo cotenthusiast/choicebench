@@ -15,6 +15,7 @@ from choicebench.importing.schema import (
     stable_import_projection,
 )
 from choicebench.metrics import BUILTIN_METRICS
+from choicebench.pipeline.prompt_builder import prompt_bundle_identity
 
 
 SHA_A = "a" * 64
@@ -179,7 +180,11 @@ def minimal_raw(tmp_path: Path) -> dict:
                 "preflight_identity": None,
                 "protocol_settings": {},
                 "generation_parameters": {},
-                "unknown_reasons": {"seed": "not recorded by producer"},
+                "unknown_reasons": {
+                    "seed": "not recorded by producer",
+                    "calibration_identity": "not recorded by producer",
+                    "preflight_identity": "not recorded by producer",
+                },
                 "expected_question_ids": ["q1", "q2"],
                 "evidence_status": "complete",
                 "scope_disposition": "included",
@@ -501,8 +506,55 @@ def test_structured_json_options_and_reject_unmapped_policy(
         "structured_text_key": "text",
     }
     source["extra_field_policy"] = "reject_unmapped"
+    source["ignored_columns"].update(
+        {
+            "question": "reference snapshot owns the question text",
+            "choice_a": "superseded by structured choices",
+            "choice_b": "superseded by structured choices",
+        }
+    )
     spec = _load(tmp_path, raw)
     assert spec.sources[0].option_mapping.structured_column == "options_json"
+    assert spec.sources[0].extra_field_policy == "reject_unmapped"
+
+
+@pytest.mark.parametrize(
+    "conflict",
+    [
+        "duplicate_mapping",
+        "mapped_option",
+        "mapped_ignored",
+        "option_ignored",
+        "undeclared_strict_column",
+    ],
+)
+def test_each_source_column_has_exactly_one_disposition(
+    tmp_path: Path, minimal_raw: dict, conflict: str
+):
+    raw = deepcopy(minimal_raw)
+    source = raw["sources"][0]
+    if conflict == "duplicate_mapping":
+        source["columns"]["raw_prediction"] = "answer"
+    elif conflict == "mapped_option":
+        source["columns"]["prediction"] = "choice_a"
+    elif conflict == "mapped_ignored":
+        source["columns"]["prediction"] = "score"
+    elif conflict == "option_ignored":
+        source["ignored_columns"]["choice_a"] = "cannot also be an option"
+    else:
+        source["extra_field_policy"] = "reject_unmapped"
+    with pytest.raises(ImportSpecError, match="disposition|source column"):
+        _load(tmp_path, raw)
+
+
+def test_reject_unmapped_accepts_exactly_partitioned_columns(
+    tmp_path: Path, minimal_raw: dict
+):
+    raw = deepcopy(minimal_raw)
+    source = raw["sources"][0]
+    source["extra_field_policy"] = "reject_unmapped"
+    source["ignored_columns"]["question"] = "question comes from reference snapshot"
+    spec = _load(tmp_path, raw)
     assert spec.sources[0].extra_field_policy == "reject_unmapped"
 
 
@@ -622,6 +674,169 @@ def test_unknown_provenance_is_explicit_null_with_reason(
             _load(tmp_path, raw)
 
 
+@pytest.mark.parametrize(
+    "case",
+    [
+        "dataset_missing",
+        "dataset_contradictory",
+        "dataset_unknown_key",
+        "model_missing",
+        "model_contradictory",
+        "model_unknown_key",
+        "method_missing",
+        "method_contradictory",
+        "prompt_missing",
+        "prompt_contradictory",
+        "condition_missing",
+        "condition_contradictory",
+        "condition_unknown_key",
+    ],
+)
+def test_nullable_scientific_fields_require_exact_unknown_reasons(
+    tmp_path: Path, minimal_raw: dict, case: str
+):
+    raw = deepcopy(minimal_raw)
+    if case == "dataset_missing":
+        raw["datasets"][0]["selection_unknown_reasons"].pop("selection_seed")
+    elif case == "dataset_contradictory":
+        raw["datasets"][0]["selection_seed"] = 7
+    elif case == "dataset_unknown_key":
+        raw["datasets"][0]["selection_unknown_reasons"]["revision"] = "unknown"
+    elif case == "model_missing":
+        raw["models"][0]["unknown_reasons"].pop("backend")
+    elif case == "model_contradictory":
+        raw["models"][0]["backend"] = "dummy"
+    elif case == "model_unknown_key":
+        raw["models"][0]["unknown_reasons"]["temperature"] = "unknown"
+    elif case == "method_missing":
+        raw["methods"][0]["unknown_reasons"].pop("implementation")
+    elif case == "method_contradictory":
+        raw["methods"][0]["implementation"] = {
+            "qualified_name": "historical:Method"
+        }
+    elif case == "prompt_missing":
+        raw["prompts"][0]["unknown_reason"] = None
+    elif case == "prompt_contradictory":
+        raw["prompts"][0].update(
+            {
+                "template_identity": "historical-template",
+                "template_digest": SHA_A,
+                "template_contents": {"prompt": "contents"},
+            }
+        )
+    elif case == "condition_missing":
+        raw["conditions"][0]["unknown_reasons"].pop("calibration_identity")
+    elif case == "condition_contradictory":
+        raw["conditions"][0]["seed"] = 7
+    else:
+        raw["conditions"][0]["unknown_reasons"]["model"] = "unknown"
+    with pytest.raises(ImportSpecError, match="unknown.reason|unknown_reasons|unknown_reason"):
+        _load(tmp_path, raw)
+
+
+@pytest.mark.parametrize(
+    ("authorization_type", "executable"),
+    [("inference_repair", True), ("offline_transformation", False)],
+)
+def test_authorization_type_binds_executability(
+    tmp_path: Path,
+    minimal_raw: dict,
+    authorization_type: str,
+    executable: bool,
+):
+    raw = deepcopy(minimal_raw)
+    raw["authorizations"] = [
+        {
+            "authorization_id": "auth",
+            "authorization_type": authorization_type,
+            "source_id": "results",
+            "condition_question_reasons": {"condition": {"q1": "approved"}},
+            "authority": "benchmark owner",
+            "purpose": "bounded operation",
+            "executable": executable,
+            "input_evidence_digests": {"results": SHA_A},
+            "expected_snapshot_digests": {"q1": SHA_B},
+        }
+    ]
+    spec = _load(tmp_path, raw)
+    assert spec.authorizations[0].executable is executable
+
+
+@pytest.mark.parametrize(
+    ("authorization_type", "executable"),
+    [("inference_repair", False), ("offline_transformation", True)],
+)
+def test_rejects_authorization_executability_mismatch(
+    tmp_path: Path,
+    minimal_raw: dict,
+    authorization_type: str,
+    executable: bool,
+):
+    raw = deepcopy(minimal_raw)
+    raw["authorizations"] = [
+        {
+            "authorization_id": "auth",
+            "authorization_type": authorization_type,
+            "source_id": "results",
+            "condition_question_reasons": {"condition": {"q1": "approved"}},
+            "authority": "benchmark owner",
+            "purpose": "bounded operation",
+            "executable": executable,
+            "input_evidence_digests": {"results": SHA_A},
+            "expected_snapshot_digests": {"q1": SHA_B},
+        }
+    ]
+    with pytest.raises(ImportSpecError, match="authorization_type|executable"):
+        _load(tmp_path, raw)
+
+
+def test_included_evaluable_condition_requires_prediction_origin_coverage(
+    tmp_path: Path, minimal_raw: dict
+):
+    raw = deepcopy(minimal_raw)
+    origin = raw["conditions"][0]["result_origin"]
+    origin["default_prediction_origin"] = None
+    origin["per_question_prediction_origins"] = {
+        "q1": "external_historical_inference"
+    }
+    with pytest.raises(ImportSpecError, match="prediction origin"):
+        _load(tmp_path, raw)
+
+
+def test_exact_per_question_origins_cover_evaluable_condition(
+    tmp_path: Path, minimal_raw: dict
+):
+    raw = deepcopy(minimal_raw)
+    origin = raw["conditions"][0]["result_origin"]
+    origin["default_prediction_origin"] = None
+    origin["per_question_prediction_origins"] = {
+        "q1": "external_historical_inference",
+        "q2": "external_repair_inference",
+    }
+    spec = _load(tmp_path, raw)
+    assert spec.conditions[0].result_origin.default_prediction_origin is None
+
+
+@pytest.mark.parametrize(
+    ("status", "scope"),
+    [
+        ("partial", "included"),
+        ("complete", "excluded_from_paper_matrix"),
+    ],
+)
+def test_non_evaluable_evidence_may_omit_prediction_origins(
+    tmp_path: Path, minimal_raw: dict, status: str, scope: str
+):
+    raw = deepcopy(minimal_raw)
+    condition = raw["conditions"][0]
+    condition["evidence_status"] = status
+    condition["scope_disposition"] = scope
+    condition["result_origin"]["default_prediction_origin"] = None
+    condition["result_origin"]["per_question_prediction_origins"] = {}
+    spec = _load(tmp_path, raw)
+    assert spec.conditions[0].evidence_status == status
+
+
 def test_rejects_paths_in_stable_provenance(tmp_path: Path, minimal_raw: dict):
     raw = deepcopy(minimal_raw)
     raw["provenance"]["producer_path"] = {
@@ -672,20 +887,11 @@ def _native_compatibility_payloads() -> dict[str, dict]:
             "qualified_name": "choicebench.methods.direct_mcq:DirectMCQRunner",
         },
     }
-    prompt_payload = {
-        "version": "v1",
-        "files": {
-            "direct_mcq": {
-                "sha256": integrity_digest("prompt"),
-                "content": "prompt",
-            }
-        },
-    }
     return {
         "datasets": dataset_identity,
         "models": _native_identity("model", model_payload),
         "methods": _native_identity("method", method_payload),
-        "prompts": _native_identity("prompt", prompt_payload),
+        "prompts": prompt_bundle_identity("v1"),
     }
 
 
@@ -700,6 +906,61 @@ def test_validates_exact_native_compatibility_identities(
     assert spec.models[0].native_compatibility_identity["model_id"].startswith(
         "model_"
     )
+    assert (
+        spec.prompts[0].native_compatibility_identity
+        == prompt_bundle_identity("v1")
+    )
+
+
+def test_native_prompt_identity_uses_exact_contents_without_redaction(
+    tmp_path: Path, minimal_raw: dict
+):
+    prompt_root = tmp_path / "prompts"
+    version_dir = prompt_root / "credential-shaped-science"
+    version_dir.mkdir(parents=True)
+    contents = {
+        "direct_mcq": "Question: {question}\napi_key=scientific-label\nAnswer:",
+        "free_text": "Question: {question}\npassword=ordinary-text\nAnswer:",
+        "option_matching": "Question: {question}\n{options}\nAnswer:",
+    }
+    for name, content in contents.items():
+        (version_dir / f"{name}.txt").write_text(content, encoding="utf-8")
+    identity = prompt_bundle_identity("credential-shaped-science", prompt_root)
+    raw = deepcopy(minimal_raw)
+    raw["prompts"][0]["native_compatibility_identity"] = identity
+    spec = _load(tmp_path, raw)
+    assert spec.prompts[0].native_compatibility_identity == identity
+
+
+@pytest.mark.parametrize("mutation", ["missing_template", "extra_template", "short_id"])
+def test_rejects_non_native_prompt_bundle_shapes(
+    tmp_path: Path, minimal_raw: dict, mutation: str
+):
+    identity = deepcopy(prompt_bundle_identity("v1"))
+    if mutation == "missing_template":
+        identity["files"].pop("free_text")
+        payload = {"version": identity["version"], "files": identity["files"]}
+        identity["prompt_id"] = f"prompt_{integrity_digest(payload)[:16]}"
+    elif mutation == "extra_template":
+        identity["files"]["unexpected"] = {
+            "content": "extra",
+            "sha256": integrity_digest("extra"),
+        }
+        payload = {"version": identity["version"], "files": identity["files"]}
+        identity["prompt_id"] = f"prompt_{integrity_digest(payload)[:16]}"
+    else:
+        content = identity["files"]["direct_mcq"]["content"]
+        content += "\napi_key=scientific-label"
+        identity["files"]["direct_mcq"] = {
+            "content": content,
+            "sha256": integrity_digest(content),
+        }
+        payload = {"version": identity["version"], "files": identity["files"]}
+        identity["prompt_id"] = short_id("prompt", payload)
+    raw = deepcopy(minimal_raw)
+    raw["prompts"][0]["native_compatibility_identity"] = identity
+    with pytest.raises(ImportSpecError, match="native_compatibility_identity"):
+        _load(tmp_path, raw)
 
 
 @pytest.mark.parametrize(
@@ -795,8 +1056,11 @@ def test_rejects_unverified_native_compatibility_claims(
     elif mutation == "partial":
         identity.pop(next(iter(identity)))
     elif mutation == "mismatched_digest":
-        digest_key = "artifact_digest" if section == "datasets" else "digest"
-        identity[digest_key] = SHA_C
+        if section == "prompts":
+            identity["files"]["direct_mcq"]["sha256"] = SHA_C
+        else:
+            digest_key = "artifact_digest" if section == "datasets" else "digest"
+            identity[digest_key] = SHA_C
     else:
         id_key = {
             "datasets": "selection_id",
