@@ -76,6 +76,23 @@ def evidence_blob_path(staged_run: Path, sha256_digest: str, format_name: str) -
     )
 
 
+def evidence_record(source: OpenedSource, references: Sequence[str]) -> dict[str, Any]:
+    """The evidence blob record for a source, computed with no filesystem
+    I/O. Used both to write a blob (write_evidence_blob) and, during
+    dry-run/planning, to know what a real import would write without
+    actually writing it."""
+    return canonicalize(
+        {
+            "source_id": source.source_id,
+            "logical_path": source.logical_path,
+            "sha256": source.sha256,
+            "size": len(source.data),
+            "format": "csv",
+            "references": sorted(set(references)),
+        }
+    )
+
+
 def write_evidence_blob(
     staged_run: Path, source: OpenedSource, references: Sequence[str]
 ) -> dict[str, Any]:
@@ -91,16 +108,7 @@ def write_evidence_blob(
             )
     else:
         atomic_write_bytes(blob_path, source.data)
-    record = canonicalize(
-        {
-            "source_id": source.source_id,
-            "logical_path": source.logical_path,
-            "sha256": source.sha256,
-            "size": len(source.data),
-            "format": "csv",
-            "references": sorted(set(references)),
-        }
-    )
+    record = evidence_record(source, references)
     sidecar_path = blob_path.with_suffix(blob_path.suffix + ".json")
     if sidecar_path.exists():
         existing = json.loads(sidecar_path.read_text())
