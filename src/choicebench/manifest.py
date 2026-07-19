@@ -9,7 +9,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from choicebench import __version__
 from choicebench.identity import CANONICALIZATION_VERSION, canonicalize, integrity_digest, short_id
@@ -20,6 +20,16 @@ MANIFEST_SCHEMA_VERSION = "choicebench.manifest.v2"
 RUN_STATE_SCHEMA_VERSION = "choicebench.run-state.v2"
 MANIFEST_FILENAME = "manifest.json"
 RUN_STATE_FILENAME = "run_state.json"
+
+PROTOCOL_V3_VERSION = "choicebench.protocol.v3"
+MANIFEST_V3_SCHEMA_VERSION = "choicebench.manifest.v3"
+RUN_STATE_V3_SCHEMA_VERSION = "choicebench.run-state.v3"
+_MANIFEST_V3_PAYLOAD_KEYS = {
+    "protocol_version",
+    "canonicalization_version",
+    "semantic_conditions",
+    "realizations",
+}
 
 
 class ManifestCompatibilityError(RuntimeError):
@@ -304,3 +314,145 @@ def validate_run_state(state: dict[str, Any], manifest: dict[str, Any]) -> None:
 def write_run_state(run_dir: Path, state: dict[str, Any]) -> None:
     path = Path(run_dir) / RUN_STATE_FILENAME
     atomic_write_json(path, canonicalize(state, redact_secrets=False))
+
+
+def make_manifest_v3(
+    payload: Mapping[str, Any], *, audit: Mapping[str, Any] | None = None
+) -> dict[str, Any]:
+    """Build an immutable v3 manifest from semantic-condition/realization tables.
+
+    Additive alongside make_manifest(); v2 manifests are unaffected. `payload`
+    holds only identity-bearing content (no audit fields), so the experiment
+    digest is simply the payload digest -- unlike v2 there is no "config" key
+    to exclude.
+    """
+    if set(payload) != _MANIFEST_V3_PAYLOAD_KEYS:
+        raise ManifestCompatibilityError("Manifest v3 payload fields are invalid.")
+    payload = canonicalize(dict(payload))
+    if payload["protocol_version"] != PROTOCOL_V3_VERSION:
+        raise ManifestCompatibilityError(
+            f"Unsupported protocol version {payload['protocol_version']!r}; "
+            f"expected {PROTOCOL_V3_VERSION!r}."
+        )
+    if payload["canonicalization_version"] != CANONICALIZATION_VERSION:
+        raise ManifestCompatibilityError("Unsupported canonicalization version.")
+    experiment_digest = integrity_digest(payload)
+    return {
+        "schema_version": MANIFEST_V3_SCHEMA_VERSION,
+        "experiment_id": f"exp_{experiment_digest[:16]}",
+        "experiment_digest": experiment_digest,
+        "payload_digest": integrity_digest(payload),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "payload": payload,
+        "audit": canonicalize(dict(audit or {})),
+    }
+
+
+def validate_manifest_v3(manifest: Mapping[str, Any]) -> None:
+    """Validate a v3 manifest, recomputing every child ID/digest from its
+    own identity payload rather than trusting the stored value."""
+    if manifest.get("schema_version") != MANIFEST_V3_SCHEMA_VERSION:
+        raise ManifestCompatibilityError("Unsupported or missing manifest schema version.")
+    payload = manifest.get("payload")
+    if not isinstance(payload, dict) or set(payload) != _MANIFEST_V3_PAYLOAD_KEYS:
+        raise ManifestCompatibilityError("Manifest v3 payload fields are invalid.")
+    if payload.get("protocol_version") != PROTOCOL_V3_VERSION:
+        raise ManifestCompatibilityError(
+            f"Unsupported protocol version {payload.get('protocol_version')!r}; "
+            f"expected {PROTOCOL_V3_VERSION!r}."
+        )
+    if payload.get("canonicalization_version") != CANONICALIZATION_VERSION:
+        raise ManifestCompatibilityError("Unsupported canonicalization version.")
+    if manifest.get("payload_digest") != integrity_digest(payload):
+        raise ManifestCompatibilityError("Manifest payload integrity check failed.")
+    experiment_digest = integrity_digest(payload)
+    experiment_id = f"exp_{experiment_digest[:16]}"
+    if (
+        manifest.get("experiment_digest") != experiment_digest
+        or manifest.get("experiment_id") != experiment_id
+    ):
+        raise ManifestCompatibilityError(
+            "Manifest integrity check failed; payload or identity was modified."
+        )
+
+    semantic_conditions = payload["semantic_conditions"]
+    if not isinstance(semantic_conditions, dict):
+        raise ManifestCompatibilityError("Manifest semantic_conditions must be a mapping.")
+    for condition_id, record in semantic_conditions.items():
+        if not isinstance(record, dict):
+            raise ManifestCompatibilityError("Manifest condition record is invalid.")
+        recomputed_id = short_id("cond", record.get("identity"))
+        recomputed_digest = integrity_digest(record.get("identity"))
+        if (
+            condition_id != record.get("condition_id")
+            or condition_id != recomputed_id
+            or record.get("condition_digest") != recomputed_digest
+        ):
+            raise ManifestCompatibilityError(
+                f"Manifest condition {condition_id!r} ID/digest do not match its "
+                "own identity payload."
+            )
+
+    realizations = payload["realizations"]
+    if not isinstance(realizations, dict):
+        raise ManifestCompatibilityError("Manifest realizations must be a mapping.")
+    for realization_id, record in realizations.items():
+        if not isinstance(record, dict):
+            raise ManifestCompatibilityError("Manifest realization record is invalid.")
+        recomputed_id = short_id("real", record.get("identity"))
+        recomputed_digest = integrity_digest(record.get("identity"))
+        if (
+            realization_id != record.get("realization_id")
+            or realization_id != recomputed_id
+            or record.get("realization_digest") != recomputed_digest
+        ):
+            raise ManifestCompatibilityError(
+                f"Manifest realization {realization_id!r} ID/digest do not match "
+                "its own identity payload."
+            )
+        owning_condition = semantic_conditions.get(record.get("condition_id"))
+        if (
+            owning_condition is None
+            or owning_condition.get("condition_digest") != record.get("condition_digest")
+        ):
+            raise ManifestCompatibilityError(
+                f"Manifest realization {realization_id!r} condition binding is "
+                "inconsistent with its declared semantic condition."
+            )
+
+
+def initial_run_state_v3(manifest: Mapping[str, Any]) -> dict[str, Any]:
+    realizations = manifest["payload"]["realizations"]
+    return {
+        "schema_version": RUN_STATE_V3_SCHEMA_VERSION,
+        "experiment_id": manifest["experiment_id"],
+        "realizations": {realization_id: {"status": "pending"} for realization_id in realizations},
+    }
+
+
+def validate_run_state_v3(state: Mapping[str, Any], manifest: Mapping[str, Any]) -> None:
+    if (
+        state.get("schema_version") != RUN_STATE_V3_SCHEMA_VERSION
+        or state.get("experiment_id") != manifest["experiment_id"]
+    ):
+        raise ManifestCompatibilityError(
+            f"Run state does not belong to manifest {manifest['experiment_id']}."
+        )
+    expected = set(manifest["payload"]["realizations"])
+    if set(state.get("realizations", {})) != expected:
+        raise ManifestCompatibilityError(
+            "Run state realization grid differs from the immutable manifest."
+        )
+
+
+def load_run_state_v3(run_dir: Path, manifest: Mapping[str, Any]) -> dict[str, Any]:
+    """Load and validate existing v3 run state without creating mutable state."""
+    path = Path(run_dir) / RUN_STATE_FILENAME
+    if not path.is_file():
+        raise ManifestCompatibilityError(f"Missing {RUN_STATE_FILENAME}.")
+    try:
+        state = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ManifestCompatibilityError(f"Unreadable {RUN_STATE_FILENAME}: {exc}") from exc
+    validate_run_state_v3(state, manifest)
+    return state
