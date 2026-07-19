@@ -1,0 +1,15 @@
+{
+  "namespace": "text_extraction__gpt-4.1-mini",
+  "payload": {
+    "finish_reason": null,
+    "logprobs": null,
+    "raw_text": "solid",
+    "usage": {
+      "completion_tokens": 2,
+      "prompt_tokens": 66,
+      "total_tokens": 68
+    }
+  },
+  "payload_digest": "25e42a9b8d34c4297949a4ceb4d43524b99386d926a77908539b108cb3ef037a",
+  "schema_version": "choicebench.response-cache.v1"
+}

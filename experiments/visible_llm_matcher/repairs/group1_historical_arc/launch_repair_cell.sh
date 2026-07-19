@@ -2,32 +2,48 @@
 # experiments/visible_llm_matcher/repairs/group1_historical_arc/launch_repair_cell.sh
 #
 # Launches ONE Group 1 historical-repair cell (3 targeted question
-# inferences). Does nothing until you explicitly run it — this file is not
-# invoked by anything else in this phase.
+# repairs) via the harness (harness/run_repair.py) — NOT via
+# two-stage-prompting's/model-generalization's own unmodified
+# run_experiment.py, which cannot fix the phantom-D contamination (it just
+# reproduces the identical broken prompt on resume; see
+# INVALID_diagnostics/ for the evidence that led to this rewrite).
 #
 # Usage:
 #   ./launch_repair_cell.sh <cell_id>
 #
 # Example:
-#   ./launch_repair_cell.sh cbp__gpt-4-1-mini__arc_challenge__two_stage_v2
+#   ./launch_repair_cell.sh cbp__gpt-4-1-mini__arc_challenge__text_extraction
 #
-# What it does, in order:
-#   1. Looks up <cell_id> in manifest_summary.json (written by
-#      build_group1_artifacts.py).
-#   2. For an API cell: copies the staged checkpoint seed into
-#      two-stage-prompting/checkpoints/<run_id>/, then runs
-#      `python scripts/run_experiment.py --config <scoped config> --run-id
-#      <run_id> --yes` from the two-stage-prompting repo root, at its
-#      pinned commit (see README.md for the exact SHA).
-#   3. For a local (Kelvin2) cell: refuses to run directly (this machine
-#      has no GPU / Kelvin2 filesystem access) and instead prints the exact
-#      SLURM submission this cell needs — see slurm/ for the actual sbatch
-#      script, which must be run FROM a Kelvin2 login node.
+# What it does:
+#   - API cells: exports nothing itself — you must have already exported
+#     the relevant provider API key into THIS shell's environment (e.g.
+#     `set -a; source /home/cotenthusiast/Projects/two-stage-prompting/.env;
+#     set +a`) — then runs
+#     `python -m experiments.visible_llm_matcher.repairs.group1_historical_arc.harness.run_repair
+#     --cell-id <cell_id>` from this ChoiceBench worktree. That module:
+#       1. loads manifest_summary.json's 997 seeded "keep" rows (unchanged,
+#          reused, not regenerated — the validated checkpoint-seed scope
+#          from the earlier phase);
+#       2. fetches the 3 repaired questions' content from the checksummed
+#          immutable freeze;
+#       3. runs the method-appropriate repair (baseline/cyclic/text_extraction/
+#          two_stage_v1/v2/v3) through the harness, using a dedicated,
+#          per-(method,model) cache namespace that starts empty every time;
+#       4. verifies the cache grew by exactly the expected number of fresh
+#          calls (see repair_infra.assert_cache_grew_by) — refuses to
+#          proceed otherwise;
+#       5. writes a NEW 1000-row staged CSV under staged_repairs/<cell_id>/
+#          — the historical CSV under two-stage-prompting/runs/ and the
+#          immutable freeze are never written to by this path.
+#   - Local (Kelvin2) cells: refuses to run directly (this machine has no
+#     GPU) — see group3_fourth_cell/local/slurm/ for the sbatch pattern;
+#     local Group 1 repairs are not yet wired to a Kelvin2 entry point in
+#     this phase (harness/run_repair.py raises NotImplementedError for
+#     is_local cells by design, rather than silently doing nothing useful).
 #
-# Idempotent: rerunning after a partial failure resumes from whatever the
-# (real, non-seeded) checkpoint at that point says is completed — this is
-# run_experiment.py's own existing checkpoint/resume behavior, not
-# something this script adds.
+# This script itself makes no network calls — it only validates inputs and
+# prints the command to run. Money is spent only when you actually execute
+# the printed `python -m ...` invocation.
 
 set -euo pipefail
 
@@ -50,46 +66,27 @@ print(json.dumps(matches[0]))
 ")"
 
 IS_LOCAL="$(echo "${CELL_JSON}" | python3 -c "import json,sys; print(json.load(sys.stdin)['is_local'])")"
-RUN_ID="$(echo "${CELL_JSON}" | python3 -c "import json,sys; print(json.load(sys.stdin)['run_id'])")"
-CONFIG_REL="$(echo "${CELL_JSON}" | python3 -c "import json,sys; print(json.load(sys.stdin)['generated_config'])")"
-CHECKPOINT_REL="$(echo "${CELL_JSON}" | python3 -c "import json,sys; print(json.load(sys.stdin)['generated_checkpoint_seed'])")"
-TARGET_CHECKPOINT_REL="$(echo "${CELL_JSON}" | python3 -c "import json,sys; print(json.load(sys.stdin)['target_checkpoint_path_relative_to_repo_root'])")"
+METHOD="$(echo "${CELL_JSON}" | python3 -c "import json,sys; print(json.load(sys.stdin)['method'])")"
+MODEL="$(echo "${CELL_JSON}" | python3 -c "import json,sys; print(json.load(sys.stdin)['model'])")"
 
 CHOICEBENCH_WORKTREE_ROOT="$(cd "${HERE}/../../../.." && pwd)"
 
+echo "cell_id:  ${CELL_ID}"
+echo "method:   ${METHOD}"
+echo "model:    ${MODEL}"
+echo "is_local: ${IS_LOCAL}"
+echo
+
 if [[ "${IS_LOCAL}" == "True" ]]; then
-  echo "cell_id ${CELL_ID} runs on Kelvin2 (local HuggingFace model)."
-  echo "This machine cannot execute it. Submit via SLURM from a Kelvin2 login node:"
-  echo
-  echo "  See: ${HERE}/../group3_fourth_cell/local/slurm/ for the sbatch pattern"
-  echo "  (Group 1's local repair cells use the same setup/checkout/copy-checkpoint"
-  echo "  steps as Group 3's local sbatch scripts — see README.md in this directory"
-  echo "  for the exact per-cell sbatch invocation)."
+  echo "This is a Kelvin2 cell. This machine cannot execute it directly."
+  echo "See group3_fourth_cell/local/slurm/ for the sbatch pattern; local"
+  echo "Group 1 repairs are not yet wired to a Kelvin2 entry point in this phase."
   exit 0
 fi
 
-TSP_ROOT="/home/cotenthusiast/Projects/two-stage-prompting"
-SRC_CHECKPOINT="${CHOICEBENCH_WORKTREE_ROOT}/${CHECKPOINT_REL}"
-DST_CHECKPOINT="${TSP_ROOT}/${TARGET_CHECKPOINT_REL}"
-CONFIG_PATH="${CHOICEBENCH_WORKTREE_ROOT}/${CONFIG_REL}"
-
-echo "cell_id:            ${CELL_ID}"
-echo "run_id:              ${RUN_ID}"
-echo "config:               ${CONFIG_PATH}"
-echo "checkpoint seed:      ${SRC_CHECKPOINT}"
-echo "checkpoint target:    ${DST_CHECKPOINT}"
+echo "To launch (NOT done automatically by this script — this makes a real"
+echo "API call once you run it):"
 echo
-
-mkdir -p "$(dirname "${DST_CHECKPOINT}")"
-cp -n "${SRC_CHECKPOINT}" "${DST_CHECKPOINT}" || {
-  echo "error: ${DST_CHECKPOINT} already exists — refusing to overwrite an" >&2
-  echo "existing checkpoint (it may hold real progress). Investigate before" >&2
-  echo "removing it manually." >&2
-  exit 1
-}
-
-echo "Checkpoint staged. To launch (NOT done automatically by this script):"
-echo
-echo "  cd ${TSP_ROOT}"
-echo "  git checkout <pinned TSP SHA — see README.md>"
-echo "  python scripts/run_experiment.py --config ${CONFIG_PATH} --run-id ${RUN_ID} --yes"
+echo "  cd ${CHOICEBENCH_WORKTREE_ROOT}"
+echo "  set -a; source /home/cotenthusiast/Projects/two-stage-prompting/.env; set +a"
+echo "  python -m experiments.visible_llm_matcher.repairs.group1_historical_arc.harness.run_repair --cell-id ${CELL_ID}"

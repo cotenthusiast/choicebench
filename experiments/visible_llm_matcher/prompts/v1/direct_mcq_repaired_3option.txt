@@ -1,0 +1,10 @@
+Answer the following multiple-choice question.
+
+Question: {question}
+
+Options:
+A. {option_a}
+B. {option_b}
+C. {option_c}
+
+Respond with only the letter.

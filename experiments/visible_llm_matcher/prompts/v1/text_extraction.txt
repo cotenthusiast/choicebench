@@ -1,0 +1,11 @@
+Answer the following question. Read all options carefully.
+
+Question: {question}
+
+Options:
+A. {option_a}
+B. {option_b}
+C. {option_c}
+D. {option_d}
+
+Respond with the correct answer text only. Do not write the option letter. Do not explain.

@@ -251,8 +251,8 @@ def build_all() -> list[dict]:
                 "n_repair": n_repair,
                 "source_csv": str(paths.csv_path),
                 "source_config": str(paths.config_path),
-                "generated_config": str(config_out_path.relative_to(THIS_DIR.parent.parent.parent)),
-                "generated_checkpoint_seed": str(checkpoint_out_path.relative_to(THIS_DIR.parent.parent.parent)),
+                "generated_config": str(config_out_path.relative_to(THIS_DIR.parent.parent.parent.parent)),
+                "generated_checkpoint_seed": str(checkpoint_out_path.relative_to(THIS_DIR.parent.parent.parent.parent)),
                 "target_checkpoint_path_relative_to_repo_root": target_checkpoint_rel,
             }
         )

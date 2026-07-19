@@ -61,32 +61,50 @@ regression tests this phase).
 
 ## 2. Exact expected call count by provider/model/method
 
-**Group 1 — 28 cells, 84 (question, cell) repair units, but methods differ
-in calls-per-question, so the actual model-call count is higher than 84:**
+**CORRECTED — supersedes the previous phase's counts**, which assumed the
+unmodified `run_experiment.py` path would work (it doesn't — see
+`INVALID_diagnostics/`) and used TSP's historical calls-per-question table
+(`cyclic`=4, `two_prompt`=2) unchanged. The repair harness changes both:
+cyclic now fires exactly 1 call per REAL option (3, not 4, for every
+repaired question), and two_stage's Stage 1 is reused rather than
+regenerated, so only its Stage-2 call is new.
 
-| Method | Calls/question | API cells | API calls (×3Q) | Local cells | Local calls (×3Q) |
-|---|---|---|---|---|---|
-| `baseline` | 1 | 4 | 12 | — | — |
-| `cyclic_generation_majority` | 4 | 4 | 48 | — | — |
-| `text_extraction` | 1 | 4 | 12 | — | — |
-| `two_stage_v1` | 2 | 4 | 24 | — | — |
-| `two_stage_v2` | 2 | 4 | 24 | 2 | 12 |
-| `two_stage_v3` | 2 | 4 | 24 | 2 | 12 |
-| **Total** | | **24 cells** | **144** | **4 cells** | **24** |
+**Group 1 — 28 cells, 84 (question, cell) repair units:**
 
-Group 1 total: **168 model calls** (144 API + 24 local/Kelvin2), computed
-programmatically from `manifest_summary.json` × TSP's own
-`_CALLS_PER_QUESTION` table (verified against `scripts/run_experiment.py`
-in both repos, not assumed).
+| Method | New calls/question | Reused (not called)/question | API cells | API new calls (×3Q) | Local cells | Local new calls (×3Q) |
+|---|---|---|---|---|---|---|
+| `baseline` | 1 | 0 | 4 | 12 | — | — |
+| `cyclic_generation_majority` | **3** (was 4) | 0 | 4 | **36** (was 48) | — | — |
+| `text_extraction` | 1 | 0 | 4 | 12 | — | — |
+| `two_stage_v1` | **1** (Stage 2 only) | 1 (Stage 1, reused) | 4 | **12** (was 24) | — | — |
+| `two_stage_v2` | **1** (Stage 2 only) | 1 (Stage 1, reused) | 4 | **12** (was 24) | 2 | **6** (was 12) |
+| `two_stage_v3` | **1** (Stage 2 only) | 1 (Stage 1, reused) | 4 | **12** (was 24) | 2 | **6** (was 12) |
+| **Total** | | | **24 cells** | **96** (was 144) | **4 cells** | **12** (was 24) |
 
-Per-provider (API): openai 3×12=36, gemini 1×12=12 — wait, per-model:
-gpt-4.1-mini 36, gemini-2.5-flash 36, llama-3.1-8b-instant 36,
-Qwen/Qwen2.5-7B-Instruct-Turbo 36 (each model: baseline 3 + cyclic 12 +
-text_extraction 3 + two_stage_v1 6 + two_stage_v2 6 + two_stage_v3 6 = 36).
-`144 / 4 = 36` ✓.
+Group 1 total: **108 new model calls** (96 API + 12 local/Kelvin2 — down
+from the previous, unworkable design's 168), plus **48 reused Stage-1
+free-text responses** (0 new calls for those — two_stage_v1/v2/v3's Stage 1
+is read from the historical hidden-options data, not regenerated; see §
+"Stage 1 reuse decision" below).
 
-Per-provider (local): Qwen/Qwen2.5-7B-Instruct 12 (two_stage_v2 6 +
-two_stage_v3 6), meta-llama/Llama-3.1-8B-Instruct 12. `24 / 2 = 12` ✓.
+Per-model (API): gpt-4.1-mini/gemini-2.5-flash/llama-3.1-8b-instant/
+Qwen-Turbo each: baseline 3 + cyclic 9 + text_extraction 3 + two_stage_v1 3
++ two_stage_v2 3 + two_stage_v3 3 = **24 new calls/model** (`96 / 4 = 24` ✓).
+
+Per-model (local): Qwen/Qwen2.5-7B-Instruct and meta-llama/Llama-3.1-8B-Instruct
+each: two_stage_v2 3 + two_stage_v3 3 = **6 new calls/model** (`12 / 2 = 6` ✓).
+
+### Stage 1 reuse decision (two_stage_v1/v2/v3)
+
+Investigated directly against stored artifacts (not inferred from a cache
+hit — see `harness/two_stage_repair.py`'s `STAGE1_REUSE_DECISION` docstring
+for the full reasoning): all 16 (prompt-version, model) historical Stage-1
+sources — v1/v2/v3 × 4 API models, v2/v3 × 2 local models — have complete,
+non-empty, content-plausible `free_text_response` for all 3 repaired
+question_ids. Stage 1 (`free_text.txt`) never renders options at all for
+any prompt version, so it is structurally immune to the phantom-D defect
+regardless of content. Decision: **reuse**, for all 16 sources, 0 new
+Stage-1 calls anywhere in Group 1.
 
 **Semantic-matching offline repair (6 cells, 18 rows): 0 model calls** —
 deterministic re-derivation from already-clean Stage-1 data (see Group 1
@@ -130,11 +148,15 @@ Group 2 repair config generated, no rerun.**
 
 | | API calls | Local/Kelvin2 calls | Total |
 |---|---|---|---|
-| Group 1 (28 historical repair cells) | 144 | 24 | 168 |
+| Group 1 (28 historical repair cells, harness-corrected) | 96 | 12 | 108 |
 | Group 2 (Stage-1 repair for cell 4) | 0 (= Group 1's `text_extraction`) | 0 (reused, no repair) | 0 |
 | Semantic-matching offline repair | 0 | 0 | 0 |
 | Group 3 (fourth cell, 12 model×benchmark) | 8000 | 4000 | 12000 |
-| **Grand total, new model calls** | **8144** | **4024** | **12168** |
+| **Grand total, new model calls** | **8096** | **4012** | **12108** |
+
+(Previous phase's totals — 144/24/168 for Group 1, 8144/4024/12168 grand
+total — assumed the unmodified-runner mechanism worked; it didn't. These
+are the corrected figures for the harness actually being launched.)
 
 **Estimated duplicate or unnecessary calls: 0.** Specifically verified:
 - Group 2's 12 API Stage-1 calls are Group 1's 4 `text_extraction` cells
