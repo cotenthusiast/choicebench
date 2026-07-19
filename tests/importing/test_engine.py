@@ -1,7 +1,7 @@
 """End-to-end tests for the reduced-scope import engine: base (non-overlay)
-plan/dry-run/real-import/idempotence/verify. Overlay integration is not yet
-wired into execute_import (see engine.py's module docstring); this file
-covers the base import path the engine currently implements.
+plan/dry-run/real-import/idempotence/verify. Overlay merge-into-new-run
+orchestration (execute_overlay_import) is a separate function covered by
+test_engine_overlay.py; this file covers only the base import path.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ import pytest
 import yaml
 
 from choicebench.importing.engine import (
+    ImportEngineError,
     ImportRequest,
     build_import_plan,
     execute_import,
@@ -168,6 +169,33 @@ def test_build_import_plan_produces_a_valid_v3_manifest(tmp_path):
     assert result.computed_evidence_status == "complete"
     assert result.evaluable is True
     assert len(result.evaluable_rows) == 2
+
+
+def test_build_import_plan_uses_a_supplied_expected_dataset_override(tmp_path):
+    spec = _spec(tmp_path)
+    (dataset,) = spec.datasets
+    (source,) = spec.sources
+    from choicebench.importing.dataset_reference import build_expected_dataset
+    from choicebench.importing.evidence import open_verified_source
+
+    opened = open_verified_source(source, containment_root=tmp_path)
+    override = build_expected_dataset(dataset, {"results": opened})
+    request = ImportRequest(
+        spec=spec, run_id="run-1", workspace_root=tmp_path, strict=True,
+        expected_datasets={"dataset": override},
+    )
+    plan = build_import_plan(request)
+    assert plan.expected_datasets["dataset"] is override
+
+
+def test_build_import_plan_rejects_an_incomplete_expected_dataset_override(tmp_path):
+    spec = _spec(tmp_path)
+    request = ImportRequest(
+        spec=spec, run_id="run-1", workspace_root=tmp_path, strict=True,
+        expected_datasets={},
+    )
+    with pytest.raises(ImportEngineError, match="missing dataset"):
+        build_import_plan(request)
 
 
 def test_dry_run_writes_nothing(tmp_path):

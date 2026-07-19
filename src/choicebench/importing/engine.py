@@ -1,14 +1,12 @@
 """Orchestrate generic dry-run and real imports of external results.
 
-Reduced scope: this implements the base (non-overlay) import path fully --
+Reduced scope: this implements both the base (non-overlay) import path --
 plan, dry-run validate, real staged publish, and idempotent re-verification
-of an existing run. Applying an authorized repair/offline-transformation
-overlay on top of an already-published base run (Task 10's derive_overlay,
-merged with the base's retained rows into a new run) is the next increment;
-every piece it needs (identity, validation, authorization, overlay
-derivation, evidence storage, atomic transactions, and this module's own
-verify_import_run) is already built and tested, but the merge-and-publish
-orchestration itself is not yet wired up here.
+of an existing run -- and the overlay merge-into-new-run path: an authorized
+repair/offline-transformation overlay (Task 10's derive_overlay) merged with
+an already-published base run's retained rows into a new, separate,
+immutable run (execute_overlay_import). The base run itself is never
+mutated; only its verified values are read.
 
 Report schema is also reduced from the original plan: it carries the counts
 and digests needed to confirm exact status/queue reproduction and reject
@@ -20,6 +18,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Literal, Mapping
 
 from dataclasses import asdict
@@ -45,10 +44,17 @@ from choicebench.importing.identity import (
     make_realization,
     make_result_origin,
 )
-from choicebench.importing.overlays import VerifiedBaseRealization
+from choicebench.importing.authorization import (
+    authorization_for_condition,
+    validate_authorization_bundle,
+)
+from choicebench.importing.overlays import VerifiedBaseRealization, derive_overlay
 from choicebench.importing.schema import (
+    AuthorizationSpec,
     ImportConditionSpec,
     ImportSpec,
+    OverlaySpec,
+    SourceArtifactSpec,
     validate_csv_dialect_identity,
     validate_numeric_columns_identity,
     validate_option_mapping_identity,
@@ -56,6 +62,7 @@ from choicebench.importing.schema import (
 from choicebench.importing.transaction import ImportTransaction
 from choicebench.importing.validation import (
     ImportValidationError,
+    RealizationValidation,
     normalize_realization_rows,
     prepare_realization_validation_artifact,
     validate_realization_validation_artifact,
@@ -115,6 +122,14 @@ class ImportRequest:
     workspace_root: Path
     strict: bool
     overlays: tuple[Any, ...] = ()
+    expected_datasets: Mapping[str, ExpectedDataset] | None = None
+    """Pre-built, pre-verified ExpectedDataset objects keyed by dataset_id,
+    used in place of rebuilding each spec.datasets declaration from its
+    source_ids via the generic build_expected_dataset. Some profiles (e.g.
+    Stage 1's ARC/MMLU trust chain) need dataset-specific revalidation and
+    deduplication the generic path cannot reproduce; spec.datasets is still
+    populated for documentation/identity purposes, but is not read here when
+    this override is supplied."""
 
 
 @dataclass(frozen=True)
@@ -335,15 +350,26 @@ def build_import_plan(request: ImportRequest) -> ImportPlan:
     Performs every read/validation/identity step but writes nothing."""
     spec = request.spec
     sources_by_id = {source.source_id: source for source in spec.sources}
-    expected_datasets: dict[str, ExpectedDataset] = {}
-    for declaration in spec.datasets:
-        opened = {
-            source_id: open_verified_source(
-                sources_by_id[source_id], containment_root=request.workspace_root
+    if request.expected_datasets is not None:
+        expected_datasets: dict[str, ExpectedDataset] = dict(request.expected_datasets)
+        missing_datasets = sorted(
+            {condition.dataset_id for condition in spec.conditions} - set(expected_datasets)
+        )
+        if missing_datasets:
+            raise ImportEngineError(
+                f"request.expected_datasets is missing dataset(s) {missing_datasets} "
+                "referenced by spec.conditions."
             )
-            for source_id in declaration.source_ids
-        }
-        expected_datasets[declaration.dataset_id] = build_expected_dataset(declaration, opened)
+    else:
+        expected_datasets = {}
+        for declaration in spec.datasets:
+            opened = {
+                source_id: open_verified_source(
+                    sources_by_id[source_id], containment_root=request.workspace_root
+                )
+                for source_id in declaration.source_ids
+            }
+            expected_datasets[declaration.dataset_id] = build_expected_dataset(declaration, opened)
 
     models_by_key = {model.model_key: model for model in spec.models}
     methods_by_key = {method.method_key: method for method in spec.methods}
@@ -561,10 +587,14 @@ def _write_staged_run(staged_run: Path, request: ImportRequest, plan: ImportPlan
     validate_manifest_v3(plan.manifest)
 
 
-def verify_import_run(run_dir: Path, expected: ImportPlan | None = None) -> VerifiedImportRun:
+def verify_import_run(
+    run_dir: Path, expected: ImportPlan | SimpleNamespace | None = None
+) -> VerifiedImportRun:
     """The single shared full-graph verifier: validates manifest, state,
     validation artifacts, and results, and returns immutable trusted values
-    only after the whole graph passes."""
+    only after the whole graph passes. `expected` need only expose a
+    `.manifest` mapping (an ImportPlan, or a bare SimpleNamespace(manifest=...)
+    for the overlay path, which has no full ImportPlan of its own)."""
     run_dir = Path(run_dir)
     manifest = json.loads((run_dir / MANIFEST_FILENAME).read_text())
     validate_manifest_v3(manifest)
@@ -634,6 +664,371 @@ def verify_import_run(run_dir: Path, expected: ImportPlan | None = None) -> Veri
     return VerifiedImportRun(
         manifest=manifest, manifest_digest=manifest["experiment_digest"], realizations=realizations
     )
+
+
+# --- Overlay merge-into-new-run orchestration -------------------------------
+#
+# Scope boundary: requires an evaluable base realization (one with a
+# published result CSV to retain rows from). A non-evaluable base
+# (partial/malformed/recoverable/failed) has no per-row content stored
+# anywhere to retain -- verified directly against the real Stage 1 freeze
+# during development: its "recoverable" cells' rows are all individually
+# well-formed (parse_status=parse_ok, valid parsed_choice), so this
+# engine's own generic row validation genuinely computes "complete" for
+# them, and correctly refuses a declared "recoverable" status as a
+# declaration mismatch rather than silently trusting freeze-specific domain
+# knowledge (the freeze's own "option-hidden" qualification note) it cannot
+# independently verify. Extending non-evaluable bases to carry retained
+# per-row content would require validation.py to store full row content
+# for every realization (not just evaluable_rows) -- a real extension, not
+# attempted here.
+
+@dataclass(frozen=True)
+class OverlayImportRequest:
+    base_run_dir: Path
+    base_realization_id: str
+    authorization: AuthorizationSpec
+    authorization_source: SourceArtifactSpec
+    overlay: OverlaySpec
+    overlay_source: SourceArtifactSpec
+    overlay_mapping: Mapping[str, str]
+    condition_digests: Mapping[str, str]
+    expected_dataset: ExpectedDataset
+    run_id: str
+    workspace_root: Path
+
+
+def _merge_overlay_realization(
+    request: OverlayImportRequest,
+) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]], dict[str, Any]]:
+    """Returns (realization_record, semantic_condition_record, result_rows,
+    overlay_evidence_record). The evidence record covers only the new
+    overlay source -- base evidence remains immutably stored in the base
+    run's own directory and is reachable via parent_digests."""
+    verified = verify_import_run(request.base_run_dir)
+    base = verified.realizations.get(request.base_realization_id)
+    if base is None:
+        raise ImportEngineError(f"Unknown base realization {request.base_realization_id!r}.")
+    if base.result_sha256 is None:
+        raise ImportEngineError(
+            f"Realization {request.base_realization_id!r} has no published result to "
+            "retain rows from; only an evaluable base realization can be overlaid."
+        )
+
+    base_manifest = verified.manifest
+    base_realization_record = base_manifest["payload"]["realizations"][request.base_realization_id]
+    base_realization_identity = base_realization_record["identity"]["realization"]
+    condition_id = base_realization_record["condition_id"]
+    semantic_condition = base_manifest["payload"]["semantic_conditions"][condition_id]
+
+    opened_auth_source = open_verified_source(
+        request.authorization_source, containment_root=request.workspace_root
+    )
+    bundle = validate_authorization_bundle(
+        request.authorization, opened_source=opened_auth_source,
+        condition_digests=request.condition_digests,
+        expected={base.condition_digest: request.expected_dataset},
+    )
+    authorization = authorization_for_condition(bundle, condition_digest=base.condition_digest)
+
+    opened_overlay_source = open_verified_source(
+        request.overlay_source, containment_root=request.workspace_root
+    )
+    overlay_table = parse_csv_source(opened_overlay_source, request.overlay_source, strict=True)
+
+    derived = derive_overlay(
+        base=base, overlay=request.overlay, authorization=authorization,
+        overlay_table=overlay_table, overlay_mapping=request.overlay_mapping,
+        expected=request.expected_dataset,
+    )
+
+    base_lineage_by_id = {
+        component["lineage_id"]: component
+        for component in base_realization_identity["lineage_components"]
+    }
+    base_row_assignments = base_realization_identity["result_origin"]["row_assignments"]
+    retained_assignments = [
+        assignment for assignment in base_row_assignments
+        if assignment["question_id"] not in derived.replacement_question_ids
+    ]
+    retained_lineage_ids = {assignment["prediction_lineage_id"] for assignment in retained_assignments}
+    retained_lineage_components = [base_lineage_by_id[lid] for lid in retained_lineage_ids]
+
+    all_lineage_components = [*retained_lineage_components, *derived.lineage_components]
+
+    # Realization identity requires row_assignments to be an ordered subset of
+    # the expected dataset's question order (identity.py), not "retained then
+    # replaced" -- reassemble in dataset order regardless of which side (base
+    # or overlay) supplies each question.
+    assignments_by_qid = {
+        assignment["question_id"]: (
+            assignment["question_id"], assignment["prediction_origin"], assignment["prediction_lineage_id"]
+        )
+        for assignment in retained_assignments
+    }
+    assignments_by_qid.update({
+        component["identity"]["question_id"]: (
+            component["identity"]["question_id"],
+            component["identity"]["prediction_origin"],
+            component["lineage_id"],
+        )
+        for component in derived.lineage_components
+    })
+    row_assignments = [
+        assignments_by_qid[qid]
+        for qid in request.expected_dataset.selected_question_ids
+        if qid in assignments_by_qid
+    ]
+    derivation_origin = derived.lineage_components[0]["identity"]["operation_type"]
+    result_origin = make_result_origin(derivation_origin=derivation_origin, row_assignments=row_assignments)
+
+    replacement_digest = integrity_digest(
+        canonicalize({
+            "replacement_question_ids": list(derived.replacement_question_ids),
+            "replacement_reasons": dict(request.overlay.replacement_reasons),
+        })
+    )
+    overlay_dict: dict[str, Any] = {
+        "source_sha256": overlay_table.source_sha256,
+        "replacement_digest": replacement_digest,
+        "transformation_input_digest": None,
+        "preownership_output_digest": None,
+        "implementation_digest": None,
+    }
+    if derivation_origin == "offline_transformation":
+        overlay_dict["transformation_input_digest"] = integrity_digest(
+            [component["identity"]["input_digest"] for component in derived.lineage_components]
+        )
+        overlay_dict["preownership_output_digest"] = integrity_digest(
+            [component["identity"]["preownership_output_digest"] for component in derived.lineage_components]
+        )
+        overlay_dict["implementation_digest"] = integrity_digest(
+            derived.lineage_components[0]["identity"]["implementation"]
+        )
+
+    overlay_source_notes_digest = (
+        integrity_digest(request.overlay_source.notes) if request.overlay_source.notes else None
+    )
+    source_records = [
+        *base_realization_identity["sources"],
+        _source_record(request.overlay_source, opened_overlay_source, notes_digest=overlay_source_notes_digest),
+    ]
+
+    realization_identity = {
+        "import_spec_digest": base_realization_identity["import_spec_digest"],
+        "sources": source_records,
+        "expected_dataset": base_realization_identity["expected_dataset"],
+        "importer_implementation": base_realization_identity["importer_implementation"],
+        "parsing_policy": base_realization_identity["parsing_policy"],
+        "validation": base_realization_identity["validation"],
+        "evidence": {
+            **base_realization_identity["evidence"],
+            "evidence_status": request.overlay.expected_evidence_status,
+        },
+        "lineage_components": all_lineage_components,
+        "result_origin": result_origin,
+        "parent_digests": {
+            "realization_digests": [base.realization_digest],
+            "evidence_digests": [base.validation_artifact_sha256],
+            "result_digests": [base.result_sha256] if base.result_sha256 else [],
+        },
+        "authorization_digest": authorization.bundle_digest,
+        "overlay": overlay_dict,
+    }
+    realization = make_realization(
+        condition_id=condition_id,
+        condition_digest=base.condition_digest,
+        identity=realization_identity,
+        fields={},
+        adapter=_external_import_adapter,
+        validator=_external_import_validator,
+        expected_dataset=request.expected_dataset,
+        semantic_condition=semantic_condition,
+        lineage_runtime_callables={lid: _external_import_adapter for lid in retained_lineage_ids},
+    )
+
+    _ROW_KEYS = {
+        "question_id", "question_text", "correct_option", "choices_json",
+        "prediction_origin", "predicted_option",
+    }
+    retained_rows_by_qid = {
+        assignment["question_id"]: {
+            key: value
+            for key, value in base.rows_by_question_id[assignment["question_id"]].items()
+            if key in _ROW_KEYS
+        }
+        for assignment in retained_assignments
+    }
+    derived_rows_by_qid = {row["question_id"]: dict(row) for row in derived.preownership_rows}
+    rows_by_qid = {**retained_rows_by_qid, **derived_rows_by_qid}
+    result_rows = [
+        rows_by_qid[qid] for qid in request.expected_dataset.selected_question_ids if qid in rows_by_qid
+    ]
+
+    overlay_evidence_record = evidence_record(
+        opened_overlay_source, references=sorted(derived.replacement_question_ids)
+    )
+    return realization, semantic_condition, result_rows, overlay_evidence_record
+
+
+def execute_overlay_import(request: OverlayImportRequest, *, dry_run: bool = False) -> ImportReport:
+    try:
+        realization, semantic_condition, result_rows, overlay_evidence_record = (
+            _merge_overlay_realization(request)
+        )
+    except (ImportIdentityError, ImportEngineError, ValueError) as exc:
+        return ImportReport(
+            schema_version="choicebench.import-report.v1",
+            import_state="failed",
+            wrote_artifacts=False,
+            idempotent_noop=False,
+            run_id=request.run_id,
+            experiment_id=None,
+            counts=ImportCounts(conditions={}, evidence_status={}, scope_disposition={}),
+            defects=DefectReport(total_findings=0, by_code={}, findings_digest=integrity_digest([])),
+            condition_digests={},
+            realization_digests={},
+            failures=({"code": "OVERLAY_IMPORT_FAILED", "sanitized_message": str(exc)},),
+        )
+
+    condition_id = realization["condition_id"]
+    payload = {
+        "protocol_version": PROTOCOL_V3_VERSION,
+        "canonicalization_version": CANONICALIZATION_VERSION,
+        "semantic_conditions": {condition_id: semantic_condition},
+        "realizations": {realization["realization_id"]: realization},
+    }
+    manifest = make_manifest_v3(payload, audit={"source_location": str(request.workspace_root)})
+    validate_manifest_v3(manifest)
+
+    evidence_status = realization["identity"]["realization"]["evidence"]["evidence_status"]
+    scope_disposition = realization["identity"]["realization"]["evidence"]["scope_disposition"]
+    counts = ImportCounts(
+        conditions={"declared": 1},
+        evidence_status={evidence_status: 1},
+        scope_disposition={scope_disposition: 1},
+    )
+    condition_digests = {condition_id: semantic_condition["condition_digest"]}
+    realization_digests = {realization["realization_id"]: realization["realization_digest"]}
+
+    if dry_run:
+        return ImportReport(
+            schema_version="choicebench.import-report.v1",
+            import_state="validated",
+            wrote_artifacts=False,
+            idempotent_noop=False,
+            run_id=request.run_id,
+            experiment_id=manifest["experiment_id"],
+            counts=counts,
+            defects=DefectReport(total_findings=0, by_code={}, findings_digest=integrity_digest([])),
+            condition_digests=condition_digests,
+            realization_digests=realization_digests,
+            failures=(),
+        )
+
+    runs_dir = Path(request.workspace_root) / "runs"
+    idempotent_noop = [False]
+
+    def _validator(published_root: Path) -> None:
+        if published_root == runs_dir / request.run_id and (published_root / MANIFEST_FILENAME).is_file():
+            verify_import_run(published_root, expected=SimpleNamespace(manifest=manifest))
+            idempotent_noop[0] = True
+            return
+        _write_overlay_staged_run(
+            published_root, manifest, realization, result_rows,
+            overlay_source=request.overlay_source,
+            overlay_evidence_record=overlay_evidence_record,
+            workspace_root=request.workspace_root,
+        )
+
+    with ImportTransaction(runs_dir=runs_dir, run_id=request.run_id) as txn:
+        txn.publish(_validator)
+
+    return ImportReport(
+        schema_version="choicebench.import-report.v1",
+        import_state="imported",
+        wrote_artifacts=not idempotent_noop[0],
+        idempotent_noop=idempotent_noop[0],
+        run_id=request.run_id,
+        experiment_id=manifest["experiment_id"],
+        counts=counts,
+        defects=DefectReport(total_findings=0, by_code={}, findings_digest=integrity_digest([])),
+        condition_digests=condition_digests,
+        realization_digests=realization_digests,
+        failures=(),
+    )
+
+
+def _write_overlay_staged_run(
+    staged_run: Path, manifest: Mapping[str, Any], realization: Mapping[str, Any],
+    result_rows: list[dict[str, Any]],
+    *,
+    overlay_source: SourceArtifactSpec,
+    overlay_evidence_record: Mapping[str, Any],
+    workspace_root: Path,
+) -> None:
+    staged_run.mkdir(parents=True, exist_ok=True)
+
+    opened_overlay_source = open_verified_source(overlay_source, containment_root=workspace_root)
+    written_record = write_evidence_blob(
+        staged_run, opened_overlay_source, references=overlay_evidence_record["references"]
+    )
+    write_evidence_index(staged_run, [written_record])
+
+    atomic_write_json(staged_run / MANIFEST_FILENAME, manifest)
+
+    realization_id = realization["realization_id"]
+    state = initial_run_state_v3(manifest)
+    state["realizations"][realization_id]["status"] = "completed"
+
+    condition_id = realization["condition_id"]
+    condition_record = manifest["payload"]["semantic_conditions"][condition_id]
+    benchmark = condition_record["identity"]["benchmark"]
+    identity_columns = {
+        "condition_id": condition_id,
+        "realization_id": realization_id,
+        "experiment_id": manifest["experiment_id"],
+        "dataset_artifact_id": benchmark["artifact_id"],
+        "dataset_selection_id": benchmark["selection_id"],
+        "model_id": condition_record["identity"]["model_id"],
+        "method_id": condition_record["identity"]["method_id"],
+        "prompt_id": condition_record["identity"]["prompt_id"],
+        "benchmark_name": benchmark["name"],
+        "benchmark_split": benchmark["split"],
+    }
+    lineage_ids_by_qid = {
+        assignment["question_id"]: assignment["prediction_lineage_id"]
+        for assignment in realization["identity"]["realization"]["result_origin"]["row_assignments"]
+    }
+    final_rows = [
+        {**identity_columns, **row, "prediction_lineage_id": lineage_ids_by_qid[row["question_id"]]}
+        for row in result_rows
+    ]
+    prepared_result = prepare_manifest_result(final_rows, manifest=manifest, realization_id=realization_id)
+    _, published_metadata, _ = publish_manifest_result(prepared_result, run_dir=staged_run)
+    state["realizations"][realization_id]["result_artifact_id"] = published_metadata["result_artifact_id"]
+    state["realizations"][realization_id]["result_artifact_digest"] = published_metadata["result_artifact_digest"]
+    state["realizations"][realization_id]["result_sha256"] = published_metadata["file_sha256"]
+
+    evidence_status = realization["identity"]["realization"]["evidence"]["evidence_status"]
+    merged_validation = RealizationValidation(
+        evaluable_rows=tuple(result_rows),
+        findings=(),
+        validation_digest=integrity_digest({"evaluable_rows": canonicalize(result_rows)}),
+        computed_evidence_status=evidence_status,
+        evaluable=True,
+        qualifications=(),
+        limitations=(),
+        defect_question_ids=(),
+    )
+    prepared_validation = prepare_realization_validation_artifact(
+        merged_validation, realization=realization, evidence_records=()
+    )
+    write_realization_validation_artifact(staged_run, prepared_validation)
+    state["realizations"][realization_id]["validation_sha256"] = prepared_validation.file_sha256
+
+    atomic_write_json(staged_run / RUN_STATE_FILENAME, canonicalize(state, redact_secrets=False))
+    validate_manifest_v3(manifest)
 
 
 def serialize_import_report(report: ImportReport) -> dict[str, Any]:

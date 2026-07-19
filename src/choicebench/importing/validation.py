@@ -263,18 +263,16 @@ class RealizationValidation:
     defect_question_ids: tuple[str, ...]
 
 
-def normalize_realization_rows(
-    validated: ValidatedSourceRows,
-    *,
-    condition: ImportConditionSpec,
-    expected: ExpectedDataset,
-    mapping: Mapping[str, str] | None = None,
-    experiment_id: str | None = None,
-    realization_id: str | None = None,
-) -> RealizationValidation:
-    """Recompute evidence status from exact coverage/defects and refuse a
-    declaration mismatch. Fill evaluative content only from ExpectedDataset;
-    source values were already checked, never trusted, in validate_source_rows.
+def compute_evidence_status(
+    validated: ValidatedSourceRows, *, condition: ImportConditionSpec
+) -> tuple[str, tuple[str, ...]]:
+    """Pure evidence-status computation from exact row coverage/defects,
+    independent of what the condition itself declares. Returns
+    (computed_status, defect_question_ids). Exposed separately from
+    normalize_realization_rows so a caller assembling declarations (e.g. a
+    paper-freeze profile) can discover the correct status to declare before
+    constructing the condition, instead of guessing and retrying against the
+    declaration-mismatch check below.
     """
     expected_ids = set(validated.expected_question_ids)
     present_ids = set(validated.rows_by_question_id)
@@ -301,6 +299,23 @@ def normalize_realization_rows(
         computed = "partial"
     else:
         computed = "qualified" if condition.qualifications else "complete"
+    return computed, defect_question_ids
+
+
+def normalize_realization_rows(
+    validated: ValidatedSourceRows,
+    *,
+    condition: ImportConditionSpec,
+    expected: ExpectedDataset,
+    mapping: Mapping[str, str] | None = None,
+    experiment_id: str | None = None,
+    realization_id: str | None = None,
+) -> RealizationValidation:
+    """Recompute evidence status from exact coverage/defects and refuse a
+    declaration mismatch. Fill evaluative content only from ExpectedDataset;
+    source values were already checked, never trusted, in validate_source_rows.
+    """
+    computed, defect_question_ids = compute_evidence_status(validated, condition=condition)
 
     if computed != condition.evidence_status:
         raise ImportValidationError(
