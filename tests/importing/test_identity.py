@@ -1753,6 +1753,44 @@ def test_expected_dataset_trust_chain_is_owned_and_recomputed(mutation):
         )
 
 
+def test_profile_derived_dataset_requires_independent_source_groups_at_identity_boundary():
+    dataset = _dataset()
+    derivation = {
+        **dataset.derivation,
+        "reference_kind": "profile_derived_reference_snapshot",
+        "trust_label": "cross-source-internal-consistency",
+        "declared_derivation": {"independent_source_groups": [["benchmark"]]},
+    }
+    derivation_digest = integrity_digest(derivation)
+    snapshot_digest = integrity_digest(
+        {
+            "artifact_digest": dataset.artifact_digest,
+            "selection_digest": dataset.selection_digest,
+            "question_set_digest": dataset.question_set_digest,
+            "derivation_digest": derivation_digest,
+            "reference_kind": "profile_derived_reference_snapshot",
+            "trust_label": "cross-source-internal-consistency",
+        }
+    )
+    forged = replace(
+        dataset,
+        reference_kind="profile_derived_reference_snapshot",
+        trust_label="cross-source-internal-consistency",
+        derivation=derivation,
+        derivation_digest=derivation_digest,
+        snapshot_digest=snapshot_digest,
+    )
+
+    with pytest.raises(ImportIdentityError, match="profile|independent|group|source"):
+        build_import_semantic_identity(
+            condition=_condition(),
+            dataset=forged,
+            model=_model(),
+            method=_method(),
+            prompt=_prompt(),
+        )
+
+
 def test_complete_realization_question_set_is_owned_by_validated_dataset():
     condition = _records().condition
     identity = _realization_identity()
@@ -1918,6 +1956,13 @@ def test_native_prompt_identity_preserves_credential_shaped_literal_text():
         {"audit": {"operator": "alice"}, "node": "machine-a"},
         {"hf_path": "/home/alice/machine-only/dataset"},
         {"generator": "/home/alice/generator.py"},
+        {
+            "hf_dataset_info": {
+                "builder_name": "/home/alice/private-builder",
+                "config_name": "cfg",
+                "version": "1",
+            }
+        },
     ],
 )
 def test_native_dataset_source_refuses_audit_and_machine_metadata(source):
@@ -1938,6 +1983,8 @@ def test_native_dataset_source_refuses_audit_and_machine_metadata(source):
     }
     artifact_id = short_id("ds", artifact_payload)
     selection_payload = {**dataset.selection_payload, "artifact_id": artifact_id}
+    derivation = {**dataset.derivation, "identity_mode": "native_compatibility"}
+    derivation_digest = integrity_digest(derivation)
     forged = replace(
         dataset,
         identity_mode="native_compatibility",
@@ -1947,6 +1994,18 @@ def test_native_dataset_source_refuses_audit_and_machine_metadata(source):
         selection_payload=selection_payload,
         selection_digest=integrity_digest(selection_payload),
         selection_id=short_id("sel", selection_payload),
+        derivation=derivation,
+        derivation_digest=derivation_digest,
+        snapshot_digest=integrity_digest(
+            {
+                "artifact_digest": integrity_digest(artifact_payload),
+                "selection_digest": integrity_digest(selection_payload),
+                "question_set_digest": dataset.question_set_digest,
+                "derivation_digest": derivation_digest,
+                "reference_kind": dataset.reference_kind,
+                "trust_label": dataset.trust_label,
+            }
+        ),
     )
     with pytest.raises(ImportIdentityError, match="source|audit|path|timestamp"):
         build_import_semantic_identity(
@@ -2569,6 +2628,78 @@ def test_derived_lineage_must_bind_overlay_operational_digests(derivation):
         ),
     }
     with pytest.raises(ImportIdentityError, match="overlay|source|input|output|implementation"):
+        make_realization(
+            condition_id=condition["condition_id"],
+            condition_digest=condition["condition_digest"],
+            identity=identity,
+            fields={},
+        )
+
+
+def test_offline_transformation_rows_must_reference_offline_lineage_component():
+    condition = _records().condition
+    identity = _realization_identity()
+    assigned_components = [
+        make_lineage_component(
+            operation_type="external_import",
+            question_id=question_id,
+            parent_digests=("d" * 64,),
+            source_digests=("2" * 64,),
+            authorization_digest="c" * 64,
+            implementation=_transform,
+            parameters={},
+            input_digest=integrity_digest({"question_id": question_id, "input": "base"}),
+            preownership_output_digest=integrity_digest(
+                {"question_id": question_id, "output": "base"}
+            ),
+            prediction_origin="external_historical_inference",
+        )
+        for question_id in ("q2", "q1")
+    ]
+    orphan_component = make_lineage_component(
+        operation_type="offline_transformation",
+        question_id="q1",
+        parent_digests=("d" * 64,),
+        source_digests=("2" * 64, "e" * 64),
+        authorization_digest="c" * 64,
+        implementation=_transform,
+        parameters={},
+        input_digest=integrity_digest({"question_id": "q1", "input": "transform"}),
+        preownership_output_digest=integrity_digest(
+            {"question_id": "q1", "output": "transform"}
+        ),
+        prediction_origin="external_historical_inference",
+    )
+    identity["lineage_components"] = [*assigned_components, orphan_component]
+    identity["result_origin"] = make_result_origin(
+        derivation_origin="offline_transformation",
+        row_assignments=tuple(
+            (
+                component["identity"]["question_id"],
+                component["identity"]["prediction_origin"],
+                component["lineage_id"],
+            )
+            for component in assigned_components
+        ),
+    )
+    identity["authorization_digest"] = "c" * 64
+    identity["parent_digests"]["realization_digests"] = ["d" * 64]
+    identity["parent_digests"]["evidence_digests"] = ["0" * 64]
+    identity["overlay"] = {
+        "source_sha256": "e" * 64,
+        "replacement_digest": "f" * 64,
+        "transformation_input_digest": integrity_digest(
+            [orphan_component["identity"]["input_digest"]]
+        ),
+        "preownership_output_digest": integrity_digest(
+            [orphan_component["identity"]["preownership_output_digest"]]
+        ),
+        "implementation_digest": integrity_digest(
+            orphan_component["identity"]["implementation"]
+        ),
+    }
+
+    with pytest.raises(ImportIdentityError, match="offline|row|lineage|assignment"):
         make_realization(
             condition_id=condition["condition_id"],
             condition_digest=condition["condition_digest"],

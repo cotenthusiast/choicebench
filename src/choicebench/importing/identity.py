@@ -659,6 +659,9 @@ def _validate_expected_dataset_contract(dataset: ExpectedDataset) -> None:
                 raise ImportIdentityError(
                     "Expected dataset native source hf_dataset_info is invalid."
                 )
+            _validate_no_machine_path_values(
+                info, "Expected dataset native source hf_dataset_info"
+            )
     if artifact["content_digest"] != dataset_content_digest(dataset.artifact_frame):
         raise ImportIdentityError(
             "Expected dataset artifact content digest does not own its frame."
@@ -820,6 +823,40 @@ def _validate_expected_dataset_contract(dataset: ExpectedDataset) -> None:
         derivation["declared_derivation"],
         "Expected dataset declared derivation",
     )
+    if dataset.reference_kind == "profile_derived_reference_snapshot":
+        declared_derivation = derivation["declared_derivation"]
+        if not isinstance(declared_derivation, Mapping):
+            raise ImportIdentityError(
+                "Profile-derived reference declared derivation is invalid."
+            )
+        raw_groups = declared_derivation.get("independent_source_groups")
+        if not isinstance(raw_groups, (list, tuple)):
+            raise ImportIdentityError(
+                "Profile-derived reference requires at least two independent "
+                "source groups."
+            )
+        groups: list[tuple[str, ...]] = []
+        for item in raw_groups:
+            if not isinstance(item, (list, tuple)) or not item:
+                raise ImportIdentityError(
+                    "Profile-derived reference requires at least two independent "
+                    "source groups."
+                )
+            groups.append(tuple(str(source_id) for source_id in item))
+        if len(groups) < 2:
+            raise ImportIdentityError(
+                "Profile-derived reference requires at least two independent "
+                "source groups."
+            )
+        flattened = [source_id for group in groups for source_id in group]
+        if (
+            len(flattened) != len(set(flattened))
+            or set(flattened) != seen_source_ids
+        ):
+            raise ImportIdentityError(
+                "Profile-derived reference independent source groups must be "
+                "disjoint and cover every declared source."
+            )
     expected_derivation_digest = integrity_digest(derivation)
     if dataset.derivation_digest != expected_derivation_digest:
         raise ImportIdentityError("Expected dataset derivation digest is inconsistent.")
@@ -2220,6 +2257,20 @@ def _validate_realization_identity(
             raise ImportIdentityError(
                 f"{derivation_origin} realization requires a matching derived "
                 "lineage component."
+            )
+        assigned_lineage_ids = {
+            assignment["prediction_lineage_id"]
+            for assignment in result_origin["row_assignments"]
+        }
+        unassigned_derived_ids = sorted(
+            component["lineage_id"]
+            for component in derived_components
+            if component["lineage_id"] not in assigned_lineage_ids
+        )
+        if unassigned_derived_ids:
+            raise ImportIdentityError(
+                f"{derivation_origin} lineage component(s) {unassigned_derived_ids} "
+                "do not own a result-origin row assignment."
             )
         for component in derived_components:
             component_identity = component["identity"]
