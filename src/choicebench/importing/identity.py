@@ -33,6 +33,7 @@ from choicebench.importing.schema import (
     validate_option_mapping_identity,
 )
 from choicebench.provenance import implementation_identity
+from choicebench.registry import METHOD_REGISTRY
 
 
 class ImportIdentityError(ValueError):
@@ -168,6 +169,29 @@ _NATIVE_DATASET_SOURCE_KEYS = {
     "hf_fingerprint",
     "hf_dataset_info",
     "revision",
+}
+_METHOD_RUNTIME_PARAMETERS = {
+    "self",
+    "args",
+    "kwargs",
+    "backend",
+    "method_name",
+    "split_name",
+    "prompt_version",
+    "prompts_dir",
+    "run_id",
+    "temperature",
+    "max_tokens",
+    "seed",
+    "perturbation_name",
+    "model_label",
+    "preflight_questions",
+    "calibration_questions",
+    "calibration_runs_dir",
+    "modal_k",
+    "gate_summary",
+    "condition_id",
+    "calibration_identity",
 }
 _DATASET_DERIVATION_KEYS = {
     "schema_version",
@@ -592,6 +616,12 @@ def _validate_expected_dataset_contract(dataset: ExpectedDataset) -> None:
             not isinstance(source["generator"], str) or not source["generator"]
         ):
             raise ImportIdentityError("Expected dataset native source generator is invalid.")
+        if isinstance(source.get("generator"), str) and _is_machine_path(
+            source["generator"]
+        ):
+            raise ImportIdentityError(
+                "Expected dataset native source generator contains a machine-local path."
+            )
         if "seed" in source and (
             not isinstance(source["seed"], int) or isinstance(source["seed"], bool)
         ):
@@ -984,16 +1014,50 @@ def _semantic_child_records(
                 "Validated native method payload does not match the current schema."
             )
         method_payload = validated_method_payload
-        if method.implementation is None:
+        runner_cls = METHOD_REGISTRY.get(method.name)
+        if runner_cls is None:
             raise ImportIdentityError(
-                "An unknown method implementation cannot be upgraded by a native "
-                "identity claim."
+                "Validated native method does not name a registered current runner."
             )
+        current_effective_params: dict[str, Any] = {}
+        accepted_parameters: set[str] = set()
+        for name, parameter in inspect.signature(runner_cls.__init__).parameters.items():
+            if name in _METHOD_RUNTIME_PARAMETERS:
+                continue
+            accepted_parameters.add(name)
+            if parameter.default is not inspect.Parameter.empty:
+                current_effective_params[name] = parameter.default
+        unexpected_effective = sorted(
+            set(method.effective_parameters) - accepted_parameters
+        )
+        if unexpected_effective:
+            raise ImportIdentityError(
+                "Validated native method declares parameters not accepted by its "
+                f"registered runner: {unexpected_effective}."
+            )
+        current_effective_params.update(method.effective_parameters)
         declared_preflight = _nullable_semantic(
             condition.preflight_identity,
             condition.unknown_reasons.get("preflight_identity"),
             "method preflight identity",
         )
+        expected_current_payload = canonicalize(
+            {
+                "name": method.name,
+                "effective_params": current_effective_params,
+                "preflight": declared_preflight,
+                "implementation": implementation_identity(runner_cls),
+            }
+        )
+        if canonicalize(method_payload) != expected_current_payload:
+            raise ImportIdentityError(
+                "Validated native method does not match its registered current runner."
+            )
+        if method.implementation is None:
+            raise ImportIdentityError(
+                "An unknown method implementation cannot be upgraded by a native "
+                "identity claim."
+            )
         if (
             method_payload.get("name") != method.name
             or canonicalize(method_payload.get("effective_params"))
@@ -2168,6 +2232,21 @@ def _validate_realization_identity(
                 raise ImportIdentityError(
                     f"{derivation_origin} lineage component lacks a parent edge."
                 )
+            if not (
+                set(component_identity["parent_digests"])
+                & set(normalized_parents["realization_digests"])
+            ):
+                raise ImportIdentityError(
+                    f"{derivation_origin} lineage component lacks the declared base "
+                    "realization edge."
+                )
+            if normalized_overlay["source_sha256"] not in component_identity[
+                "source_digests"
+            ]:
+                raise ImportIdentityError(
+                    f"{derivation_origin} lineage component lacks the overlay source "
+                    "edge."
+                )
         if derivation_origin == "repair_overlay":
             for assignment in result_origin["row_assignments"]:
                 if assignment["prediction_origin"] in {
@@ -2191,6 +2270,43 @@ def _validate_realization_identity(
                 "offline_transformation overlay requires input, output, and "
                 "implementation digests."
             )
+        if derivation_origin == "offline_transformation":
+            expected_input_digest = integrity_digest(
+                [
+                    component["identity"]["input_digest"]
+                    for component in derived_components
+                ]
+            )
+            expected_output_digest = integrity_digest(
+                [
+                    component["identity"]["preownership_output_digest"]
+                    for component in derived_components
+                ]
+            )
+            implementation_identities = {
+                integrity_digest(component["identity"]["implementation"]): component[
+                    "identity"
+                ]["implementation"]
+                for component in derived_components
+            }
+            if len(implementation_identities) != 1:
+                raise ImportIdentityError(
+                    "offline_transformation lineage components use conflicting "
+                    "implementations."
+                )
+            expected_implementation_digest = next(iter(implementation_identities))
+            if (
+                normalized_overlay["transformation_input_digest"]
+                != expected_input_digest
+                or normalized_overlay["preownership_output_digest"]
+                != expected_output_digest
+                or normalized_overlay["implementation_digest"]
+                != expected_implementation_digest
+            ):
+                raise ImportIdentityError(
+                    "offline_transformation overlay input, output, or implementation "
+                    "digest conflicts with its lineage components."
+                )
         if derivation_origin == "repair_overlay" and not (
             {"native_inference", "external_repair_inference"}
             & set(result_origin["prediction_origins"])

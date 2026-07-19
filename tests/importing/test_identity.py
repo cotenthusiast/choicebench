@@ -389,8 +389,7 @@ def test_semantic_builder_refuses_cross_wired_child_registry_keys(field, replace
         _records(**{field: replacement})
 
 
-def test_native_compatibility_children_are_preserved_without_fabrication():
-    fallback = _records()
+def test_unregistered_method_cannot_claim_native_compatibility():
     model_payload = {"backend": "dummy", "model_name_or_path": "native"}
     method_payload = {
         "name": "direct",
@@ -419,49 +418,48 @@ def test_native_compatibility_children_are_preserved_without_fabrication():
         "prompt_id": short_id("prompt", prompt_payload),
         **prompt_payload,
     }
-    records = build_import_semantic_identity(
-        condition=replace(
-            _condition(),
-            generation_parameters={},
-            unknown_reasons={
-                **_condition().unknown_reasons,
-                "preflight_identity": "not applicable",
-            },
-        ),
-        dataset=_dataset(),
-        model=replace(
-            _model(),
-            display_name="native",
-            backend="dummy",
-            effective_parameters={},
-            unknown_reasons={"provider": "not applicable", "revision": "not applicable"},
-            native_compatibility_identity=native_model,
-        ),
-        method=replace(
-            _method(),
-            name="direct",
-            effective_parameters={},
-            implementation=method_payload["implementation"],
-            unknown_reasons={},
-            native_compatibility_identity=native_method,
-        ),
-        prompt=replace(
-            _prompt(),
-            template_identity="v1",
-            template_digest=integrity_digest(prompt_payload["files"]),
-            template_contents={
-                name: item["content"] for name, item in prompt_payload["files"].items()
-            },
-            unknown_reason=None,
-            native_compatibility_identity=native_prompt,
-        ),
-    )
-
-    assert records.model["identity"] == model_payload
-    assert records.model["model_id"] == native_model["model_id"]
-    assert records.method["identity"] == method_payload
-    assert records.prompt["identity"] == prompt_payload
-    assert records.condition["condition_id"] != fallback.condition["condition_id"]
+    with pytest.raises(ImportIdentityError, match="registered current runner"):
+        build_import_semantic_identity(
+            condition=replace(
+                _condition(),
+                generation_parameters={},
+                unknown_reasons={
+                    **_condition().unknown_reasons,
+                    "preflight_identity": "not applicable",
+                },
+            ),
+            dataset=_dataset(),
+            model=replace(
+                _model(),
+                display_name="native",
+                backend="dummy",
+                effective_parameters={},
+                unknown_reasons={
+                    "provider": "not applicable",
+                    "revision": "not applicable",
+                },
+                native_compatibility_identity=native_model,
+            ),
+            method=replace(
+                _method(),
+                name="direct",
+                effective_parameters={},
+                implementation=method_payload["implementation"],
+                unknown_reasons={},
+                native_compatibility_identity=native_method,
+            ),
+            prompt=replace(
+                _prompt(),
+                template_identity="v1",
+                template_digest=integrity_digest(prompt_payload["files"]),
+                template_contents={
+                    name: item["content"]
+                    for name, item in prompt_payload["files"].items()
+                },
+                unknown_reason=None,
+                native_compatibility_identity=native_prompt,
+            ),
+        )
 
 
 def test_native_model_identity_refuses_unbound_generation_parameters():
@@ -522,7 +520,9 @@ def test_native_child_claims_must_match_their_semantic_declarations():
         "digest": integrity_digest(method_payload),
         "method_id": short_id("method", method_payload),
     }
-    with pytest.raises(ImportIdentityError, match="method.*declaration"):
+    with pytest.raises(
+        ImportIdentityError, match="method.*(?:declaration|registered|runner)"
+    ):
         build_import_semantic_identity(
             condition=replace(
                 _condition(),
@@ -711,7 +711,10 @@ def test_unknown_declarations_cannot_be_upgraded_by_native_claims():
         "digest": integrity_digest(method_payload),
         "method_id": short_id("method", method_payload),
     }
-    with pytest.raises(ImportIdentityError, match="unknown.*native|implementation"):
+    with pytest.raises(
+        ImportIdentityError,
+        match="unknown.*native|implementation|registered current runner",
+    ):
         build_import_semantic_identity(
             condition=replace(
                 _condition(),
@@ -897,6 +900,7 @@ def _attach_result_origin(
     assignments: tuple[tuple[str, str], ...],
     authorization_digest: str | None = None,
     source_digest: str = "2" * 64,
+    overlay_source_digest: str = "e" * 64,
 ) -> None:
     derived = derivation_origin in {"repair_overlay", "offline_transformation"}
     components = [
@@ -904,7 +908,11 @@ def _attach_result_origin(
             operation_type=derivation_origin,
             question_id=question_id,
             parent_digests=(("d" * 64,) if derived else ()),
-            source_digests=(source_digest,),
+            source_digests=(
+                tuple(sorted({source_digest, overlay_source_digest}))
+                if derived
+                else (source_digest,)
+            ),
             authorization_digest=(authorization_digest if derived else None),
             implementation=_transform,
             parameters={},
@@ -936,6 +944,44 @@ def _attach_result_origin(
             )
         ),
     )
+
+
+def _overlay_identity(identity: dict, derivation_origin: str) -> dict:
+    derived_components = [
+        component
+        for component in identity["lineage_components"]
+        if component["identity"]["operation_type"] == derivation_origin
+    ]
+    offline = derivation_origin == "offline_transformation"
+    return {
+        "source_sha256": "e" * 64,
+        "replacement_digest": "f" * 64,
+        "transformation_input_digest": (
+            integrity_digest(
+                [
+                    component["identity"]["input_digest"]
+                    for component in derived_components
+                ]
+            )
+            if offline
+            else None
+        ),
+        "preownership_output_digest": (
+            integrity_digest(
+                [
+                    component["identity"]["preownership_output_digest"]
+                    for component in derived_components
+                ]
+            )
+            if offline
+            else None
+        ),
+        "implementation_digest": (
+            integrity_digest(derived_components[0]["identity"]["implementation"])
+            if offline
+            else None
+        ),
+    }
 
 
 def _realization_identity() -> dict:
@@ -1080,6 +1126,7 @@ def _mutate_realization(identity: dict, field: str, value) -> None:
                 ("q1", "external_repair_inference"),
             ),
             authorization_digest="c" * 64,
+            overlay_source_digest=value,
         )
     elif field == "prediction_origins":
         _attach_result_origin(
@@ -1262,19 +1309,7 @@ def test_base_repair_and_transformation_are_distinct_realizations_of_one_conditi
             identity["authorization_digest"] = "c" * 64
             identity["parent_digests"]["realization_digests"] = ["d" * 64]
             identity["parent_digests"]["evidence_digests"] = ["0" * 64]
-            identity["overlay"] = {
-                "source_sha256": "e" * 64,
-                "replacement_digest": "f" * 64,
-                "transformation_input_digest": (
-                    "1" * 64 if derivation == "offline_transformation" else None
-                ),
-                "preownership_output_digest": (
-                    "2" * 64 if derivation == "offline_transformation" else None
-                ),
-                "implementation_digest": (
-                    "3" * 64 if derivation == "offline_transformation" else None
-                ),
-            }
+            identity["overlay"] = _overlay_identity(identity, derivation)
         identities.append(
             make_realization(
                 condition_id=condition["condition_id"],
@@ -1316,20 +1351,16 @@ def test_derived_realization_requires_authorization_parent_and_overlay(derivatio
         candidate["authorization_digest"] = "c" * 64
         candidate["parent_digests"]["realization_digests"] = ["d" * 64]
         candidate["parent_digests"]["evidence_digests"] = ["0" * 64]
-        candidate["overlay"] = {
-            "source_sha256": "e" * 64,
-            "replacement_digest": "f" * 64,
-            "transformation_input_digest": "1" * 64,
-            "preownership_output_digest": "2" * 64,
-            "implementation_digest": "3" * 64,
-        }
+        candidate["overlay"] = _overlay_identity(candidate, derivation)
         if field == "parent":
             candidate["parent_digests"]["realization_digests"] = []
         elif field == "evidence":
             candidate["parent_digests"]["evidence_digests"] = []
         else:
             candidate[field] = None
-        with pytest.raises(ImportIdentityError, match="authorization|overlay|parent"):
+        with pytest.raises(
+            ImportIdentityError, match="authorization|overlay|parent|source"
+        ):
             make_realization(
                 condition_id=condition["condition_id"],
                 condition_digest=condition["condition_digest"],
@@ -1804,6 +1835,49 @@ def test_native_dummy_cannot_discard_a_known_revision():
         )
 
 
+def test_native_method_claim_must_match_registered_current_runner_identity():
+    fake_implementation = {
+        "qualified_name": "historical.fake:Runner",
+        "source_file": "fake.py",
+        "source_digest": "a" * 64,
+        "callable_digest": "b" * 64,
+    }
+    payload = {
+        "name": "direct_mcq",
+        "effective_params": {},
+        "preflight": None,
+        "implementation": fake_implementation,
+    }
+    method = replace(
+        _method(),
+        name="direct_mcq",
+        effective_parameters={},
+        implementation=fake_implementation,
+        unknown_reasons={},
+        native_compatibility_identity={
+            "payload": payload,
+            "digest": integrity_digest(payload),
+            "method_id": short_id("method", payload),
+        },
+    )
+    condition = replace(
+        _condition(),
+        preflight_identity=None,
+        unknown_reasons={
+            **_condition().unknown_reasons,
+            "preflight_identity": "not applicable",
+        },
+    )
+    with pytest.raises(ImportIdentityError, match="native method|registered|runner"):
+        build_import_semantic_identity(
+            condition=condition,
+            dataset=_dataset(),
+            model=_model(),
+            method=method,
+            prompt=_prompt(),
+        )
+
+
 def test_native_prompt_identity_preserves_credential_shaped_literal_text():
     contents = {
         "direct_mcq": "Answer the question; literal example password=alpha",
@@ -1843,6 +1917,7 @@ def test_native_prompt_identity_preserves_credential_shaped_literal_text():
     [
         {"audit": {"operator": "alice"}, "node": "machine-a"},
         {"hf_path": "/home/alice/machine-only/dataset"},
+        {"generator": "/home/alice/generator.py"},
     ],
 )
 def test_native_dataset_source_refuses_audit_and_machine_metadata(source):
@@ -2395,6 +2470,105 @@ def test_repair_row_itself_must_own_authorization_and_parent_lineage_edges():
         "implementation_digest": None,
     }
     with pytest.raises(ImportIdentityError, match="repair|authorization|parent|lineage"):
+        make_realization(
+            condition_id=condition["condition_id"],
+            condition_digest=condition["condition_digest"],
+            identity=identity,
+            fields={},
+        )
+
+
+def test_derived_lineage_must_reference_declared_base_realization_digest():
+    condition = _records().condition
+    identity = _realization_identity()
+    _attach_result_origin(
+        identity,
+        derivation_origin="repair_overlay",
+        assignments=(
+            ("q2", "external_historical_inference"),
+            ("q1", "external_repair_inference"),
+        ),
+        authorization_digest="c" * 64,
+    )
+    for component in identity["lineage_components"]:
+        payload = {
+            **component["identity"],
+            "parent_digests": ["0" * 64],
+        }
+        component.update(
+            {
+                "lineage_id": short_id("lin", payload),
+                "lineage_digest": integrity_digest(payload),
+                "identity": payload,
+            }
+        )
+    identity["result_origin"] = make_result_origin(
+        derivation_origin="repair_overlay",
+        row_assignments=tuple(
+            (
+                component["identity"]["question_id"],
+                component["identity"]["prediction_origin"],
+                component["lineage_id"],
+            )
+            for component in identity["lineage_components"]
+        ),
+    )
+    identity["authorization_digest"] = "c" * 64
+    identity["parent_digests"]["realization_digests"] = ["d" * 64]
+    identity["parent_digests"]["evidence_digests"] = ["0" * 64]
+    identity["overlay"] = {
+        "source_sha256": "e" * 64,
+        "replacement_digest": "f" * 64,
+        "transformation_input_digest": None,
+        "preownership_output_digest": None,
+        "implementation_digest": None,
+    }
+    with pytest.raises(ImportIdentityError, match="base|realization|parent|lineage"):
+        make_realization(
+            condition_id=condition["condition_id"],
+            condition_digest=condition["condition_digest"],
+            identity=identity,
+            fields={},
+        )
+
+
+@pytest.mark.parametrize("derivation", ["repair_overlay", "offline_transformation"])
+def test_derived_lineage_must_bind_overlay_operational_digests(derivation):
+    condition = _records().condition
+    identity = _realization_identity()
+    _attach_result_origin(
+        identity,
+        derivation_origin=derivation,
+        assignments=(
+            ("q2", "external_historical_inference"),
+            (
+                "q1",
+                (
+                    "external_repair_inference"
+                    if derivation == "repair_overlay"
+                    else "external_historical_inference"
+                ),
+            ),
+        ),
+        authorization_digest="c" * 64,
+    )
+    identity["authorization_digest"] = "c" * 64
+    identity["parent_digests"]["realization_digests"] = ["d" * 64]
+    identity["parent_digests"]["evidence_digests"] = ["0" * 64]
+    identity["overlay"] = {
+        "source_sha256": "a" * 64,
+        "replacement_digest": "f" * 64,
+        "transformation_input_digest": (
+            "a" * 64 if derivation == "offline_transformation" else None
+        ),
+        "preownership_output_digest": (
+            "b" * 64 if derivation == "offline_transformation" else None
+        ),
+        "implementation_digest": (
+            "c" * 64 if derivation == "offline_transformation" else None
+        ),
+    }
+    with pytest.raises(ImportIdentityError, match="overlay|source|input|output|implementation"):
         make_realization(
             condition_id=condition["condition_id"],
             condition_digest=condition["condition_digest"],
