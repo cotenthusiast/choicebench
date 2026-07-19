@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import functools
 import inspect
 import math
 from pathlib import PurePosixPath
@@ -1419,6 +1420,21 @@ def _validate_digest(value: Any, field: str, *, optional: bool = False) -> str |
     return value
 
 
+@functools.lru_cache(maxsize=None)
+def _cached_global_implementation_identity(value: Any) -> dict[str, Any]:
+    """Cache `implementation_identity` per referenced global object.
+
+    `implementation_identity` walks and hashes a non-`choicebench` package's
+    entire file tree; without caching, every callable that references the
+    same third-party helper (e.g. a bare `from pandas import isna`) would
+    repeat that walk on every identity computation. The referenced object's
+    defining files do not change within a process, so caching by object
+    identity (functions/classes hash by identity) is safe and keeps repeated
+    identity computations cheap.
+    """
+    return validate_implementation_identity_record(implementation_identity(value))
+
+
 def _resolved_global_bindings(target: Callable[..., Any], where: str) -> dict[str, Any]:
     """Bind behavior-affecting global values the callable's code resolves by name.
 
@@ -1445,9 +1461,7 @@ def _resolved_global_bindings(target: Callable[..., Any], where: str) -> dict[st
             continue
         if inspect.isfunction(value) or inspect.isclass(value):
             try:
-                bindings[name] = validate_implementation_identity_record(
-                    implementation_identity(value)
-                )
+                bindings[name] = _cached_global_implementation_identity(value)
             except (ImportSpecError, OSError, TypeError, ValueError) as exc:
                 raise ImportIdentityError(
                     f"{where} references global {name!r} with no inspectable "
