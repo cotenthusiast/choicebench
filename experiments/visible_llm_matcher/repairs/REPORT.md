@@ -180,7 +180,9 @@ launch path, gated on:
 ## 6. Pinned commit
 
 Final commit produced by this config-generation phase:
-**`<FILLED IN AFTER COMMIT — see PINNED_COMMIT.txt>`**
+**`a2955b7338058b94a83326ccdabeb0dbade2dcb0`** (also recorded in
+`PINNED_COMMIT.txt`; the 4 generated `.sbatch` scripts and
+`group3_fourth_cell/README.md` are patched with this same SHA).
 
 `two-stage-prompting` pinned at `b8e784f3eb5d2a727a97eb675140b383a34584fa`
 (main, unchanged since the prior phase). `model-generalization` pinned at

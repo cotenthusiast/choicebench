@@ -16,7 +16,7 @@
 # so this job runs exactly the config/runner code this repair phase
 # produced, not whatever main has moved to since:
 #   git -C /mnt/scratch2/users/40482774/repos/choicebench-visible-llm-matcher-cell fetch origin
-#   git -C /mnt/scratch2/users/40482774/repos/choicebench-visible-llm-matcher-cell checkout --detach PINNED_SHA_PLACEHOLDER_SEE_REPORT_MD
+#   git -C /mnt/scratch2/users/40482774/repos/choicebench-visible-llm-matcher-cell checkout --detach a2955b7338058b94a83326ccdabeb0dbade2dcb0
 #
 # This script assumes /mnt/scratch2/users/40482774/repos/choicebench-visible-llm-matcher-cell is already a checkout of the
 # choicebench repo (branch worktree-visible-llm-matcher-cell) on this
@@ -30,7 +30,7 @@ MG_ROOT="/mnt/scratch2/users/40482774/repos/model-generalization"
 
 cd "${CHOICEBENCH_ROOT}"
 git fetch origin
-git checkout --detach PINNED_SHA_PLACEHOLDER_SEE_REPORT_MD
+git checkout --detach a2955b7338058b94a83326ccdabeb0dbade2dcb0
 
 source env_kelvin2.sh 2>/dev/null || true  # if this worktree carries one; else set HF_HOME/PYTHONPATH manually
 

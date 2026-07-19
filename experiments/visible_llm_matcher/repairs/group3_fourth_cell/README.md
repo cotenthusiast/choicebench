@@ -70,9 +70,12 @@ landed, which is by design.
 
 `local/slurm/generate_sbatch.py` produces the 4 `.sbatch` files. Each
 checks out this ChoiceBench worktree at a **pinned, detached-HEAD commit**
-on Kelvin2 before running — placeholder `PINNED_SHA_PLACEHOLDER_SEE_REPORT_MD`
-is replaced with the real final SHA once this config-generation phase is
-committed (see `../../REPORT.md`). Partition/GRES names (`gpu`, `gpu:1`)
+on Kelvin2 before running — pinned to `a2955b7338058b94a83326ccdabeb0dbade2dcb0`,
+the final commit of this config-generation phase (see `../../REPORT.md`;
+`generate_sbatch.py`'s own `PINNED_SHA_PLACEHOLDER` constant is left as a
+placeholder so regenerating the scripts doesn't silently go stale — patch
+it manually after the next commit if these configs change again).
+Partition/GRES names (`gpu`, `gpu:1`)
 are unverified placeholders — confirm with
 `sinfo -o "%P %D %G %m %l %N"` on an actual Kelvin2 login node before
 submitting; this phase has no Kelvin2 access to check them.
