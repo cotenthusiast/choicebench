@@ -1419,12 +1419,18 @@ def _validate_digest(value: Any, field: str, *, optional: bool = False) -> str |
     return value
 
 
-def _resolved_global_bindings(target: Callable[..., Any]) -> dict[str, Any]:
+def _resolved_global_bindings(target: Callable[..., Any], where: str) -> dict[str, Any]:
     """Bind behavior-affecting global values the callable's code resolves by name.
 
-    Excludes modules, other callables, and dunder names: those are either
-    irrelevant runtime state or already covered by the callable's own source
-    digest, not the specific value a global happened to hold.
+    Function/class globals (helpers) are bound by their own defining-file
+    identity rather than skipped: `implementation_identity` only hashes a
+    callable's own defining file, so a helper imported from another module is
+    never covered by the calling callable's own source digest. Binding it
+    shallowly (not expanding its own resolved globals) closes that gap without
+    risking unbounded or cyclic expansion through mutually referencing
+    helpers. Modules and dunder names are excluded as irrelevant runtime
+    state; anything else that cannot be represented stably fails closed
+    rather than being silently dropped.
     """
     code = getattr(target, "__code__", None)
     global_ns = getattr(target, "__globals__", None)
@@ -1435,12 +1441,30 @@ def _resolved_global_bindings(target: Callable[..., Any]) -> dict[str, Any]:
         if name.startswith("__") or name not in global_ns:
             continue
         value = global_ns[name]
-        if inspect.ismodule(value) or callable(value):
+        if value is target or inspect.ismodule(value):
             continue
+        if inspect.isfunction(value) or inspect.isclass(value):
+            try:
+                bindings[name] = validate_implementation_identity_record(
+                    implementation_identity(value)
+                )
+            except (ImportSpecError, OSError, TypeError, ValueError) as exc:
+                raise ImportIdentityError(
+                    f"{where} references global {name!r} with no inspectable "
+                    "implementation identity."
+                ) from exc
+            continue
+        if callable(value):
+            raise ImportIdentityError(
+                f"{where} references global {name!r} that is an uninspectable "
+                "stateful callable."
+            )
         try:
             bindings[name] = canonicalize(value)
-        except (TypeError, ValueError):
-            continue
+        except (TypeError, ValueError) as exc:
+            raise ImportIdentityError(
+                f"{where} references global {name!r} with an unsupported value."
+            ) from exc
     return bindings
 
 
@@ -1469,7 +1493,7 @@ def _runtime_callable_record(target: Callable[..., Any], where: str) -> dict[str
         "source": callable_source,
         "defaults": getattr(target, "__defaults__", None),
         "keyword_defaults": getattr(target, "__kwdefaults__", None),
-        "resolved_globals": _resolved_global_bindings(target),
+        "resolved_globals": _resolved_global_bindings(target, where),
     }
     try:
         callable_digest = integrity_digest(callable_payload)
@@ -2325,10 +2349,6 @@ def _validate_realization_identity(
                 f"{derivation_origin} realization requires a matching derived "
                 "lineage component."
             )
-        assigned_lineage_ids = {
-            assignment["prediction_lineage_id"]
-            for assignment in result_origin["row_assignments"]
-        }
         unassigned_derived_ids = sorted(
             component["lineage_id"]
             for component in derived_components

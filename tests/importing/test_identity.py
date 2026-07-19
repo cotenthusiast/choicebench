@@ -39,6 +39,7 @@ from choicebench.importing.schema import (
     OptionMappingSpec,
     ResultOriginSpec,
 )
+from tests.importing import _cross_module_helpers
 
 
 def _adapter(value: str) -> str:
@@ -54,6 +55,13 @@ _GLOBAL_VALIDATOR_RESULT = True
 
 def _global_validator(value: str) -> bool:
     return bool(value) and _GLOBAL_VALIDATOR_RESULT
+
+
+_cross_module_helper = _cross_module_helpers.helper_v1
+
+
+def _cross_module_adapter(value: str) -> str:
+    return _cross_module_helper(value)
 
 
 def _transform(value: str) -> str:
@@ -2314,6 +2322,37 @@ def test_runtime_identity_binds_behavior_affecting_resolved_globals(monkeypatch)
         validator=_global_validator,
     )
     assert first != second
+
+
+def test_runtime_identity_binds_cross_module_helper_globals(monkeypatch):
+    monkeypatch.setitem(
+        _cross_module_adapter.__globals__,
+        "_cross_module_helper",
+        _cross_module_helpers.helper_v1,
+    )
+    first = importer_implementation_identity(
+        adapter=_cross_module_adapter,
+        validator=_validator,
+    )
+    monkeypatch.setitem(
+        _cross_module_adapter.__globals__,
+        "_cross_module_helper",
+        _cross_module_helpers.helper_v2,
+    )
+    second = importer_implementation_identity(
+        adapter=_cross_module_adapter,
+        validator=_validator,
+    )
+    assert first != second
+
+
+def test_runtime_identity_refuses_uninspectable_resolved_global(monkeypatch):
+    monkeypatch.setitem(_global_validator.__globals__, "_GLOBAL_VALIDATOR_RESULT", object())
+    with pytest.raises(ImportIdentityError, match="global|unsupported"):
+        importer_implementation_identity(
+            adapter=_adapter,
+            validator=_global_validator,
+        )
 
 
 def test_importer_implementation_identity_binds_importer_core_code():
