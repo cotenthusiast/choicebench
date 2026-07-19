@@ -69,7 +69,12 @@ class _StatefulCallable:
 
 
 def make_realization(**kwargs):
-    return _make_realization(adapter=_adapter, validator=_validator, **kwargs)
+    return _make_realization(
+        adapter=_adapter,
+        validator=_validator,
+        expected_dataset=kwargs.pop("expected_dataset", _dataset()),
+        **kwargs,
+    )
 
 
 def _dataset():
@@ -860,15 +865,57 @@ def test_fully_validated_native_children_reproduce_build_execution_plan_conditio
     assert records.condition["condition_id"] == native_condition["condition_id"]
 
 
-def _realization_identity() -> dict:
-    origin = make_result_origin(
-        derivation_origin="external_import",
-        row_assignments=(
-            ("q2", "external_historical_inference", f"lin_{'a' * 16}"),
-            ("q1", "external_historical_inference", f"lin_{'b' * 16}"),
+def _attach_result_origin(
+    identity: dict,
+    *,
+    derivation_origin: str,
+    assignments: tuple[tuple[str, str], ...],
+    authorization_digest: str | None = None,
+    source_digest: str = "2" * 64,
+) -> None:
+    derived = derivation_origin in {"repair_overlay", "offline_transformation"}
+    components = [
+        make_lineage_component(
+            operation_type=derivation_origin,
+            question_id=question_id,
+            parent_digests=(("d" * 64,) if derived else ()),
+            source_digests=(source_digest,),
+            authorization_digest=(authorization_digest if derived else None),
+            implementation=_transform,
+            parameters={},
+            input_digest=integrity_digest(
+                {"question_id": question_id, "stage": "input"}
+            ),
+            preownership_output_digest=integrity_digest(
+                {
+                    "question_id": question_id,
+                    "prediction_origin": prediction_origin,
+                    "stage": "preownership-output",
+                }
+            ),
+            prediction_origin=prediction_origin,
+        )
+        for question_id, prediction_origin in assignments
+    ]
+    identity["lineage_components"] = components
+    identity["result_origin"] = make_result_origin(
+        derivation_origin=derivation_origin,
+        row_assignments=tuple(
+            (
+                question_id,
+                prediction_origin,
+                component["lineage_id"],
+            )
+            for (question_id, prediction_origin), component in zip(
+                assignments, components, strict=True
+            )
         ),
     )
-    return {
+
+
+def _realization_identity() -> dict:
+    expected_dataset = _dataset()
+    identity = {
         "import_spec_digest": "1" * 64,
         "sources": [
             {
@@ -888,10 +935,10 @@ def _realization_identity() -> dict:
             }
         ],
         "expected_dataset": {
-            "snapshot_digest": "3" * 64,
-            "question_set_digest": integrity_digest(["q2", "q1"]),
-            "derivation_digest": "5" * 64,
-            "question_ids": ["q2", "q1"],
+            "snapshot_digest": expected_dataset.snapshot_digest,
+            "question_set_digest": expected_dataset.question_set_digest,
+            "derivation_digest": expected_dataset.derivation_digest,
+            "question_ids": list(expected_dataset.selected_question_ids),
         },
         "importer_implementation": importer_implementation_identity(
             adapter=_adapter, validator=_validator
@@ -928,7 +975,8 @@ def _realization_identity() -> dict:
             "defect_digest": "9" * 64,
             "scope_disposition": "included",
         },
-        "result_origin": origin,
+        "lineage_components": [],
+        "result_origin": {},
         "parent_digests": {
             "realization_digests": [],
             "evidence_digests": [],
@@ -937,11 +985,29 @@ def _realization_identity() -> dict:
         "authorization_digest": None,
         "overlay": None,
     }
+    _attach_result_origin(
+        identity,
+        derivation_origin="external_import",
+        assignments=(
+            ("q2", "external_historical_inference"),
+            ("q1", "external_historical_inference"),
+        ),
+    )
+    return identity
 
 
 def _mutate_realization(identity: dict, field: str, value) -> None:
     if field == "source_sha256":
         identity["sources"][0]["sha256"] = value
+        _attach_result_origin(
+            identity,
+            derivation_origin="external_import",
+            assignments=(
+                ("q2", "external_historical_inference"),
+                ("q1", "external_historical_inference"),
+            ),
+            source_digest=value,
+        )
     elif field == "mapping":
         identity["parsing_policy"]["mapping"] = value
     elif field == "dialect":
@@ -961,12 +1027,14 @@ def _mutate_realization(identity: dict, field: str, value) -> None:
             "preownership_output_digest": None,
             "implementation_digest": None,
         }
-        identity["result_origin"] = make_result_origin(
+        _attach_result_origin(
+            identity,
             derivation_origin="repair_overlay",
-            row_assignments=(
-                ("q2", "external_historical_inference", f"lin_{'a' * 16}"),
-                ("q1", "external_repair_inference", f"lin_{'b' * 16}"),
+            assignments=(
+                ("q2", "external_historical_inference"),
+                ("q1", "external_repair_inference"),
             ),
+            authorization_digest=value,
         )
     elif field == "overlay_sha256":
         identity["authorization_digest"] = "c" * 64
@@ -979,15 +1047,21 @@ def _mutate_realization(identity: dict, field: str, value) -> None:
             "preownership_output_digest": None,
             "implementation_digest": None,
         }
-        identity["result_origin"] = make_result_origin(
+        _attach_result_origin(
+            identity,
             derivation_origin="repair_overlay",
-            row_assignments=(
-                ("q2", "external_historical_inference", f"lin_{'a' * 16}"),
-                ("q1", "external_repair_inference", f"lin_{'b' * 16}"),
+            assignments=(
+                ("q2", "external_historical_inference"),
+                ("q1", "external_repair_inference"),
             ),
+            authorization_digest="c" * 64,
         )
     elif field == "prediction_origins":
-        identity["result_origin"] = value
+        _attach_result_origin(
+            identity,
+            derivation_origin="external_import",
+            assignments=value,
+        )
     else:
         raise AssertionError(field)
 
@@ -1004,12 +1078,9 @@ def _mutate_realization(identity: dict, field: str, value) -> None:
         ("overlay_sha256", "5" * 64),
         (
             "prediction_origins",
-            make_result_origin(
-                derivation_origin="external_import",
-                row_assignments=(
-                    ("q2", "native_inference", f"lin_{'c' * 16}"),
-                    ("q1", "external_historical_inference", f"lin_{'b' * 16}"),
-                ),
+            (
+                ("q2", "native_inference"),
+                ("q1", "external_historical_inference"),
             ),
         ),
     ],
@@ -1146,10 +1217,11 @@ def test_base_repair_and_transformation_are_distinct_realizations_of_one_conditi
     identities = []
     for derivation in ("external_import", "repair_overlay", "offline_transformation"):
         identity = _realization_identity()
-        identity["result_origin"] = make_result_origin(
+        _attach_result_origin(
+            identity,
             derivation_origin=derivation,
-            row_assignments=(
-                ("q2", "external_historical_inference", f"lin_{'a' * 16}"),
+            assignments=(
+                ("q2", "external_historical_inference"),
                 (
                     "q1",
                     (
@@ -1157,9 +1229,9 @@ def test_base_repair_and_transformation_are_distinct_realizations_of_one_conditi
                         if derivation == "repair_overlay"
                         else "external_historical_inference"
                     ),
-                    f"lin_{'b' * 16}",
                 ),
             ),
+            authorization_digest=("c" * 64 if derivation != "external_import" else None),
         )
         if derivation != "external_import":
             identity["authorization_digest"] = "c" * 64
@@ -1196,10 +1268,11 @@ def test_base_repair_and_transformation_are_distinct_realizations_of_one_conditi
 def test_derived_realization_requires_authorization_parent_and_overlay(derivation):
     condition = _records().condition
     identity = _realization_identity()
-    identity["result_origin"] = make_result_origin(
+    _attach_result_origin(
+        identity,
         derivation_origin=derivation,
-        row_assignments=(
-            ("q2", "external_historical_inference", f"lin_{'a' * 16}"),
+        assignments=(
+            ("q2", "external_historical_inference"),
             (
                 "q1",
                 (
@@ -1207,13 +1280,14 @@ def test_derived_realization_requires_authorization_parent_and_overlay(derivatio
                     if derivation == "repair_overlay"
                     else "external_historical_inference"
                 ),
-                f"lin_{'b' * 16}",
             ),
         ),
+        authorization_digest="c" * 64,
     )
     for field in ("authorization_digest", "overlay", "parent", "evidence"):
         candidate = _realization_identity()
         candidate["result_origin"] = identity["result_origin"]
+        candidate["lineage_components"] = identity["lineage_components"]
         candidate["authorization_digest"] = "c" * 64
         candidate["parent_digests"]["realization_digests"] = ["d" * 64]
         candidate["parent_digests"]["evidence_digests"] = ["0" * 64]
@@ -1364,6 +1438,7 @@ def test_realization_recomputes_implementation_identity_from_supplied_callables(
             fields={},
             adapter=_validator,
             validator=_adapter,
+            expected_dataset=_dataset(),
         )
 
 
@@ -1453,6 +1528,120 @@ def test_expected_dataset_unknown_reasons_must_be_nonempty():
 
 
 @pytest.mark.parametrize(
+    ("target", "field", "value"),
+    [
+        ("model", "source_sha256", "a" * 64),
+        ("model", "cache_path", "/machine-a/cache"),
+        ("method", "recorded_at", "2026-07-19T12:00:00Z"),
+        ("condition", "result_digest", "b" * 64),
+    ],
+)
+def test_fallback_parameters_refuse_realization_and_audit_metadata(
+    target, field, value
+):
+    model = _model()
+    method = _method()
+    condition = _condition()
+    if target == "model":
+        model = replace(model, effective_parameters={field: value})
+    elif target == "method":
+        method = replace(method, effective_parameters={field: value})
+    else:
+        condition = replace(condition, generation_parameters={field: value})
+    with pytest.raises(ImportIdentityError, match="parameter|metadata|path|forbidden"):
+        build_import_semantic_identity(
+            condition=condition,
+            dataset=_dataset(),
+            model=model,
+            method=method,
+            prompt=_prompt(),
+        )
+
+
+def test_fallback_method_implementation_refuses_machine_local_source_file():
+    method = replace(
+        _method(),
+        implementation={
+            "qualified_name": "historical.matcher:match",
+            "source_file": "/machine-a/matcher.py",
+            "source_digest": "a" * 64,
+        },
+        unknown_reasons={},
+    )
+    with pytest.raises(ImportIdentityError, match="path|implementation|machine"):
+        build_import_semantic_identity(
+            condition=_condition(),
+            dataset=_dataset(),
+            model=_model(),
+            method=method,
+            prompt=_prompt(),
+        )
+
+
+def test_direct_method_implementation_must_have_the_closed_code_identity_shape():
+    method = replace(
+        _method(),
+        implementation={"attacker": "not an implementation identity"},
+        unknown_reasons={},
+    )
+    with pytest.raises(ImportIdentityError, match="implementation|field"):
+        build_import_semantic_identity(
+            condition=_condition(),
+            dataset=_dataset(),
+            model=_model(),
+            method=method,
+            prompt=_prompt(),
+        )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        {"reference_kind": "profile_derived_reference_snapshot"},
+        {"trust_label": "forged-trust"},
+        {"derivation": {"forged": True}},
+        {"derivation_digest": "a" * 64},
+        {"snapshot_digest": "b" * 64},
+    ],
+)
+def test_expected_dataset_trust_chain_is_owned_and_recomputed(mutation):
+    with pytest.raises(ImportIdentityError, match="dataset|derivation|snapshot|trust|reference"):
+        build_import_semantic_identity(
+            condition=_condition(),
+            dataset=replace(_dataset(), **mutation),
+            model=_model(),
+            method=_method(),
+            prompt=_prompt(),
+        )
+
+
+def test_complete_realization_question_set_is_owned_by_validated_dataset():
+    condition = _records().condition
+    identity = _realization_identity()
+    identity["expected_dataset"] = {
+        **identity["expected_dataset"],
+        "question_ids": ["q2"],
+        "question_set_digest": integrity_digest(["q2"]),
+    }
+    identity["result_origin"] = make_result_origin(
+        derivation_origin="external_import",
+        row_assignments=(
+            ("q2", "external_historical_inference", f"lin_{'a' * 16}"),
+        ),
+    )
+    with pytest.raises(ImportIdentityError, match="dataset|question set|question IDs"):
+        _make_realization(
+            condition_id=condition["condition_id"],
+            condition_digest=condition["condition_digest"],
+            identity=identity,
+            fields={},
+            adapter=_adapter,
+            validator=_validator,
+            expected_dataset=_dataset(),
+        )
+
+
+@pytest.mark.parametrize(
     "protocol_settings",
     [
         {"audit": {"operator": "alice"}},
@@ -1503,7 +1692,48 @@ def test_native_dummy_cannot_discard_a_known_revision():
         )
 
 
-def test_native_dataset_source_refuses_audit_and_machine_metadata():
+def test_native_prompt_identity_preserves_credential_shaped_literal_text():
+    contents = {
+        "direct_mcq": "Answer the question; literal example password=alpha",
+        "free_text": "Respond freely",
+        "option_matching": "Match the answer",
+    }
+    files = {
+        name: {"sha256": integrity_digest(content), "content": content}
+        for name, content in contents.items()
+    }
+    prompt_payload = {"version": "test-v1", "files": files}
+    prompt = ImportPromptSpec(
+        prompt_key="prompt",
+        template_identity="test-v1",
+        template_digest=integrity_digest(files),
+        template_contents=contents,
+        unknown_reason=None,
+        native_compatibility_identity={
+            "prompt_id": f"prompt_{integrity_digest(prompt_payload)[:16]}",
+            **prompt_payload,
+        },
+    )
+    records = build_import_semantic_identity(
+        condition=_condition(),
+        dataset=_dataset(),
+        model=_model(),
+        method=_method(),
+        prompt=prompt,
+    )
+    assert records.prompt["identity"]["files"]["direct_mcq"]["content"] == (
+        contents["direct_mcq"]
+    )
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        {"audit": {"operator": "alice"}, "node": "machine-a"},
+        {"hf_path": "/home/alice/machine-only/dataset"},
+    ],
+)
+def test_native_dataset_source_refuses_audit_and_machine_metadata(source):
     dataset = _dataset()
     artifact_payload = {
         "spec": {
@@ -1517,7 +1747,7 @@ def test_native_dataset_source_refuses_audit_and_machine_metadata():
             "output_name": None,
         },
         "content_digest": dataset_content_digest(dataset.artifact_frame),
-        "source": {"audit": {"operator": "alice"}, "node": "machine-a"},
+        "source": source,
     }
     artifact_id = short_id("ds", artifact_payload)
     selection_payload = {**dataset.selection_payload, "artifact_id": artifact_id}
@@ -1545,10 +1775,11 @@ def test_partial_realization_origin_may_be_an_ordered_expected_subset():
     condition = _records().condition
     identity = _realization_identity()
     identity["evidence"]["evidence_status"] = "partial"
-    identity["result_origin"] = make_result_origin(
+    _attach_result_origin(
+        identity,
         derivation_origin="external_import",
-        row_assignments=(
-            ("q2", "external_historical_inference", f"lin_{'a' * 16}"),
+        assignments=(
+            ("q2", "external_historical_inference"),
         ),
     )
     realization = make_realization(
@@ -1567,8 +1798,10 @@ def test_malformed_realization_origin_may_have_no_evaluable_rows():
     condition = _records().condition
     identity = _realization_identity()
     identity["evidence"]["evidence_status"] = "malformed"
-    identity["result_origin"] = make_result_origin(
-        derivation_origin="external_import", row_assignments=()
+    _attach_result_origin(
+        identity,
+        derivation_origin="external_import",
+        assignments=(),
     )
     realization = make_realization(
         condition_id=condition["condition_id"],
@@ -1722,6 +1955,14 @@ def test_lineage_requires_mandatory_runtime_keyword_parameters():
         )
 
 
+def test_runtime_identity_refuses_ambiguous_module_lambdas():
+    first = lambda value: value  # noqa: E731
+    second = lambda value: not value  # noqa: E731
+    for target in (first, second):
+        with pytest.raises(ImportIdentityError, match="named|lambda|addressable"):
+            importer_implementation_identity(adapter=target, validator=_validator)
+
+
 def test_lineage_supports_nonexecuted_declared_external_implementation_identity():
     source_digest = "2" * 64
     component = make_lineage_component(
@@ -1818,6 +2059,61 @@ def test_realization_result_origin_question_ids_match_expected_question_set():
         ),
     )
     with pytest.raises(ImportIdentityError, match="question set|question IDs"):
+        make_realization(
+            condition_id=condition["condition_id"],
+            condition_digest=condition["condition_digest"],
+            identity=identity,
+            fields={},
+        )
+
+
+def test_realization_refuses_unowned_lineage_component_id():
+    condition = _records().condition
+    identity = _realization_identity()
+    identity["result_origin"] = make_result_origin(
+        derivation_origin="external_import",
+        row_assignments=(
+            ("q2", "external_historical_inference", f"lin_{'c' * 16}"),
+            ("q1", "external_historical_inference", f"lin_{'d' * 16}"),
+        ),
+    )
+    with pytest.raises(ImportIdentityError, match="lineage|owned|component"):
+        make_realization(
+            condition_id=condition["condition_id"],
+            condition_digest=condition["condition_digest"],
+            identity=identity,
+            fields={},
+        )
+
+
+@pytest.mark.parametrize("edge", ["authorization", "parent"])
+def test_derived_realization_lineage_edges_are_owned_by_realization(edge):
+    condition = _records().condition
+    identity = _realization_identity()
+    identity["authorization_digest"] = "c" * 64
+    identity["parent_digests"]["realization_digests"] = ["d" * 64]
+    identity["parent_digests"]["evidence_digests"] = ["0" * 64]
+    identity["overlay"] = {
+        "source_sha256": "e" * 64,
+        "replacement_digest": "f" * 64,
+        "transformation_input_digest": None,
+        "preownership_output_digest": None,
+        "implementation_digest": None,
+    }
+    _attach_result_origin(
+        identity,
+        derivation_origin="repair_overlay",
+        assignments=(
+            ("q2", "external_historical_inference"),
+            ("q1", "external_repair_inference"),
+        ),
+        authorization_digest="c" * 64,
+    )
+    if edge == "authorization":
+        identity["authorization_digest"] = "a" * 64
+    else:
+        identity["parent_digests"]["realization_digests"] = ["b" * 64]
+    with pytest.raises(ImportIdentityError, match="lineage|authorization|parent"):
         make_realization(
             condition_id=condition["condition_id"],
             condition_digest=condition["condition_digest"],

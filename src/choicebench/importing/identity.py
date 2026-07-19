@@ -77,6 +77,7 @@ _REALIZATION_KEYS = {
     "parsing_policy",
     "validation",
     "evidence",
+    "lineage_components",
     "result_origin",
     "parent_digests",
     "authorization_digest",
@@ -145,6 +146,13 @@ _FORBIDDEN_IDENTITY_KEYS = {
     "temporary_path",
     "timestamp",
     "machine_id",
+    "machine",
+    "node",
+    "operator",
+    "platform",
+    "recorded_at",
+    "executed_at",
+    "run_date",
     "cwd",
     "child_lineage_id",
 }
@@ -160,6 +168,23 @@ _NATIVE_DATASET_SOURCE_KEYS = {
     "hf_fingerprint",
     "hf_dataset_info",
     "revision",
+}
+_DATASET_DERIVATION_KEYS = {
+    "schema_version",
+    "dataset_id",
+    "reference_kind",
+    "trust_label",
+    "source_chain",
+    "selection_source_id",
+    "columns",
+    "revision",
+    "fingerprint",
+    "declared_derivation",
+    "selected_question_ids",
+    "selection_semantics",
+    "selection_unknown_reasons",
+    "identity_mode",
+    "limitations",
 }
 
 
@@ -197,6 +222,29 @@ def _validate_direct_declarations(
     method: ImportMethodSpec,
     prompt: ImportPromptSpec,
 ) -> None:
+    _validate_stable_parameters(
+        model.effective_parameters, "Model effective parameters"
+    )
+    _validate_stable_parameters(
+        condition.generation_parameters, "Condition generation parameters"
+    )
+    _validate_stable_parameters(
+        method.effective_parameters, "Method effective parameters"
+    )
+    if method.implementation is not None:
+        try:
+            validated_implementation = validate_implementation_identity_record(
+                method.implementation
+            )
+        except ImportSpecError as exc:
+            raise ImportIdentityError(f"Invalid method implementation: {exc}") from exc
+        if canonicalize(validated_implementation) != canonicalize(
+            method.implementation
+        ):
+            raise ImportIdentityError(
+                "Method implementation does not match the closed code identity schema."
+            )
+        _validate_stable_values(validated_implementation, "Method implementation")
     _validate_unknown_reason_contract(
         {
             "backend": model.backend,
@@ -299,6 +347,7 @@ def _validate_stable_values(value: Any, where: str) -> None:
 
 
 def _validate_stable_parameters(value: Any, where: str) -> None:
+    _reject_forbidden(value, where)
     if isinstance(value, Mapping):
         for key, item in value.items():
             if not isinstance(key, str) or not key:
@@ -521,6 +570,11 @@ def _validate_expected_dataset_contract(dataset: ExpectedDataset) -> None:
                 raise ImportIdentityError(
                     f"Expected dataset native source {field} is invalid."
                 )
+            if isinstance(source.get(field), str) and _is_machine_path(source[field]):
+                raise ImportIdentityError(
+                    f"Expected dataset native source {field} contains a "
+                    "machine-local path."
+                )
         if "hf_dataset_info" in source:
             info = _exact_mapping(
                 source["hf_dataset_info"],
@@ -608,6 +662,103 @@ def _validate_expected_dataset_contract(dataset: ExpectedDataset) -> None:
         raise ImportIdentityError(
             "Expected dataset selection unknown reasons are contradictory."
         )
+
+    if dataset.reference_kind not in {
+        "independent_input_snapshot",
+        "profile_derived_reference_snapshot",
+    }:
+        raise ImportIdentityError("Expected dataset reference kind is invalid.")
+    if not isinstance(dataset.trust_label, str) or not dataset.trust_label.strip():
+        raise ImportIdentityError("Expected dataset trust label is invalid.")
+    if dataset.question_set_digest != integrity_digest(list(frame_question_ids)):
+        raise ImportIdentityError(
+            "Expected dataset question-set digest does not own its selected IDs."
+        )
+    derivation = _exact_mapping(
+        dataset.derivation,
+        _DATASET_DERIVATION_KEYS,
+        "Expected dataset derivation",
+    )
+    expected_derivation_fields = {
+        "schema_version": "choicebench.dataset-reference.v1",
+        "dataset_id": dataset.dataset_id,
+        "reference_kind": dataset.reference_kind,
+        "trust_label": dataset.trust_label,
+        "selected_question_ids": list(frame_question_ids),
+        "selection_semantics": semantics,
+        "selection_unknown_reasons": dict(dataset.selection_unknown_reasons),
+        "identity_mode": dataset.identity_mode,
+        "limitations": list(dataset.limitations),
+    }
+    for field, expected_value in expected_derivation_fields.items():
+        if canonicalize(derivation[field]) != canonicalize(expected_value):
+            raise ImportIdentityError(
+                f"Expected dataset derivation {field} conflicts with its snapshot."
+            )
+    source_chain = derivation["source_chain"]
+    if not isinstance(source_chain, (list, tuple)) or not source_chain:
+        raise ImportIdentityError("Expected dataset derivation source chain is invalid.")
+    seen_source_ids: set[str] = set()
+    for index, item in enumerate(source_chain):
+        source = _exact_mapping(
+            item,
+            {"source_id", "logical_path", "sha256"},
+            f"Expected dataset derivation source_chain[{index}]",
+        )
+        if (
+            not isinstance(source["source_id"], str)
+            or not source["source_id"]
+            or source["source_id"] in seen_source_ids
+        ):
+            raise ImportIdentityError(
+                "Expected dataset derivation source IDs must be non-empty and unique."
+            )
+        logical_path = source["logical_path"]
+        if not isinstance(logical_path, str):
+            raise ImportIdentityError(
+                "Expected dataset derivation logical path is invalid."
+            )
+        pure_path = PurePosixPath(logical_path)
+        if pure_path.is_absolute() or ".." in pure_path.parts or not pure_path.parts:
+            raise ImportIdentityError(
+                "Expected dataset derivation logical path is unsafe."
+            )
+        _validate_digest(
+            source["sha256"],
+            f"Expected dataset derivation source_chain[{index}].sha256",
+        )
+        seen_source_ids.add(source["source_id"])
+    if (
+        not isinstance(derivation["selection_source_id"], str)
+        or derivation["selection_source_id"] not in seen_source_ids
+    ):
+        raise ImportIdentityError(
+            "Expected dataset derivation selection source is not in its source chain."
+        )
+    if not isinstance(derivation["columns"], Mapping) or not all(
+        isinstance(key, str) and isinstance(value, str)
+        for key, value in derivation["columns"].items()
+    ):
+        raise ImportIdentityError("Expected dataset derivation columns are invalid.")
+    _validate_stable_values(
+        derivation["declared_derivation"],
+        "Expected dataset declared derivation",
+    )
+    expected_derivation_digest = integrity_digest(derivation)
+    if dataset.derivation_digest != expected_derivation_digest:
+        raise ImportIdentityError("Expected dataset derivation digest is inconsistent.")
+    expected_snapshot_digest = integrity_digest(
+        {
+            "artifact_digest": dataset.artifact_digest,
+            "selection_digest": dataset.selection_digest,
+            "question_set_digest": dataset.question_set_digest,
+            "derivation_digest": expected_derivation_digest,
+            "reference_kind": dataset.reference_kind,
+            "trust_label": dataset.trust_label,
+        }
+    )
+    if dataset.snapshot_digest != expected_snapshot_digest:
+        raise ImportIdentityError("Expected dataset snapshot digest is inconsistent.")
 
 
 def _semantic_child_records(
@@ -852,7 +1003,8 @@ def _semantic_child_records(
         }:
             raise ImportIdentityError("Invalid validated native prompt identity fields.")
         prompt_payload = canonicalize(
-            {"version": native["version"], "files": native["files"]}
+            {"version": native["version"], "files": native["files"]},
+            redact_secrets=False,
         )
         if any(
             value is None
@@ -896,7 +1048,8 @@ def _semantic_child_records(
         )
         if (
             declared_contents is not None
-            and canonicalize(declared_contents) != canonicalize(native_contents)
+            and canonicalize(declared_contents, redact_secrets=False)
+            != canonicalize(native_contents, redact_secrets=False)
         ):
             raise ImportIdentityError(
                 "Validated native prompt contents conflict with their declaration."
@@ -1117,6 +1270,11 @@ def _runtime_callable_record(target: Callable[..., Any], where: str) -> dict[str
         )
     if inspect.isfunction(target) and target.__closure__:
         raise ImportIdentityError(f"{where} cannot be a stateful closure.")
+    qualified_name = getattr(target, "__qualname__", "")
+    if "<lambda>" in qualified_name or "<locals>" in qualified_name:
+        raise ImportIdentityError(
+            f"{where} must be a uniquely addressable named module callable."
+        )
     try:
         record = validate_implementation_identity_record(
             implementation_identity(target)
@@ -1322,6 +1480,126 @@ def make_result_origin(
     }
 
 
+def _validate_lineage_component_record(value: Any) -> dict[str, Any]:
+    record = _exact_mapping(
+        value,
+        {"lineage_id", "lineage_digest", "identity"},
+        "Realization lineage component",
+    )
+    identity = _exact_mapping(
+        record["identity"],
+        {
+            "schema_version",
+            "operation_type",
+            "question_id",
+            "parent_digests",
+            "source_digests",
+            "authorization_digest",
+            "implementation",
+            "parameters",
+            "input_digest",
+            "preownership_output_digest",
+            "prediction_origin",
+        },
+        "Realization lineage component identity",
+    )
+    if identity["schema_version"] != "choicebench.lineage-component.v1":
+        raise ImportIdentityError("Realization lineage component schema is invalid.")
+    for field in ("operation_type", "question_id"):
+        if not isinstance(identity[field], str) or not identity[field]:
+            raise ImportIdentityError(
+                f"Realization lineage component {field} must be non-empty."
+            )
+    normalized_parents = _digest_sequence(
+        identity["parent_digests"], "lineage.parent_digests"
+    )
+    normalized_sources = _digest_sequence(
+        identity["source_digests"], "lineage.source_digests"
+    )
+    authorization_digest = _validate_digest(
+        identity["authorization_digest"],
+        "lineage.authorization_digest",
+        optional=True,
+    )
+    implementation = _exact_mapping(
+        identity["implementation"],
+        {"identity_mode", "identity"},
+        "Realization lineage implementation",
+    )
+    if implementation["identity_mode"] not in {
+        "runtime_callable",
+        "declared_external",
+    }:
+        raise ImportIdentityError(
+            "Realization lineage implementation identity mode is invalid."
+        )
+    try:
+        implementation_identity_record = validate_implementation_identity_record(
+            implementation["identity"]
+        )
+    except ImportSpecError as exc:
+        raise ImportIdentityError(
+            f"Realization lineage implementation is invalid: {exc}"
+        ) from exc
+    source_digest = implementation_identity_record.get("source_digest")
+    if source_digest is None:
+        raise ImportIdentityError(
+            "Realization lineage implementation lacks a source digest."
+        )
+    if (
+        implementation["identity_mode"] == "declared_external"
+        and source_digest not in normalized_sources
+    ):
+        raise ImportIdentityError(
+            "Declared external lineage implementation is not owned by its source edge."
+        )
+    parameters = identity["parameters"]
+    if not isinstance(parameters, Mapping):
+        raise ImportIdentityError("Realization lineage parameters must be a mapping.")
+    _validate_stable_parameters(parameters, "Realization lineage parameters")
+    input_digest = _validate_digest(identity["input_digest"], "lineage.input_digest")
+    output_digest = _validate_digest(
+        identity["preownership_output_digest"],
+        "lineage.preownership_output_digest",
+    )
+    prediction_origin = identity["prediction_origin"]
+    if prediction_origin not in _PREDICTION_ORIGINS:
+        raise ImportIdentityError("Realization lineage prediction origin is invalid.")
+    normalized_identity = canonicalize(
+        {
+            "schema_version": "choicebench.lineage-component.v1",
+            "operation_type": identity["operation_type"],
+            "question_id": identity["question_id"],
+            "parent_digests": normalized_parents,
+            "source_digests": normalized_sources,
+            "authorization_digest": authorization_digest,
+            "implementation": {
+                "identity_mode": implementation["identity_mode"],
+                "identity": implementation_identity_record,
+            },
+            "parameters": parameters,
+            "input_digest": input_digest,
+            "preownership_output_digest": output_digest,
+            "prediction_origin": prediction_origin,
+        }
+    )
+    expected_digest = integrity_digest(normalized_identity)
+    expected_id = short_id("lin", normalized_identity)
+    if (
+        record["lineage_digest"] != expected_digest
+        or record["lineage_id"] != expected_id
+        or canonicalize(record["identity"]) != normalized_identity
+    ):
+        raise ImportIdentityError(
+            "Realization lineage component identity or digest is inconsistent."
+        )
+    return {
+        "lineage_id": expected_id,
+        "lineage_digest": expected_digest,
+        "identity": normalized_identity,
+    }
+
+
 def importer_implementation_identity(
     *, adapter: Callable[..., Any], validator: Callable[..., Any]
 ) -> dict[str, Any]:
@@ -1383,7 +1661,10 @@ def _validate_result_origin_record(value: Any) -> dict[str, Any]:
 
 
 def _validate_realization_identity(
-    value: Mapping[str, Any], *, runtime_importer: Mapping[str, Any]
+    value: Mapping[str, Any],
+    *,
+    runtime_importer: Mapping[str, Any],
+    expected_dataset: ExpectedDataset,
 ) -> dict[str, Any]:
     raw = _exact_mapping(value, _REALIZATION_KEYS, "Realization identity")
     _validate_digest(raw["import_spec_digest"], "import_spec_digest")
@@ -1474,6 +1755,19 @@ def _validate_realization_identity(
     if integrity_digest(list(expected_question_ids)) != expected["question_set_digest"]:
         raise ImportIdentityError(
             "Realization expected dataset question_ids do not match question_set_digest."
+        )
+    _validate_expected_dataset_contract(expected_dataset)
+    authoritative_expected = canonicalize(
+        {
+            "snapshot_digest": expected_dataset.snapshot_digest,
+            "question_set_digest": expected_dataset.question_set_digest,
+            "derivation_digest": expected_dataset.derivation_digest,
+            "question_ids": list(expected_dataset.selected_question_ids),
+        }
+    )
+    if canonicalize(expected) != authoritative_expected:
+        raise ImportIdentityError(
+            "Realization expected dataset does not match the validated dataset snapshot."
         )
 
     raw_importer = raw["importer_implementation"]
@@ -1577,6 +1871,27 @@ def _validate_realization_identity(
     for field in ("qualification_digest", "limitation_digest", "defect_digest"):
         _validate_digest(evidence[field], f"evidence.{field}")
 
+    raw_lineage_components = raw["lineage_components"]
+    if not isinstance(raw_lineage_components, (list, tuple)):
+        raise ImportIdentityError(
+            "Realization lineage_components must be a list."
+        )
+    lineage_components = [
+        _validate_lineage_component_record(component)
+        for component in raw_lineage_components
+    ]
+    lineage_by_id: dict[str, dict[str, Any]] = {}
+    lineage_digests: set[str] = set()
+    for component in lineage_components:
+        lineage_id = component["lineage_id"]
+        lineage_digest = component["lineage_digest"]
+        if lineage_id in lineage_by_id or lineage_digest in lineage_digests:
+            raise ImportIdentityError(
+                "Realization lineage components contain duplicate identities."
+            )
+        lineage_by_id[lineage_id] = component
+        lineage_digests.add(lineage_digest)
+
     result_origin = _validate_result_origin_record(raw["result_origin"])
     origin_question_ids = [
         row["question_id"] for row in result_origin["row_assignments"]
@@ -1603,6 +1918,21 @@ def _validate_realization_identity(
             "Complete or qualified realization result origin question IDs do not "
             "match the full expected dataset question set."
         )
+    for assignment in result_origin["row_assignments"]:
+        lineage = lineage_by_id.get(assignment["prediction_lineage_id"])
+        if lineage is None:
+            raise ImportIdentityError(
+                "Realization result origin references an unowned lineage component."
+            )
+        lineage_identity = lineage["identity"]
+        if (
+            lineage_identity["question_id"] != assignment["question_id"]
+            or lineage_identity["prediction_origin"]
+            != assignment["prediction_origin"]
+        ):
+            raise ImportIdentityError(
+                "Realization result origin conflicts with its lineage component."
+            )
     parents = _exact_mapping(
         raw["parent_digests"],
         {"realization_digests", "evidence_digests", "result_digests"},
@@ -1615,6 +1945,29 @@ def _validate_realization_identity(
     authorization_digest = _validate_digest(
         raw["authorization_digest"], "authorization_digest", optional=True
     )
+    lineage_authorizations = {
+        component["identity"]["authorization_digest"]
+        for component in lineage_components
+        if component["identity"]["authorization_digest"] is not None
+    }
+    if any(digest != authorization_digest for digest in lineage_authorizations):
+        raise ImportIdentityError(
+            "Realization lineage authorization is not owned by the realization."
+        )
+    declared_parent_edges = {
+        digest
+        for digests in normalized_parents.values()
+        for digest in digests
+    }
+    lineage_parent_edges = {
+        digest
+        for component in lineage_components
+        for digest in component["identity"]["parent_digests"]
+    }
+    if not lineage_parent_edges <= declared_parent_edges:
+        raise ImportIdentityError(
+            "Realization lineage parent edge is not owned by the realization."
+        )
     overlay = raw["overlay"]
     normalized_overlay = None
     if overlay is not None:
@@ -1636,6 +1989,18 @@ def _validate_realization_identity(
                 f"overlay.{field}",
                 optional=(field not in {"source_sha256", "replacement_digest"}),
             )
+    declared_source_digests = {source["sha256"] for source in normalized_sources}
+    if normalized_overlay is not None:
+        declared_source_digests.add(normalized_overlay["source_sha256"])
+    lineage_source_edges = {
+        digest
+        for component in lineage_components
+        for digest in component["identity"]["source_digests"]
+    }
+    if not lineage_source_edges <= declared_source_digests:
+        raise ImportIdentityError(
+            "Realization lineage source edge is not owned by the realization."
+        )
 
     derivation_origin = result_origin["derivation_origin"]
     derived = derivation_origin in {"repair_overlay", "offline_transformation"}
@@ -1655,6 +2020,16 @@ def _validate_realization_identity(
         if normalized_overlay is None:
             raise ImportIdentityError(
                 f"{derivation_origin} realization requires an overlay identity."
+            )
+        if authorization_digest not in lineage_authorizations:
+            raise ImportIdentityError(
+                f"{derivation_origin} realization requires an authorized lineage "
+                "component."
+            )
+        if not lineage_parent_edges:
+            raise ImportIdentityError(
+                f"{derivation_origin} realization requires a parent-derived lineage "
+                "component."
             )
         if derivation_origin == "offline_transformation" and any(
             normalized_overlay[field] is None
@@ -1697,6 +2072,7 @@ def _validate_realization_identity(
         ),
         "validation": canonicalize(validation),
         "evidence": canonicalize(evidence),
+        "lineage_components": canonicalize(lineage_components),
         "result_origin": result_origin,
         "parent_digests": normalized_parents,
         "authorization_digest": authorization_digest,
@@ -1718,6 +2094,7 @@ def make_realization(
     fields: Mapping[str, Any],
     adapter: Callable[..., Any],
     validator: Callable[..., Any],
+    expected_dataset: ExpectedDataset,
 ) -> dict[str, Any]:
     """Create an immutable realization identity distinct from its condition."""
     if not isinstance(condition_id, str) or not re.fullmatch(r"cond_[0-9a-f]{16}", condition_id):
@@ -1733,7 +2110,9 @@ def make_realization(
         adapter=adapter, validator=validator
     )
     validated_identity = _validate_realization_identity(
-        identity, runtime_importer=runtime_importer
+        identity,
+        runtime_importer=runtime_importer,
+        expected_dataset=expected_dataset,
     )
     payload = canonicalize(
         {
