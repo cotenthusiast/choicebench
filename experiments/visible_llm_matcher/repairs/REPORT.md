@@ -154,10 +154,36 @@ Group 2 repair config generated, no rerun.**
   currently fails closed with the new phantom-D prompt-text check; MMLU
   cells and local ARC cells (already clean) validate cleanly right now.
 - Excluded from all scope, confirmed present-but-unselected in the source
-  rerun_specs: the hosted-Qwen ARC PriDe repair, all IHS retries (2
-  rerun_specs entries + the separately-scoped 52 Gemini MMLU / 687 Gemini
-  ARC IHS work), and the 6 semantic-matching cells' *inference* (they get
-  the offline path only).
+  rerun_specs: the hosted-Qwen ARC PriDe repair, the 1 IHS rerun_spec entry
+  (gemini-2.5-flash arc_challenge independent_hypothesis — the separately-
+  scoped 52 Gemini MMLU / 687 Gemini ARC IHS work is not part of the
+  rerun_specs set at all and was never in scope to begin with), and the 6
+  semantic-matching cells' *inference* (they get the offline path only).
+
+## Reconciliation: 32 rerun_specs -> 28 in-scope (4 excluded, verified)
+
+Re-derived directly from `paper_data_freeze/rerun_specs/*.json` (32 files)
+before launching anything, per instruction. **4 excluded, not 5** — the
+previous phase's commit message said "2 IHS + 1 PriDe + 2 wrong-benchmark"
+(= 5), which doesn't reconcile against 32 - 28 = 4; that was a prose
+transcription error in the commit message (`build_and_verify_scope()`'s own
+code and its `assert len(in_scope) == 28` were correct throughout — the
+generated 28 configs were never wrong). Corrected count, unique excluded
+specs, and category overlap check:
+
+| Excluded cell_id | Reason(s) |
+|---|---|
+| `cbp__gemini-2-5-flash__arc_challenge__independent_hypothesis` | IHS |
+| `cbp__qwen-qwen2-5-7b-instruct-turbo__arc_challenge__pride` | PriDe |
+| `cbp__gemini-2-5-flash__mmlu__baseline` | wrong benchmark (mmlu) |
+| `cbp__gemini-2-5-flash__mmlu__cyclic_generation_majority` | wrong benchmark (mmlu) |
+
+1 IHS + 1 PriDe + 2 wrong-benchmark = **4**, matching `32 - 28 = 4` exactly.
+**No category overlap** — checked programmatically: no excluded spec
+carries more than one exclusion reason (e.g. neither MMLU entry is also
+IHS/PriDe; the IHS and PriDe entries are both `arc_challenge`, not `mmlu`).
+28 in-scope cell_ids re-verified against `group1_historical_arc/manifest_summary.json`
+(unchanged from the prior phase).
 
 ## 5. Local vs API execution
 
