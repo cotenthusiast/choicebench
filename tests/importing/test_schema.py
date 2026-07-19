@@ -223,6 +223,15 @@ def _load(tmp_path: Path, raw: object):
     return load_import_spec(path)
 
 
+def test_protocol_settings_use_the_closed_current_choicebench_schema(
+    tmp_path: Path, minimal_raw: dict
+):
+    raw = deepcopy(minimal_raw)
+    raw["conditions"][0]["protocol_settings"] = {"operator": "alice"}
+    with pytest.raises(ImportSpecError, match="protocol_settings|unsupported"):
+        _load(tmp_path, raw)
+
+
 @pytest.fixture
 def minimal_spec(tmp_path: Path, minimal_raw: dict):
     return _load(tmp_path, minimal_raw)

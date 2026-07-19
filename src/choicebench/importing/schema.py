@@ -364,6 +364,7 @@ _CONDITION_KEYS = {
     "recoverable_question_ids",
     "result_origin",
 }
+_PROTOCOL_SETTING_KEYS = {"pride_modal_k_threshold"}
 _RESULT_ORIGIN_KEYS = {
     "derivation_origin",
     "default_prediction_origin",
@@ -1424,6 +1425,22 @@ def _build_condition(value: Any, index: int) -> ImportConditionSpec:
         raw["preflight_identity"], f"{where}.preflight_identity"
     )
     unknown_reasons = _string_mapping(raw["unknown_reasons"], f"{where}.unknown_reasons")
+    protocol_settings = _canonical_mapping(
+        raw["protocol_settings"], f"{where}.protocol_settings"
+    )
+    unsupported_protocol = sorted(
+        set(protocol_settings) - _PROTOCOL_SETTING_KEYS
+    )
+    if unsupported_protocol:
+        raise ImportSpecError(
+            f"{where}.protocol_settings contains unsupported field(s) "
+            f"{unsupported_protocol}."
+        )
+    if "pride_modal_k_threshold" in protocol_settings:
+        _strict_number(
+            protocol_settings["pride_modal_k_threshold"],
+            f"{where}.protocol_settings.pride_modal_k_threshold",
+        )
     _validate_unknown_reasons(
         {
             "seed": seed,
@@ -1443,7 +1460,7 @@ def _build_condition(value: Any, index: int) -> ImportConditionSpec:
         seed=seed,
         calibration_identity=calibration_identity,
         preflight_identity=preflight_identity,
-        protocol_settings=_canonical_mapping(raw["protocol_settings"], f"{where}.protocol_settings"),
+        protocol_settings=protocol_settings,
         generation_parameters=_canonical_mapping(raw["generation_parameters"], f"{where}.generation_parameters"),
         unknown_reasons=unknown_reasons,
         expected_question_ids=_strings(raw["expected_question_ids"], f"{where}.expected_question_ids", nonempty=True, unique=True),

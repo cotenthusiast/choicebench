@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import inspect
+import math
 from pathlib import PurePosixPath
 import re
 from typing import Any, Callable, Literal, Mapping, Sequence
@@ -146,37 +148,7 @@ _FORBIDDEN_IDENTITY_KEYS = {
     "cwd",
     "child_lineage_id",
 }
-_UNSTABLE_PARAMETER_KEYS = _REALIZATION_KEYS | {
-    "audit",
-    "evidence_status",
-    "scope_disposition",
-    "executable",
-    "import_state",
-    "source_sha256",
-    "authorization_digest",
-}
-_UNSTABLE_PARAMETER_TOKENS = {
-    "artifact",
-    "audit",
-    "created",
-    "cwd",
-    "directory",
-    "file",
-    "host",
-    "hostname",
-    "imported",
-    "location",
-    "machine",
-    "output",
-    "path",
-    "recorded",
-    "report",
-    "result",
-    "temporary",
-    "timestamp",
-    "updated",
-    "working",
-}
+_PROTOCOL_SETTING_KEYS = {"pride_modal_k_threshold"}
 
 
 def _unknown(reason: str | None, field: str) -> dict[str, Any]:
@@ -314,22 +286,14 @@ def _validate_stable_values(value: Any, where: str) -> None:
         raise ImportIdentityError(f"{where} contains a machine-local path value.")
 
 
-def _parameter_key_parts(key: str) -> tuple[str, ...]:
-    snake = re.sub(r"(?<!^)(?=[A-Z])", "_", key).casefold().replace("-", "_")
-    return tuple(part for part in re.split(r"[^a-z0-9]+", snake) if part)
-
-
 def _validate_stable_parameters(value: Any, where: str) -> None:
     if isinstance(value, Mapping):
         for key, item in value.items():
             if not isinstance(key, str) or not key:
                 raise ImportIdentityError(f"{where} keys must be non-empty strings.")
             normalized = key.casefold().replace("-", "_")
-            parts = _parameter_key_parts(key)
             if (
-                normalized in _UNSTABLE_PARAMETER_KEYS
-                or is_credential_key(key)
-                or set(parts) & _UNSTABLE_PARAMETER_TOKENS
+                is_credential_key(key)
                 or normalized.endswith(
                     (
                         "_id",
@@ -425,6 +389,23 @@ def _validate_condition_identity(value: Mapping[str, Any]) -> None:
     if "protocol_settings" in value:
         if not isinstance(value["protocol_settings"], Mapping):
             raise ImportIdentityError("Semantic condition protocol_settings must be a mapping.")
+        unexpected_protocol = sorted(
+            set(value["protocol_settings"]) - _PROTOCOL_SETTING_KEYS
+        )
+        if unexpected_protocol:
+            raise ImportIdentityError(
+                "Semantic condition protocol_settings contains unsupported metadata "
+                f"or protocol fields {unexpected_protocol}."
+            )
+        threshold = value["protocol_settings"].get("pride_modal_k_threshold")
+        if threshold is not None and (
+            isinstance(threshold, bool)
+            or not isinstance(threshold, (int, float))
+            or not math.isfinite(float(threshold))
+        ):
+            raise ImportIdentityError(
+                "Semantic condition pride_modal_k_threshold must be finite numeric data."
+            )
         _validate_stable_parameters(
             value["protocol_settings"], "Semantic condition protocol_settings"
         )
@@ -498,6 +479,9 @@ def _validate_expected_dataset_contract(dataset: ExpectedDataset) -> None:
             )
         if not isinstance(artifact["source"], Mapping):
             raise ImportIdentityError("Expected dataset native source is invalid.")
+        _validate_stable_values(
+            artifact["source"], "Expected dataset native source"
+        )
     if artifact["content_digest"] != dataset_content_digest(dataset.artifact_frame):
         raise ImportIdentityError(
             "Expected dataset artifact content digest does not own its frame."
@@ -539,6 +523,24 @@ def _validate_expected_dataset_contract(dataset: ExpectedDataset) -> None:
         raise ImportIdentityError(
             "Expected dataset selected question IDs do not match its frame."
         )
+    artifact_question_ids = tuple(dataset.artifact_frame["question_id"].astype(str))
+    if len(artifact_question_ids) != len(set(artifact_question_ids)):
+        raise ImportIdentityError("Expected dataset artifact has duplicate question IDs.")
+    artifact_samples = dict(
+        zip(
+            artifact_question_ids,
+            dataset_sample_identities(dataset.artifact_frame),
+            strict=True,
+        )
+    )
+    selected_samples = dataset_sample_identities(dataset.frame)
+    for question_id, sample_identity in zip(
+        frame_question_ids, selected_samples, strict=True
+    ):
+        if artifact_samples.get(question_id) != sample_identity:
+            raise ImportIdentityError(
+                "Expected dataset selected content is not owned by its artifact."
+            )
     expected_unknowns = {
         field
         for field, value in (
@@ -547,7 +549,10 @@ def _validate_expected_dataset_contract(dataset: ExpectedDataset) -> None:
         )
         if value is None
     }
-    if set(dataset.selection_unknown_reasons) != expected_unknowns:
+    if set(dataset.selection_unknown_reasons) != expected_unknowns or not all(
+        isinstance(reason, str) and reason.strip()
+        for reason in dataset.selection_unknown_reasons.values()
+    ):
         raise ImportIdentityError(
             "Expected dataset selection unknown reasons are contradictory."
         )
@@ -1050,6 +1055,43 @@ def _validate_digest(value: Any, field: str, *, optional: bool = False) -> str |
     return value
 
 
+def _runtime_callable_record(target: Callable[..., Any], where: str) -> dict[str, Any]:
+    if inspect.ismethod(target) or not (
+        inspect.isfunction(target) or inspect.isclass(target)
+    ):
+        raise ImportIdentityError(
+            f"{where} must be a stateless module function or class, not a bound "
+            "method or stateful callable instance."
+        )
+    if inspect.isfunction(target) and target.__closure__:
+        raise ImportIdentityError(f"{where} cannot be a stateful closure.")
+    try:
+        record = validate_implementation_identity_record(
+            implementation_identity(target)
+        )
+    except (ImportSpecError, OSError, TypeError, ValueError) as exc:
+        raise ImportIdentityError(
+            f"{where} lacks an inspectable runtime code identity."
+        ) from exc
+    if "source_digest" not in record:
+        raise ImportIdentityError(f"{where} lacks an inspectable source digest.")
+    return record
+
+
+def _runtime_parameter_names(target: Callable[..., Any]) -> set[str]:
+    try:
+        signature = inspect.signature(target)
+    except (TypeError, ValueError) as exc:
+        raise ImportIdentityError(
+            "Lineage runtime implementation has no inspectable parameter schema."
+        ) from exc
+    return {
+        name
+        for name, parameter in signature.parameters.items()
+        if parameter.kind is inspect.Parameter.KEYWORD_ONLY
+    }
+
+
 def make_lineage_component(
     *,
     operation_type: str,
@@ -1057,7 +1099,10 @@ def make_lineage_component(
     parent_digests: Sequence[str],
     source_digests: Sequence[str],
     authorization_digest: str | None,
-    implementation: Callable[..., Any],
+    implementation: Callable[..., Any] | Mapping[str, Any],
+    implementation_mode: Literal["runtime_callable", "declared_external"] = (
+        "runtime_callable"
+    ),
     parameters: Mapping[str, Any],
     input_digest: str,
     preownership_output_digest: str,
@@ -1081,20 +1126,50 @@ def make_lineage_component(
     _validate_digest(authorization_digest, "authorization_digest", optional=True)
     _validate_digest(input_digest, "input_digest")
     _validate_digest(preownership_output_digest, "preownership_output_digest")
-    try:
-        implementation_record = implementation_identity(implementation)
-        validated_implementation = validate_implementation_identity_record(
-            implementation_record
+    if implementation_mode == "runtime_callable":
+        if not callable(implementation):
+            raise ImportIdentityError(
+                "Lineage runtime implementation must be an inspectable callable."
+            )
+        validated_implementation = _runtime_callable_record(
+            implementation, "Lineage runtime implementation"
         )
-    except (ImportSpecError, OSError, TypeError, ValueError) as exc:
+        allowed_parameters = _runtime_parameter_names(implementation)
+        unexpected_parameters = sorted(set(parameters) - allowed_parameters)
+        if unexpected_parameters:
+            raise ImportIdentityError(
+                "Lineage parameters contain undeclared field(s) "
+                f"{unexpected_parameters}."
+            )
+    elif implementation_mode == "declared_external":
+        try:
+            validated_implementation = validate_implementation_identity_record(
+                implementation
+            )
+        except ImportSpecError as exc:
+            raise ImportIdentityError(
+                f"Invalid declared external lineage implementation: {exc}"
+            ) from exc
+        source_digest = validated_implementation.get("source_digest")
+        if source_digest is None or source_digest not in source_digests:
+            raise ImportIdentityError(
+                "Declared external lineage implementation source digest must be "
+                "present in source_digests."
+            )
+        if parameters:
+            raise ImportIdentityError(
+                "Declared external lineage implementations cannot self-declare "
+                "unverified parameters."
+            )
+    else:
         raise ImportIdentityError(
-            "Invalid lineage implementation; supply an inspectable runtime callable."
-        ) from exc
-    if "source_digest" not in validated_implementation:
-        raise ImportIdentityError(
-            "Lineage implementation requires an inspectable source digest."
+            f"Invalid lineage implementation_mode {implementation_mode!r}."
         )
-    _validate_stable_values(validated_implementation, "Lineage implementation")
+    implementation_record = {
+        "identity_mode": implementation_mode,
+        "identity": validated_implementation,
+    }
+    _validate_stable_values(implementation_record, "Lineage implementation")
     _validate_stable_parameters(parameters, "Lineage parameters")
     payload = canonicalize(
         {
@@ -1104,7 +1179,7 @@ def make_lineage_component(
             "parent_digests": sorted(parent_digests),
             "source_digests": sorted(source_digests),
             "authorization_digest": authorization_digest,
-            "implementation": validated_implementation,
+            "implementation": implementation_record,
             "parameters": parameters,
             "input_digest": input_digest,
             "preownership_output_digest": preownership_output_digest,
@@ -1186,17 +1261,9 @@ def importer_implementation_identity(
     """Bind installed ChoiceBench plus registered adapter and validator code."""
     records: dict[str, Mapping[str, Any]] = {}
     for role, target in (("adapter", adapter), ("validator", validator)):
-        try:
-            record = implementation_identity(target)
-        except (OSError, TypeError, ValueError) as exc:
-            raise ImportIdentityError(
-                f"Importer {role} lacks an inspectable source identity."
-            ) from exc
-        if not isinstance(record.get("source_digest"), str):
-            raise ImportIdentityError(
-                f"Importer {role} lacks an inspectable source identity."
-            )
-        records[role] = record
+        records[role] = _runtime_callable_record(
+            target, f"Importer {role} implementation"
+        )
     return canonicalize(
         {
             "schema_version": "choicebench.importer-implementation.v1",
@@ -1420,6 +1487,14 @@ def _validate_realization_identity(
         _validate_digest(evidence[field], f"evidence.{field}")
 
     result_origin = _validate_result_origin_record(raw["result_origin"])
+    origin_question_ids = [
+        row["question_id"] for row in result_origin["row_assignments"]
+    ]
+    if integrity_digest(origin_question_ids) != expected["question_set_digest"]:
+        raise ImportIdentityError(
+            "Realization result origin question IDs do not match the expected "
+            "dataset question set."
+        )
     parents = _exact_mapping(
         raw["parent_digests"],
         {"realization_digests", "evidence_digests", "result_digests"},
