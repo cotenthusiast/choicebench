@@ -531,6 +531,14 @@ def build_expected_dataset(
         raise DatasetReferenceError(
             "Expected dataset selection unknown reasons do not match null semantics."
         )
+    if (
+        declaration.selection_n_samples is not None
+        and declaration.selection_n_samples != len(frame)
+    ):
+        raise DatasetReferenceError(
+            "Expected dataset selection n_samples does not match selected question "
+            "coverage."
+        )
     (
         artifact_payload,
         artifact_digest,

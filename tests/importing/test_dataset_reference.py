@@ -439,6 +439,19 @@ def test_snapshot_self_validation_preserves_known_selection_semantics(tmp_path: 
     validate_expected_snapshot(tmp_path, record)
 
 
+def test_known_selection_count_must_equal_selected_question_coverage():
+    declaration = replace(
+        _declaration(),
+        selection_n_samples=99,
+        selection_unknown_reasons={"selection_seed": "not recorded"},
+    )
+    with pytest.raises(DatasetReferenceError, match="n_samples|selected|coverage"):
+        build_expected_dataset(
+            declaration,
+            {"reference": _source("reference", _rows())},
+        )
+
+
 def test_validated_native_compatibility_identity_is_preserved_exactly():
     full_artifact = build_expected_dataset(
         _declaration(expected_question_ids=("q1", "q2", "q3")),

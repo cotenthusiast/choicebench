@@ -57,6 +57,20 @@ def _transform_required(value: str, *, threshold: float) -> str:
     return value if threshold >= 0 else ""
 
 
+def _redefined_adapter(value: str, prefix: str = "first") -> str:
+    return prefix + value
+
+
+_first_redefined_adapter = _redefined_adapter
+
+
+def _redefined_adapter(value: str, prefix: str = "second") -> str:
+    return prefix + value
+
+
+_second_redefined_adapter = _redefined_adapter
+
+
 class _StatefulCallable:
     def __init__(self, value: str) -> None:
         self.value = value
@@ -69,10 +83,21 @@ class _StatefulCallable:
 
 
 def make_realization(**kwargs):
+    identity = kwargs["identity"]
+    runtime_lineages = {
+        component["lineage_id"]: _transform
+        for component in identity.get("lineage_components", ())
+        if component.get("identity", {})
+        .get("implementation", {})
+        .get("identity_mode")
+        == "runtime_callable"
+    }
     return _make_realization(
         adapter=_adapter,
         validator=_validator,
         expected_dataset=kwargs.pop("expected_dataset", _dataset()),
+        semantic_condition=kwargs.pop("semantic_condition", _records().condition),
+        lineage_runtime_callables=runtime_lineages,
         **kwargs,
     )
 
@@ -1430,15 +1455,21 @@ def test_realization_requires_runtime_derived_importer_implementation_identity()
 
 def test_realization_recomputes_implementation_identity_from_supplied_callables():
     condition = _records().condition
+    identity = _realization_identity()
     with pytest.raises(ImportIdentityError, match="runtime|callable|implementation"):
         _make_realization(
             condition_id=condition["condition_id"],
             condition_digest=condition["condition_digest"],
-            identity=_realization_identity(),
+            identity=identity,
             fields={},
             adapter=_validator,
             validator=_adapter,
             expected_dataset=_dataset(),
+            semantic_condition=condition,
+            lineage_runtime_callables={
+                component["lineage_id"]: _transform
+                for component in identity["lineage_components"]
+            },
         )
 
 
@@ -1558,6 +1589,17 @@ def test_fallback_parameters_refuse_realization_and_audit_metadata(
         )
 
 
+def test_fallback_model_logical_identity_refuses_machine_local_path():
+    with pytest.raises(ImportIdentityError, match="model|path|machine"):
+        build_import_semantic_identity(
+            condition=_condition(),
+            dataset=_dataset(),
+            model=replace(_model(), display_name="/machine-a/models/model"),
+            method=_method(),
+            prompt=_prompt(),
+        )
+
+
 def test_fallback_method_implementation_refuses_machine_local_source_file():
     method = replace(
         _method(),
@@ -1575,6 +1617,71 @@ def test_fallback_method_implementation_refuses_machine_local_source_file():
             model=_model(),
             method=method,
             prompt=_prompt(),
+        )
+
+
+def test_fallback_preflight_refuses_source_provenance_metadata():
+    condition = replace(
+        _condition(),
+        preflight_identity={"source_sha256": "a" * 64},
+        unknown_reasons={
+            key: value
+            for key, value in _condition().unknown_reasons.items()
+            if key != "preflight_identity"
+        },
+    )
+    with pytest.raises(ImportIdentityError, match="preflight|metadata|forbidden"):
+        build_import_semantic_identity(
+            condition=condition,
+            dataset=_dataset(),
+            model=_model(),
+            method=_method(),
+            prompt=_prompt(),
+        )
+
+
+def test_fallback_prompt_digest_owns_exact_unredacted_contents():
+    def build(content: str):
+        contents = {"direct_mcq": content}
+        return build_import_semantic_identity(
+            condition=_condition(),
+            dataset=_dataset(),
+            model=_model(),
+            method=_method(),
+            prompt=ImportPromptSpec(
+                prompt_key="prompt",
+                template_identity="historical-v1",
+                template_digest=integrity_digest(contents),
+                template_contents=contents,
+                unknown_reason=None,
+                native_compatibility_identity=None,
+            ),
+        )
+
+    first = build("literal password=alpha")
+    second = build("literal password=beta")
+    assert first.prompt["prompt_id"] != second.prompt["prompt_id"]
+    assert first.condition["condition_id"] != second.condition["condition_id"]
+    assert first.prompt["identity"]["template_contents"] == {
+        "direct_mcq": "literal password=alpha"
+    }
+
+
+def test_fallback_prompt_refuses_digest_that_does_not_own_contents():
+    with pytest.raises(ImportIdentityError, match="prompt.*digest|contents"):
+        build_import_semantic_identity(
+            condition=_condition(),
+            dataset=_dataset(),
+            model=_model(),
+            method=_method(),
+            prompt=ImportPromptSpec(
+                prompt_key="prompt",
+                template_identity="historical-v1",
+                template_digest="a" * 64,
+                template_contents={"direct_mcq": "literal prompt"},
+                unknown_reason=None,
+                native_compatibility_identity=None,
+            ),
         )
 
 
@@ -1638,6 +1745,11 @@ def test_complete_realization_question_set_is_owned_by_validated_dataset():
             adapter=_adapter,
             validator=_validator,
             expected_dataset=_dataset(),
+            semantic_condition=condition,
+            lineage_runtime_callables={
+                component["lineage_id"]: _transform
+                for component in identity["lineage_components"]
+            },
         )
 
 
@@ -1762,6 +1874,44 @@ def test_native_dataset_source_refuses_audit_and_machine_metadata(source):
         selection_id=short_id("sel", selection_payload),
     )
     with pytest.raises(ImportIdentityError, match="source|audit|path|timestamp"):
+        build_import_semantic_identity(
+            condition=_condition(),
+            dataset=forged,
+            model=_model(),
+            method=_method(),
+            prompt=_prompt(),
+        )
+
+
+def test_native_dataset_spec_refuses_machine_local_hf_path():
+    dataset = _dataset()
+    artifact_payload = {
+        "spec": {
+            "benchmark": dataset.benchmark_name,
+            "split": dataset.split,
+            "hf_path": "/home/alice/machine-only/dataset",
+            "hf_subset": None,
+            "source_revision": None,
+            "normalization_version": "v1",
+            "transforms": [],
+            "output_name": None,
+        },
+        "content_digest": dataset_content_digest(dataset.artifact_frame),
+        "source": {},
+    }
+    artifact_id = short_id("ds", artifact_payload)
+    selection_payload = {**dataset.selection_payload, "artifact_id": artifact_id}
+    forged = replace(
+        dataset,
+        identity_mode="native_compatibility",
+        artifact_payload=artifact_payload,
+        artifact_digest=integrity_digest(artifact_payload),
+        artifact_id=artifact_id,
+        selection_payload=selection_payload,
+        selection_digest=integrity_digest(selection_payload),
+        selection_id=short_id("sel", selection_payload),
+    )
+    with pytest.raises(ImportIdentityError, match="spec|path|machine"):
         build_import_semantic_identity(
             condition=_condition(),
             dataset=forged,
@@ -1963,6 +2113,18 @@ def test_runtime_identity_refuses_ambiguous_module_lambdas():
             importer_implementation_identity(adapter=target, validator=_validator)
 
 
+def test_runtime_identity_distinguishes_same_named_top_level_function_objects():
+    first = importer_implementation_identity(
+        adapter=_first_redefined_adapter,
+        validator=_validator,
+    )
+    second = importer_implementation_identity(
+        adapter=_second_redefined_adapter,
+        validator=_validator,
+    )
+    assert first != second
+
+
 def test_lineage_supports_nonexecuted_declared_external_implementation_identity():
     source_digest = "2" * 64
     component = make_lineage_component(
@@ -2086,6 +2248,67 @@ def test_realization_refuses_unowned_lineage_component_id():
         )
 
 
+@pytest.mark.parametrize(
+    "logical_path",
+    [r"C:\machine\results.csv", r"\\server\share\results.csv"],
+)
+def test_realization_refuses_windows_machine_local_logical_paths(logical_path):
+    condition = _records().condition
+    identity = _realization_identity()
+    identity["sources"][0]["logical_path"] = logical_path
+    with pytest.raises(ImportIdentityError, match="path|unsafe|machine"):
+        make_realization(
+            condition_id=condition["condition_id"],
+            condition_digest=condition["condition_digest"],
+            identity=identity,
+            fields={},
+        )
+
+
+def test_realization_runtime_lineage_must_match_registered_callable():
+    condition = _records().condition
+    identity = _realization_identity()
+    original = identity["lineage_components"][0]
+    forged_payload = {
+        **original["identity"],
+        "implementation": {
+            "identity_mode": "runtime_callable",
+            "identity": importer_implementation_identity(
+                adapter=_adapter, validator=_validator
+            )["adapter"],
+        },
+    }
+    forged = {
+        "lineage_id": short_id("lin", forged_payload),
+        "lineage_digest": integrity_digest(forged_payload),
+        "identity": forged_payload,
+    }
+    identity["lineage_components"][0] = forged
+    assignments = identity["result_origin"]["row_assignments"]
+    identity["result_origin"] = make_result_origin(
+        derivation_origin="external_import",
+        row_assignments=(
+            (
+                assignments[0]["question_id"],
+                assignments[0]["prediction_origin"],
+                forged["lineage_id"],
+            ),
+            (
+                assignments[1]["question_id"],
+                assignments[1]["prediction_origin"],
+                assignments[1]["prediction_lineage_id"],
+            ),
+        ),
+    )
+    with pytest.raises(ImportIdentityError, match="runtime|callable|implementation"):
+        make_realization(
+            condition_id=condition["condition_id"],
+            condition_digest=condition["condition_digest"],
+            identity=identity,
+            fields={},
+        )
+
+
 @pytest.mark.parametrize("edge", ["authorization", "parent"])
 def test_derived_realization_lineage_edges_are_owned_by_realization(edge):
     condition = _records().condition
@@ -2119,6 +2342,98 @@ def test_derived_realization_lineage_edges_are_owned_by_realization(edge):
             condition_digest=condition["condition_digest"],
             identity=identity,
             fields={},
+        )
+
+
+def test_repair_row_itself_must_own_authorization_and_parent_lineage_edges():
+    condition = _records().condition
+    identity = _realization_identity()
+    base_component = make_lineage_component(
+        operation_type="external_import",
+        question_id="q2",
+        parent_digests=("d" * 64,),
+        source_digests=("2" * 64,),
+        authorization_digest="c" * 64,
+        implementation=_transform,
+        parameters={},
+        input_digest=integrity_digest("base-input"),
+        preownership_output_digest=integrity_digest("base-output"),
+        prediction_origin="external_historical_inference",
+    )
+    repair_component = make_lineage_component(
+        operation_type="repair_overlay",
+        question_id="q1",
+        parent_digests=(),
+        source_digests=("2" * 64,),
+        authorization_digest=None,
+        implementation=_transform,
+        parameters={},
+        input_digest=integrity_digest("repair-input"),
+        preownership_output_digest=integrity_digest("repair-output"),
+        prediction_origin="external_repair_inference",
+    )
+    identity["lineage_components"] = [base_component, repair_component]
+    identity["result_origin"] = make_result_origin(
+        derivation_origin="repair_overlay",
+        row_assignments=(
+            (
+                "q2",
+                "external_historical_inference",
+                base_component["lineage_id"],
+            ),
+            ("q1", "external_repair_inference", repair_component["lineage_id"]),
+        ),
+    )
+    identity["authorization_digest"] = "c" * 64
+    identity["parent_digests"]["realization_digests"] = ["d" * 64]
+    identity["parent_digests"]["evidence_digests"] = ["0" * 64]
+    identity["overlay"] = {
+        "source_sha256": "e" * 64,
+        "replacement_digest": "f" * 64,
+        "transformation_input_digest": None,
+        "preownership_output_digest": None,
+        "implementation_digest": None,
+    }
+    with pytest.raises(ImportIdentityError, match="repair|authorization|parent|lineage"):
+        make_realization(
+            condition_id=condition["condition_id"],
+            condition_digest=condition["condition_digest"],
+            identity=identity,
+            fields={},
+        )
+
+
+def test_realization_condition_is_bound_to_expected_dataset_selection():
+    condition = _records().condition
+    foreign_identity = {
+        **condition["identity"],
+        "benchmark": {
+            **condition["identity"]["benchmark"],
+            "artifact_id": f"ds_{'a' * 16}",
+            "selection_id": f"sel_{'b' * 16}",
+        },
+    }
+    foreign_condition = make_semantic_condition(
+        identity=foreign_identity,
+        fields={
+            "condition_key": "foreign",
+            "expected_question_ids": ["q2", "q1"],
+        },
+    )
+    with pytest.raises(ImportIdentityError, match="condition|dataset|selection|artifact"):
+        _make_realization(
+            condition_id=foreign_condition["condition_id"],
+            condition_digest=foreign_condition["condition_digest"],
+            identity=_realization_identity(),
+            fields={},
+            adapter=_adapter,
+            validator=_validator,
+            expected_dataset=_dataset(),
+            semantic_condition=foreign_condition,
+            lineage_runtime_callables={
+                component["lineage_id"]: _transform
+                for component in _realization_identity()["lineage_components"]
+            },
         )
 
 

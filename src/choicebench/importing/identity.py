@@ -222,6 +222,20 @@ def _validate_direct_declarations(
     method: ImportMethodSpec,
     prompt: ImportPromptSpec,
 ) -> None:
+    _validate_stable_values(
+        {
+            "model_key": model.model_key,
+            "display_name": model.display_name,
+            "backend": model.backend,
+            "provider": model.provider,
+            "revision": model.revision,
+            "method_key": method.method_key,
+            "method_name": method.name,
+            "prompt_key": prompt.prompt_key,
+            "template_identity": prompt.template_identity,
+        },
+        "Semantic child declarations",
+    )
     _validate_stable_parameters(
         model.effective_parameters, "Model effective parameters"
     )
@@ -231,6 +245,10 @@ def _validate_direct_declarations(
     _validate_stable_parameters(
         method.effective_parameters, "Method effective parameters"
     )
+    if condition.preflight_identity is not None:
+        _validate_stable_parameters(
+            condition.preflight_identity, "Condition preflight identity"
+        )
     if method.implementation is not None:
         try:
             validated_implementation = validate_implementation_identity_record(
@@ -283,6 +301,15 @@ def _validate_direct_declarations(
         )
     if prompt.template_digest is not None:
         _validate_digest(prompt.template_digest, "prompt.template_digest")
+    if (
+        prompt.native_compatibility_identity is None
+        and prompt.template_digest is not None
+        and prompt.template_contents is not None
+        and prompt.template_digest != integrity_digest(prompt.template_contents)
+    ):
+        raise ImportIdentityError(
+            "Fallback prompt digest does not own the exact template contents."
+        )
 
 
 def _identity_record(prefix: str, payload: Mapping[str, Any]) -> tuple[str, str, dict]:
@@ -329,7 +356,7 @@ def _reject_forbidden(
 
 def _is_machine_path(value: str) -> bool:
     return bool(
-        value.startswith(("/", "./", "../", "~/", "~\\"))
+        value.startswith(("/", "./", "../", "~/", "~\\", "\\\\"))
         or re.match(r"^[A-Za-z]:[\\/]", value)
     )
 
@@ -342,6 +369,17 @@ def _validate_stable_values(value: Any, where: str) -> None:
     elif isinstance(value, (list, tuple)):
         for item in value:
             _validate_stable_values(item, where)
+    elif isinstance(value, str) and _is_machine_path(value):
+        raise ImportIdentityError(f"{where} contains a machine-local path value.")
+
+
+def _validate_no_machine_path_values(value: Any, where: str) -> None:
+    if isinstance(value, Mapping):
+        for item in value.values():
+            _validate_no_machine_path_values(item, where)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            _validate_no_machine_path_values(item, where)
     elif isinstance(value, str) and _is_machine_path(value):
         raise ImportIdentityError(f"{where} contains a machine-local path value.")
 
@@ -538,6 +576,9 @@ def _validate_expected_dataset_contract(dataset: ExpectedDataset) -> None:
             raise ImportIdentityError(
                 "Expected dataset native artifact conflicts with its declaration."
             )
+        _validate_no_machine_path_values(
+            spec, "Expected dataset native artifact spec"
+        )
         if not isinstance(artifact["source"], Mapping):
             raise ImportIdentityError("Expected dataset native source is invalid.")
         source = artifact["source"]
@@ -719,7 +760,12 @@ def _validate_expected_dataset_contract(dataset: ExpectedDataset) -> None:
                 "Expected dataset derivation logical path is invalid."
             )
         pure_path = PurePosixPath(logical_path)
-        if pure_path.is_absolute() or ".." in pure_path.parts or not pure_path.parts:
+        if (
+            pure_path.is_absolute()
+            or ".." in pure_path.parts
+            or not pure_path.parts
+            or _is_machine_path(logical_path)
+        ):
             raise ImportIdentityError(
                 "Expected dataset derivation logical path is unsafe."
             )
@@ -1090,9 +1136,9 @@ def _semantic_child_records(
                 else unknown("template contents")
             ),
         }
-        prompt_id, prompt_digest, prompt_payload = _identity_record(
-            "prompt", prompt_payload
-        )
+        prompt_payload = canonicalize(prompt_payload, redact_secrets=False)
+        prompt_digest = integrity_digest(prompt_payload)
+        prompt_id = f"prompt_{prompt_digest[:16]}"
         prompt_mode = "imported_semantic_fallback"
     prompt_record = {
         "prompt_id": prompt_id,
@@ -1276,6 +1322,23 @@ def _runtime_callable_record(target: Callable[..., Any], where: str) -> dict[str
             f"{where} must be a uniquely addressable named module callable."
         )
     try:
+        callable_source = inspect.getsource(target)
+    except (OSError, TypeError) as exc:
+        raise ImportIdentityError(
+            f"{where} lacks uniquely inspectable callable source."
+        ) from exc
+    callable_payload = {
+        "source": callable_source,
+        "defaults": getattr(target, "__defaults__", None),
+        "keyword_defaults": getattr(target, "__kwdefaults__", None),
+    }
+    try:
+        callable_digest = integrity_digest(callable_payload)
+    except (TypeError, ValueError) as exc:
+        raise ImportIdentityError(
+            f"{where} has unsupported callable defaults."
+        ) from exc
+    try:
         record = validate_implementation_identity_record(
             implementation_identity(target)
         )
@@ -1285,6 +1348,7 @@ def _runtime_callable_record(target: Callable[..., Any], where: str) -> dict[str
         ) from exc
     if "source_digest" not in record:
         raise ImportIdentityError(f"{where} lacks an inspectable source digest.")
+    record["callable_digest"] = callable_digest
     return record
 
 
@@ -1480,7 +1544,9 @@ def make_result_origin(
     }
 
 
-def _validate_lineage_component_record(value: Any) -> dict[str, Any]:
+def _validate_lineage_component_record(
+    value: Any, *, runtime_callable: Callable[..., Any] | None
+) -> dict[str, Any]:
     record = _exact_mapping(
         value,
         {"lineage_id", "lineage_digest", "identity"},
@@ -1545,6 +1611,25 @@ def _validate_lineage_component_record(value: Any) -> dict[str, Any]:
     if source_digest is None:
         raise ImportIdentityError(
             "Realization lineage implementation lacks a source digest."
+        )
+    if implementation["identity_mode"] == "runtime_callable":
+        if runtime_callable is None:
+            raise ImportIdentityError(
+                "Realization runtime lineage requires its registered callable."
+            )
+        runtime_identity = _runtime_callable_record(
+            runtime_callable, "Realization lineage runtime implementation"
+        )
+        if canonicalize(runtime_identity) != canonicalize(
+            implementation_identity_record
+        ):
+            raise ImportIdentityError(
+                "Realization runtime lineage implementation does not match its "
+                "registered callable."
+            )
+    elif runtime_callable is not None:
+        raise ImportIdentityError(
+            "Declared external lineage cannot claim a runtime callable."
         )
     if (
         implementation["identity_mode"] == "declared_external"
@@ -1665,6 +1750,7 @@ def _validate_realization_identity(
     *,
     runtime_importer: Mapping[str, Any],
     expected_dataset: ExpectedDataset,
+    lineage_runtime_callables: Mapping[str, Callable[..., Any]],
 ) -> dict[str, Any]:
     raw = _exact_mapping(value, _REALIZATION_KEYS, "Realization identity")
     _validate_digest(raw["import_spec_digest"], "import_spec_digest")
@@ -1687,7 +1773,12 @@ def _validate_realization_identity(
         if not isinstance(logical_path, str):
             raise ImportIdentityError("Realization source logical_path must be a string.")
         pure_path = PurePosixPath(logical_path)
-        if pure_path.is_absolute() or ".." in pure_path.parts or not pure_path.parts:
+        if (
+            pure_path.is_absolute()
+            or ".." in pure_path.parts
+            or not pure_path.parts
+            or _is_machine_path(logical_path)
+        ):
             raise ImportIdentityError("Realization source logical_path is unsafe.")
         if source["classification"] not in {
             "raw",
@@ -1876,10 +1967,24 @@ def _validate_realization_identity(
         raise ImportIdentityError(
             "Realization lineage_components must be a list."
         )
-    lineage_components = [
-        _validate_lineage_component_record(component)
-        for component in raw_lineage_components
-    ]
+    if not isinstance(lineage_runtime_callables, Mapping) or not all(
+        isinstance(lineage_id, str) and callable(target)
+        for lineage_id, target in lineage_runtime_callables.items()
+    ):
+        raise ImportIdentityError(
+            "Realization lineage runtime callable registry is invalid."
+        )
+    lineage_components = []
+    for component in raw_lineage_components:
+        claimed_lineage_id = (
+            component.get("lineage_id") if isinstance(component, Mapping) else None
+        )
+        lineage_components.append(
+            _validate_lineage_component_record(
+                component,
+                runtime_callable=lineage_runtime_callables.get(claimed_lineage_id),
+            )
+        )
     lineage_by_id: dict[str, dict[str, Any]] = {}
     lineage_digests: set[str] = set()
     for component in lineage_components:
@@ -1891,6 +1996,17 @@ def _validate_realization_identity(
             )
         lineage_by_id[lineage_id] = component
         lineage_digests.add(lineage_digest)
+    runtime_lineage_ids = {
+        component["lineage_id"]
+        for component in lineage_components
+        if component["identity"]["implementation"]["identity_mode"]
+        == "runtime_callable"
+    }
+    if set(lineage_runtime_callables) != runtime_lineage_ids:
+        raise ImportIdentityError(
+            "Realization lineage runtime callable registry does not exactly own "
+            "the runtime lineage components."
+        )
 
     result_origin = _validate_result_origin_record(raw["result_origin"])
     origin_question_ids = [
@@ -2031,6 +2147,38 @@ def _validate_realization_identity(
                 f"{derivation_origin} realization requires a parent-derived lineage "
                 "component."
             )
+        derived_components = [
+            component
+            for component in lineage_components
+            if component["identity"]["operation_type"] == derivation_origin
+        ]
+        if not derived_components:
+            raise ImportIdentityError(
+                f"{derivation_origin} realization requires a matching derived "
+                "lineage component."
+            )
+        for component in derived_components:
+            component_identity = component["identity"]
+            if component_identity["authorization_digest"] != authorization_digest:
+                raise ImportIdentityError(
+                    f"{derivation_origin} lineage component lacks the realization "
+                    "authorization."
+                )
+            if not component_identity["parent_digests"]:
+                raise ImportIdentityError(
+                    f"{derivation_origin} lineage component lacks a parent edge."
+                )
+        if derivation_origin == "repair_overlay":
+            for assignment in result_origin["row_assignments"]:
+                if assignment["prediction_origin"] in {
+                    "native_inference",
+                    "external_repair_inference",
+                }:
+                    component = lineage_by_id[assignment["prediction_lineage_id"]]
+                    if component["identity"]["operation_type"] != "repair_overlay":
+                        raise ImportIdentityError(
+                            "Repair prediction row lacks repair_overlay lineage."
+                        )
         if derivation_origin == "offline_transformation" and any(
             normalized_overlay[field] is None
             for field in (
@@ -2095,6 +2243,8 @@ def make_realization(
     adapter: Callable[..., Any],
     validator: Callable[..., Any],
     expected_dataset: ExpectedDataset,
+    semantic_condition: Mapping[str, Any],
+    lineage_runtime_callables: Mapping[str, Callable[..., Any]],
 ) -> dict[str, Any]:
     """Create an immutable realization identity distinct from its condition."""
     if not isinstance(condition_id, str) or not re.fullmatch(r"cond_[0-9a-f]{16}", condition_id):
@@ -2106,6 +2256,48 @@ def make_realization(
         )
     if not isinstance(identity, Mapping) or not identity:
         raise ImportIdentityError("Realization identity must be a non-empty mapping.")
+    condition_record = _exact_mapping(
+        semantic_condition,
+        {
+            "condition_id",
+            "condition_digest",
+            "identity",
+            "condition_key",
+            "expected_question_ids",
+        },
+        "Realization semantic condition",
+    )
+    rebuilt_condition = make_semantic_condition(
+        identity=condition_record["identity"],
+        fields={
+            "condition_key": condition_record["condition_key"],
+            "expected_question_ids": condition_record["expected_question_ids"],
+        },
+    )
+    if canonicalize(rebuilt_condition) != canonicalize(condition_record):
+        raise ImportIdentityError(
+            "Realization semantic condition identity is inconsistent."
+        )
+    if (
+        condition_record["condition_id"] != condition_id
+        or condition_record["condition_digest"] != condition_digest
+    ):
+        raise ImportIdentityError(
+            "Realization condition ID/digest do not match its semantic condition."
+        )
+    benchmark = condition_record["identity"]["benchmark"]
+    if (
+        benchmark["name"] != expected_dataset.benchmark_name
+        or benchmark["split"] != expected_dataset.split
+        or benchmark["artifact_id"] != expected_dataset.artifact_id
+        or benchmark["selection_id"] != expected_dataset.selection_id
+        or tuple(condition_record["expected_question_ids"])
+        != expected_dataset.selected_question_ids
+    ):
+        raise ImportIdentityError(
+            "Realization semantic condition is not owned by its expected dataset "
+            "artifact and selection."
+        )
     runtime_importer = importer_implementation_identity(
         adapter=adapter, validator=validator
     )
@@ -2113,6 +2305,7 @@ def make_realization(
         identity,
         runtime_importer=runtime_importer,
         expected_dataset=expected_dataset,
+        lineage_runtime_callables=lineage_runtime_callables,
     )
     payload = canonicalize(
         {
