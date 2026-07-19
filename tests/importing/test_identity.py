@@ -49,6 +49,13 @@ def _validator(value: str) -> bool:
     return bool(value)
 
 
+_GLOBAL_VALIDATOR_RESULT = True
+
+
+def _global_validator(value: str) -> bool:
+    return bool(value) and _GLOBAL_VALIDATOR_RESULT
+
+
 def _transform(value: str) -> str:
     return value.strip()
 
@@ -1002,6 +1009,11 @@ def _realization_identity() -> dict:
                     "source_commit": None,
                     "notes_digest": None,
                     "evidence_digest": None,
+                    "unknown_reasons": {
+                        "source_run_id": "not recorded",
+                        "source_repository": "not recorded",
+                        "source_commit": "not recorded",
+                    },
                 },
             }
         ],
@@ -1753,6 +1765,38 @@ def test_expected_dataset_trust_chain_is_owned_and_recomputed(mutation):
         )
 
 
+def test_expected_dataset_derivation_revision_refuses_nested_audit_metadata():
+    dataset = _dataset()
+    derivation = {
+        **dataset.derivation,
+        "revision": {"audit_path": "/home/alice/source", "timestamp": "now"},
+    }
+    derivation_digest = integrity_digest(derivation)
+    forged = replace(
+        dataset,
+        derivation=derivation,
+        derivation_digest=derivation_digest,
+        snapshot_digest=integrity_digest(
+            {
+                "artifact_digest": dataset.artifact_digest,
+                "selection_digest": dataset.selection_digest,
+                "question_set_digest": dataset.question_set_digest,
+                "derivation_digest": derivation_digest,
+                "reference_kind": dataset.reference_kind,
+                "trust_label": dataset.trust_label,
+            }
+        ),
+    )
+    with pytest.raises(ImportIdentityError, match="revision|audit|path|timestamp"):
+        build_import_semantic_identity(
+            condition=_condition(),
+            dataset=forged,
+            model=_model(),
+            method=_method(),
+            prompt=_prompt(),
+        )
+
+
 def test_profile_derived_dataset_requires_independent_source_groups_at_identity_boundary():
     dataset = _dataset()
     derivation = {
@@ -2259,6 +2303,30 @@ def test_runtime_identity_distinguishes_same_named_top_level_function_objects():
     assert first != second
 
 
+def test_runtime_identity_binds_behavior_affecting_resolved_globals(monkeypatch):
+    first = importer_implementation_identity(
+        adapter=_adapter,
+        validator=_global_validator,
+    )
+    monkeypatch.setitem(_global_validator.__globals__, "_GLOBAL_VALIDATOR_RESULT", False)
+    second = importer_implementation_identity(
+        adapter=_adapter,
+        validator=_global_validator,
+    )
+    assert first != second
+
+
+def test_importer_implementation_identity_binds_importer_core_code():
+    implementation = importer_implementation_identity(
+        adapter=_adapter,
+        validator=_validator,
+    )
+    assert implementation["importer"]["source_digest"]
+    assert implementation["importer"]["qualified_name"].startswith(
+        "choicebench.importing.identity:"
+    )
+
+
 def test_lineage_supports_nonexecuted_declared_external_implementation_identity():
     source_digest = "2" * 64
     component = make_lineage_component(
@@ -2700,6 +2768,135 @@ def test_offline_transformation_rows_must_reference_offline_lineage_component():
     }
 
     with pytest.raises(ImportIdentityError, match="offline|row|lineage|assignment"):
+        make_realization(
+            condition_id=condition["condition_id"],
+            condition_digest=condition["condition_digest"],
+            identity=identity,
+            fields={},
+        )
+
+
+def test_realization_orphan_lineage_component_is_unreachable_from_any_row():
+    condition = _records().condition
+    identity = _realization_identity()
+    orphan_component = make_lineage_component(
+        operation_type="external_import",
+        question_id="q3",
+        parent_digests=(),
+        source_digests=("2" * 64,),
+        authorization_digest=None,
+        implementation=_transform,
+        parameters={},
+        input_digest=integrity_digest({"question_id": "q3", "stage": "input"}),
+        preownership_output_digest=integrity_digest(
+            {
+                "question_id": "q3",
+                "prediction_origin": "external_historical_inference",
+                "stage": "preownership-output",
+            }
+        ),
+        prediction_origin="external_historical_inference",
+    )
+    identity["lineage_components"] = [*identity["lineage_components"], orphan_component]
+    with pytest.raises(ImportIdentityError, match="reachable|row"):
+        make_realization(
+            condition_id=condition["condition_id"],
+            condition_digest=condition["condition_digest"],
+            identity=identity,
+            fields={},
+        )
+
+
+def test_realization_declared_source_must_be_reachable_from_lineage():
+    condition = _records().condition
+    identity = _realization_identity()
+    identity["sources"] = [
+        *identity["sources"],
+        {
+            "source_id": "unused",
+            "logical_path": "publisher/unused.csv",
+            "classification": "canonical",
+            "format": "csv",
+            "format_version": "1",
+            "sha256": "9" * 64,
+            "provenance": {
+                "source_run_id": None,
+                "source_repository": None,
+                "source_commit": None,
+                "notes_digest": None,
+                "evidence_digest": None,
+                "unknown_reasons": {
+                    "source_run_id": "not recorded",
+                    "source_repository": "not recorded",
+                    "source_commit": "not recorded",
+                },
+            },
+        },
+    ]
+    with pytest.raises(ImportIdentityError, match="reachable|source"):
+        make_realization(
+            condition_id=condition["condition_id"],
+            condition_digest=condition["condition_digest"],
+            identity=identity,
+            fields={},
+        )
+
+
+def test_realization_lineage_operation_type_must_match_non_derived_derivation_origin():
+    condition = _records().condition
+    identity = _realization_identity()
+    mismatched_component = make_lineage_component(
+        operation_type="repair_overlay",
+        question_id="q1",
+        parent_digests=(),
+        source_digests=("2" * 64,),
+        authorization_digest=None,
+        implementation=_transform,
+        parameters={},
+        input_digest=integrity_digest({"question_id": "q1", "stage": "input"}),
+        preownership_output_digest=integrity_digest(
+            {
+                "question_id": "q1",
+                "prediction_origin": "external_historical_inference",
+                "stage": "preownership-output",
+            }
+        ),
+        prediction_origin="external_historical_inference",
+    )
+    remaining = [
+        component
+        for component in identity["lineage_components"]
+        if component["identity"]["question_id"] != "q1"
+    ]
+    identity["lineage_components"] = [*remaining, mismatched_component]
+    identity["result_origin"] = make_result_origin(
+        derivation_origin="external_import",
+        row_assignments=tuple(
+            (
+                component["identity"]["question_id"],
+                component["identity"]["prediction_origin"],
+                component["lineage_id"],
+            )
+            for component in identity["lineage_components"]
+        ),
+    )
+    with pytest.raises(ImportIdentityError, match="operation type|incompatible"):
+        make_realization(
+            condition_id=condition["condition_id"],
+            condition_digest=condition["condition_digest"],
+            identity=identity,
+            fields={},
+        )
+
+
+def test_realization_source_provenance_requires_explicit_unknown_reason():
+    condition = _records().condition
+    identity = _realization_identity()
+    identity["sources"][0]["provenance"]["unknown_reasons"] = {
+        "source_run_id": "not recorded",
+        "source_repository": "not recorded",
+    }
+    with pytest.raises(ImportIdentityError, match="unknown reasons|provenance"):
         make_realization(
             condition_id=condition["condition_id"],
             condition_digest=condition["condition_digest"],

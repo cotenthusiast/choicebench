@@ -99,6 +99,12 @@ _SOURCE_PROVENANCE_KEYS = {
     "source_commit",
     "notes_digest",
     "evidence_digest",
+    "unknown_reasons",
+}
+_SOURCE_PROVENANCE_UNKNOWN_FIELDS = {
+    "source_run_id",
+    "source_repository",
+    "source_commit",
 }
 _PARSING_POLICY_KEYS = {
     "dialect",
@@ -820,6 +826,12 @@ def _validate_expected_dataset_contract(dataset: ExpectedDataset) -> None:
     ):
         raise ImportIdentityError("Expected dataset derivation columns are invalid.")
     _validate_stable_values(
+        derivation["revision"], "Expected dataset derivation revision"
+    )
+    _validate_stable_values(
+        derivation["fingerprint"], "Expected dataset derivation fingerprint"
+    )
+    _validate_stable_values(
         derivation["declared_derivation"],
         "Expected dataset declared derivation",
     )
@@ -1407,6 +1419,31 @@ def _validate_digest(value: Any, field: str, *, optional: bool = False) -> str |
     return value
 
 
+def _resolved_global_bindings(target: Callable[..., Any]) -> dict[str, Any]:
+    """Bind behavior-affecting global values the callable's code resolves by name.
+
+    Excludes modules, other callables, and dunder names: those are either
+    irrelevant runtime state or already covered by the callable's own source
+    digest, not the specific value a global happened to hold.
+    """
+    code = getattr(target, "__code__", None)
+    global_ns = getattr(target, "__globals__", None)
+    if code is None or global_ns is None:
+        return {}
+    bindings: dict[str, Any] = {}
+    for name in sorted(set(code.co_names)):
+        if name.startswith("__") or name not in global_ns:
+            continue
+        value = global_ns[name]
+        if inspect.ismodule(value) or callable(value):
+            continue
+        try:
+            bindings[name] = canonicalize(value)
+        except (TypeError, ValueError):
+            continue
+    return bindings
+
+
 def _runtime_callable_record(target: Callable[..., Any], where: str) -> dict[str, Any]:
     if inspect.ismethod(target) or not (
         inspect.isfunction(target) or inspect.isclass(target)
@@ -1432,6 +1469,7 @@ def _runtime_callable_record(target: Callable[..., Any], where: str) -> dict[str
         "source": callable_source,
         "defaults": getattr(target, "__defaults__", None),
         "keyword_defaults": getattr(target, "__kwdefaults__", None),
+        "resolved_globals": _resolved_global_bindings(target),
     }
     try:
         callable_digest = integrity_digest(callable_payload)
@@ -1789,16 +1827,20 @@ def _validate_lineage_component_record(
 def importer_implementation_identity(
     *, adapter: Callable[..., Any], validator: Callable[..., Any]
 ) -> dict[str, Any]:
-    """Bind installed ChoiceBench plus registered adapter and validator code."""
+    """Bind installed ChoiceBench plus importer-core, adapter, and validator code."""
     records: dict[str, Mapping[str, Any]] = {}
     for role, target in (("adapter", adapter), ("validator", validator)):
         records[role] = _runtime_callable_record(
             target, f"Importer {role} implementation"
         )
+    importer_record = _runtime_callable_record(
+        _identity_record, "Importer core implementation"
+    )
     return canonicalize(
         {
             "schema_version": "choicebench.importer-implementation.v1",
             "package": {"name": "choicebench", "version": __version__},
+            "importer": importer_record,
             "adapter": records["adapter"],
             "validator": records["validator"],
         }
@@ -1913,6 +1955,11 @@ def _validate_realization_identity(
             _validate_digest(
                 provenance[field], f"sources[{index}].provenance.{field}", optional=True
             )
+        _validate_unknown_reason_contract(
+            {field: provenance[field] for field in _SOURCE_PROVENANCE_UNKNOWN_FIELDS},
+            provenance["unknown_reasons"],
+            f"Realization sources[{index}].provenance",
+        )
         source = {**source, "provenance": canonicalize(provenance)}
         seen_source_ids.add(source_id)
         normalized_sources.append(canonicalize(source))
@@ -1970,7 +2017,7 @@ def _validate_realization_identity(
         )
     importer = _exact_mapping(
         raw_importer,
-        {"schema_version", "package", "adapter", "validator"},
+        {"schema_version", "package", "importer", "adapter", "validator"},
         "Realization importer_implementation",
     )
     if importer["schema_version"] != "choicebench.importer-implementation.v1":
@@ -1980,7 +2027,7 @@ def _validate_realization_identity(
     )
     if package != {"name": "choicebench", "version": __version__}:
         raise ImportIdentityError("Realization importer package identity is invalid.")
-    for role in ("adapter", "validator"):
+    for role in ("importer", "adapter", "validator"):
         try:
             component = validate_implementation_identity_record(importer[role])
         except ImportSpecError as exc:
@@ -2150,6 +2197,16 @@ def _validate_realization_identity(
             raise ImportIdentityError(
                 "Realization result origin conflicts with its lineage component."
             )
+    assigned_lineage_ids = {
+        assignment["prediction_lineage_id"]
+        for assignment in result_origin["row_assignments"]
+    }
+    unreachable_lineage_ids = sorted(set(lineage_by_id) - assigned_lineage_ids)
+    if unreachable_lineage_ids:
+        raise ImportIdentityError(
+            f"Realization lineage component(s) {unreachable_lineage_ids} are not "
+            "reachable from any result-origin row."
+        )
     parents = _exact_mapping(
         raw["parent_digests"],
         {"realization_digests", "evidence_digests", "result_digests"},
@@ -2217,6 +2274,16 @@ def _validate_realization_identity(
     if not lineage_source_edges <= declared_source_digests:
         raise ImportIdentityError(
             "Realization lineage source edge is not owned by the realization."
+        )
+    unreachable_source_digests = (
+        sorted(declared_source_digests - lineage_source_edges)
+        if lineage_components
+        else []
+    )
+    if unreachable_source_digests:
+        raise ImportIdentityError(
+            f"Realization source(s) {unreachable_source_digests} are not reachable "
+            "from any lineage component."
         )
 
     derivation_origin = result_origin["derivation_origin"]
@@ -2365,10 +2432,24 @@ def _validate_realization_identity(
             raise ImportIdentityError(
                 "repair_overlay requires at least one repair prediction origin."
             )
-    elif authorization_digest is not None or normalized_overlay is not None:
-        raise ImportIdentityError(
-            f"{derivation_origin} realization cannot claim repair authorization or overlay."
+    else:
+        if authorization_digest is not None or normalized_overlay is not None:
+            raise ImportIdentityError(
+                f"{derivation_origin} realization cannot claim repair authorization "
+                "or overlay."
+            )
+        incompatible_operations = sorted(
+            {
+                component["identity"]["operation_type"]
+                for component in lineage_components
+                if component["identity"]["operation_type"] != derivation_origin
+            }
         )
+        if incompatible_operations:
+            raise ImportIdentityError(
+                f"{derivation_origin} realization lineage components have "
+                f"incompatible operation type(s) {incompatible_operations}."
+            )
 
     normalized = {
         "import_spec_digest": raw["import_spec_digest"],
