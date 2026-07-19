@@ -28,7 +28,7 @@ generic importer module imports from here.
 from __future__ import annotations
 
 import ast
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from hashlib import sha256
 import csv
 import io
@@ -36,9 +36,24 @@ import json
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from choicebench.importing.csv_adapter import OpenedSource
+from choicebench.identity import short_id
+from choicebench.importing.csv_adapter import OpenedSource, parse_csv_source
 from choicebench.importing.dataset_reference import ExpectedDataset, build_expected_dataset
-from choicebench.importing.schema import DatasetReferenceSpec
+from choicebench.importing.evidence import open_verified_source
+from choicebench.importing.validation import compute_evidence_status, validate_source_rows
+from choicebench.importing.schema import (
+    AuthorizationSpec,
+    CsvDialectSpec,
+    DatasetReferenceSpec,
+    ImportConditionSpec,
+    ImportMethodSpec,
+    ImportModelSpec,
+    ImportPromptSpec,
+    ImportSpec,
+    OptionMappingSpec,
+    ResultOriginSpec,
+    SourceArtifactSpec,
+)
 
 STATUS_MAP = {
     "canonical_complete": "complete",
@@ -546,3 +561,424 @@ def build_stage1_expected_datasets(freeze_root: Path) -> dict[str, ExpectedDatas
             freeze_root, ledger, benchmark_name="mmlu", raw_recompute=_recompute_mmlu_fields,
         ),
     }
+
+
+# --- Full ImportSpec assembly (Task 16/Unit K remainder) --------------------
+#
+# Reduced scope, verified directly against the real freeze: all 102 cells
+# have observed_unique_count==1000 with zero missing/unexpected/duplicate
+# question IDs, so compute_evidence_status's "partial"/"recoverable"
+# branches (which need missing_ids) never trigger here -- every cell
+# reconciles to either "malformed" or "complete"/"qualified". The freeze's
+# own STATUS_MAP-mapped status is a scientific/methodology classification,
+# not always what ChoiceBench's generic row validator independently
+# computes: the 6 "recoverable" cells and the "mmlu independent_hypothesis"
+# "incomplete" cell have ZERO row-level defects (their defect -- option-
+# hiding, or a protocol-invalid option-A score after MAX_TOKENS termination
+# -- is invisible to generic validation, documented only via
+# damaged_question_ids/qualification narrative). So every condition's
+# declared evidence_status is reconciled via an actual probe
+# (validate_source_rows + compute_evidence_status), never trusted blindly
+# from STATUS_MAP. qualifications=({"reason": ...},) is pre-populated
+# whenever record["qualification"] is non-empty, so a cell with a
+# documented caveat but zero generic defects reconciles to "qualified"
+# rather than bare "complete".
+#
+# question_id/correct_option/prediction are the only source->identity
+# column mappings (question_text is deliberately NOT mapped), avoiding
+# noise from formatting differences between each run's own recorded
+# question_text and Unit J's normalized ExpectedDataset text --
+# correct_option is the meaningful invariant (a categorical answer key,
+# not prone to whitespace/formatting variance).
+#
+# Real queue reconciliation (verified directly against the freeze): 102
+# cells = 62 needing no repair (57 complete + 5 qualified) + 6 recoverable
+# (offline authority, 18 pairs, all arc_challenge/semantic_matching_v1) +
+# 32 malformed/incomplete, of which 31 cells are fully approved (138 pairs
+# total) and exactly 1 cell
+# (cbp__gemini-2-5-flash__arc_challenge__independent_hypothesis) is fully
+# HELD (687 questions, supervisor-stopped) + 2 excluded_from_paper_matrix
+# cells (both "pride"/qwen-2.5-7b-instruct-turbo), one of which also
+# carries 3 explicitly-excluded damaged questions in
+# paper_scope_excluded_reruns.csv. Held and excluded pairs must NOT
+# receive any authorization/overlay.
+
+_STAGE1_COLUMNS = {
+    "question_id": "question_id",
+    "correct_option": "correct_option",
+    "prediction": "parsed_choice",
+}
+_STAGE1_OPTION_COLUMNS = ("choice_a", "choice_b", "choice_c", "choice_d")
+_STAGE1_PROMPT_KEY = "stage1_freeze_v1"
+
+
+def _stage1_prompt() -> ImportPromptSpec:
+    return ImportPromptSpec(
+        prompt_key=_STAGE1_PROMPT_KEY,
+        template_identity=None,
+        template_digest=None,
+        template_contents=None,
+        unknown_reason=(
+            "Stage 1 freeze: each canonical CSV row preserves its own literal rendered "
+            "'prompt' text, but no single stable prompt-template identity/digest was "
+            "recorded across methods at the paper's authoring time; method_key already "
+            "captures the distinct prompting strategy."
+        ),
+        native_compatibility_identity=None,
+    )
+
+
+def _stage1_model(model_name: str, provider_backend: str) -> ImportModelSpec:
+    return ImportModelSpec(
+        model_key=model_name,
+        display_name=model_name,
+        backend=provider_backend,
+        provider=provider_backend,
+        revision=None,
+        effective_parameters={},
+        unknown_reasons={"revision": "not recorded by paper_data_freeze canonical manifest"},
+        native_compatibility_identity=None,
+    )
+
+
+def _stage1_method(method_name: str) -> ImportMethodSpec:
+    return ImportMethodSpec(
+        method_key=method_name,
+        name=method_name,
+        effective_parameters={},
+        implementation=None,
+        unknown_reasons={"implementation": "not recorded by paper_data_freeze canonical manifest"},
+        native_compatibility_identity=None,
+    )
+
+
+def _stage1_cell_source(
+    freeze_root: Path, ledger: Mapping[str, str], cell_id: str, record: Mapping[str, Any]
+) -> SourceArtifactSpec:
+    relative_path = record["canonical_path"]
+    ledger_digest = ledger.get(relative_path)
+    if ledger_digest is None:
+        raise Stage1ProfileError(f"{relative_path} has no checksum ledger entry.")
+    if ledger_digest != record["canonical_sha256"]:
+        raise Stage1ProfileError(
+            f"Cell {cell_id!r} canonical_sha256 disagrees with the checksum ledger for "
+            f"{relative_path}."
+        )
+    path = freeze_root / relative_path
+    with path.open(newline="", encoding="utf-8") as handle:
+        header = tuple(next(csv.reader(handle)))
+    required = set(_STAGE1_COLUMNS.values()) | set(_STAGE1_OPTION_COLUMNS)
+    missing = required - set(header)
+    if missing:
+        raise Stage1ProfileError(
+            f"Cell {cell_id!r} canonical CSV is missing column(s) {sorted(missing)}."
+        )
+    return SourceArtifactSpec(
+        source_id=cell_id,
+        path=path,
+        logical_path=relative_path,
+        expected_sha256=record["canonical_sha256"],
+        format="csv",
+        format_version="paper_data_freeze.v1",
+        classification="raw",
+        dialect=CsvDialectSpec(),
+        columns=dict(_STAGE1_COLUMNS),
+        expected_columns=header,
+        ignored_columns={},
+        null_values=("",),
+        numeric_columns=(),
+        option_mapping=OptionMappingSpec(
+            mode="ordered_columns",
+            ordered_columns=_STAGE1_OPTION_COLUMNS,
+            structured_column=None,
+            structured_label_key=None,
+            structured_text_key=None,
+        ),
+        extra_field_policy="preserve_unmapped",
+        preserve_namespace="stage1_paper_freeze",
+        source_run_id=None,
+        source_repository=None,
+        source_commit=None,
+        notes={
+            "cell_id": cell_id,
+            "declared_status": record["status"],
+            "final_status": record["final_status"],
+            "qualification": record.get("qualification") or "",
+        },
+    )
+
+
+def _stage1_normalized_dataset_source(
+    freeze_root: Path, ledger: Mapping[str, str], *, benchmark_name: str, source_id: str
+) -> SourceArtifactSpec:
+    """Documentation-only source declaration for the ARC/MMLU normalized
+    reference file: real path/checksum, but never opened by the generic
+    engine, since ImportRequest.expected_datasets overrides the per-source
+    ExpectedDataset rebuild with build_stage1_expected_datasets' own
+    revalidation/dedup chain (needed for MMLU's real duplicate question_ids,
+    which the generic rebuild would reject)."""
+    relative_path = _DATASET_RELATIVE_PATHS[benchmark_name]["normalized"]
+    expected_sha256 = ledger.get(relative_path)
+    if expected_sha256 is None:
+        raise Stage1ProfileError(f"{relative_path} has no checksum ledger entry.")
+    return SourceArtifactSpec(
+        source_id=source_id,
+        path=freeze_root / relative_path,
+        logical_path=relative_path,
+        expected_sha256=expected_sha256,
+        format="csv",
+        format_version="paper_data_freeze.v1",
+        classification="canonical",
+        dialect=CsvDialectSpec(),
+        columns={},
+        expected_columns=(),
+        ignored_columns={},
+        null_values=(),
+        numeric_columns=(),
+        option_mapping=OptionMappingSpec(
+            mode="ordered_columns", ordered_columns=(), structured_column=None,
+            structured_label_key=None, structured_text_key=None,
+        ),
+        extra_field_policy="preserve_unmapped",
+        preserve_namespace="stage1_paper_freeze",
+        source_run_id=None, source_repository=None, source_commit=None,
+        notes={"role": f"{benchmark_name}_expected_dataset_reference"},
+    )
+
+
+def _reconcile_evidence_status(
+    condition: ImportConditionSpec,
+    *,
+    source: SourceArtifactSpec,
+    freeze_root: Path,
+    dataset: ExpectedDataset,
+) -> ImportConditionSpec:
+    opened = open_verified_source(source, containment_root=freeze_root)
+    table = parse_csv_source(opened, source, strict=True)
+    validated = validate_source_rows(
+        table, source_id=source.source_id, mapping=source.columns, condition=condition, expected=dataset
+    )
+    computed, _ = compute_evidence_status(validated, condition=condition)
+    if computed != condition.evidence_status:
+        condition = replace(condition, evidence_status=computed)
+    return condition
+
+
+def build_stage1_import_spec(
+    freeze_root: Path,
+    translation: Stage1Translation,
+    expected_datasets: Mapping[str, ExpectedDataset],
+) -> ImportSpec:
+    freeze_root = Path(freeze_root)
+    ledger = _load_checksum_ledger(freeze_root)
+
+    dataset_source_ids = {
+        "arc_challenge": "arc_challenge_normalized_reference",
+        "mmlu": "mmlu_normalized_reference",
+    }
+    sources: list[SourceArtifactSpec] = [
+        _stage1_normalized_dataset_source(
+            freeze_root, ledger, benchmark_name=benchmark_name, source_id=source_id
+        )
+        for benchmark_name, source_id in dataset_source_ids.items()
+    ]
+
+    conditions: list[ImportConditionSpec] = []
+    models_by_key: dict[str, ImportModelSpec] = {}
+    methods_by_key: dict[str, ImportMethodSpec] = {}
+    prompt = _stage1_prompt()
+
+    for cell_id in sorted(translation.cell_records):
+        record = translation.cell_records[cell_id]
+        source = _stage1_cell_source(freeze_root, ledger, cell_id, record)
+        sources.append(source)
+
+        model_name = record["model"]
+        if model_name not in models_by_key:
+            models_by_key[model_name] = _stage1_model(model_name, record["provider_backend"])
+        method_name = record["method"]
+        if method_name not in methods_by_key:
+            methods_by_key[method_name] = _stage1_method(method_name)
+
+        benchmark = record["benchmark"]
+        dataset = expected_datasets[benchmark]
+        scope_disposition = (
+            "excluded_from_paper_matrix" if record["final_status"] == _EXCLUDED_STATUS else "included"
+        )
+        qualification_text = record.get("qualification") or ""
+        qualifications = ({"reason": qualification_text},) if qualification_text else ()
+
+        condition = ImportConditionSpec(
+            condition_key=cell_id,
+            source_ids=(cell_id,),
+            dataset_id=benchmark,
+            model_key=model_name,
+            method_key=method_name,
+            prompt_key=prompt.prompt_key,
+            seed=42,
+            calibration_identity=None,
+            preflight_identity=None,
+            protocol_settings={},
+            generation_parameters={"temperature": 0.0},
+            unknown_reasons={
+                "calibration_identity": "not recorded by paper_data_freeze canonical manifest",
+                "preflight_identity": "not recorded by paper_data_freeze canonical manifest",
+            },
+            expected_question_ids=dataset.selected_question_ids,
+            evidence_status=STATUS_MAP.get(record["status"], "complete"),
+            scope_disposition=scope_disposition,
+            executable=None,
+            qualifications=qualifications,
+            limitations=(),
+            damaged_question_ids=tuple(record["damaged_question_ids"]),
+            recoverable_question_ids=tuple(record["recoverable_question_ids"]),
+            result_origin=ResultOriginSpec(
+                derivation_origin="external_import",
+                default_prediction_origin="external_historical_inference",
+                per_question_prediction_origins={},
+            ),
+        )
+        condition = _reconcile_evidence_status(
+            condition, source=source, freeze_root=freeze_root, dataset=dataset
+        )
+        conditions.append(condition)
+
+    datasets = tuple(
+        DatasetReferenceSpec(
+            dataset_id=benchmark_name,
+            benchmark_name=benchmark_name,
+            split="robustness",
+            reference_kind="independent_input_snapshot",
+            trust_label="checksum_verified_freeze_internal",
+            source_ids=(dataset_source_ids[benchmark_name],),
+            selection_source_id=dataset_source_ids[benchmark_name],
+            expected_question_ids=expected_datasets[benchmark_name].selected_question_ids,
+            selection_seed=None,
+            selection_n_samples=None,
+            subject_filter=(),
+            selection_unknown_reasons={},
+            columns={},
+            revision=None,
+            fingerprint=None,
+            derivation={},
+            limitations=(),
+            native_compatibility_identity=None,
+        )
+        for benchmark_name in ("arc_challenge", "mmlu")
+    )
+    # This DatasetReferenceSpec is documentation-only -- the real
+    # ExpectedDataset comes from ImportRequest.expected_datasets, built by
+    # build_stage1_expected_datasets' own revalidation/dedup chain, which
+    # build_import_plan's generic per-source rebuild cannot reproduce for
+    # MMLU's real duplicate question_ids (build_import_plan skips its own
+    # per-declaration rebuild entirely whenever expected_datasets is
+    # supplied, so this declaration's source_ids are never actually opened).
+
+    return ImportSpec(
+        schema_version="choicebench.import-spec.v1",
+        import_name="Stage 1 paper data freeze",
+        sources=tuple(sources),
+        datasets=datasets,
+        models=tuple(models_by_key.values()),
+        methods=tuple(methods_by_key.values()),
+        prompts=(prompt,),
+        conditions=tuple(conditions),
+        authorizations=(),
+        overlays=(),
+        metrics=["accuracy"],
+        provenance={"producer_request_id": {"value": None, "reason": "paper_data_freeze import"}},
+        audit={"source_location": str(freeze_root)},
+    )
+
+
+# --- Per-cell authorization bundle -------------------------------------
+#
+# IMPORTANT, verified by reading derive_overlay's own cross-check
+# (overlays.py): a ValidatedAuthorization's input_evidence_digests is the
+# WHOLE bundle's input_evidence_digests, unsliced by
+# authorization_for_condition -- and derive_overlay requires
+# overlay.base_evidence_digests to match it key-for-key AND every one of
+# those keys to also appear in the base realization's OWN
+# evidence_source_digests. Since every Stage 1 cell has exactly one
+# source, a bundle whose input_evidence_digests spans more than one cell
+# can never satisfy that check for any single cell's overlay. So each
+# AuthorizationSpec here is deliberately scoped to exactly ONE cell/
+# condition (one grants key, one evidence-digest key) -- NOT one bundle
+# for all 31 approved cells or all 6 recoverable cells at once.
+
+def build_stage1_cell_authorization(
+    freeze_root: Path,
+    ledger: Mapping[str, str],
+    *,
+    cell_id: str,
+    condition_digest: str,
+    authorization_type: str,
+    question_reasons: Mapping[str, str],
+    dataset_snapshot_digest: str,
+    cell_evidence_sha256: str,
+) -> tuple[AuthorizationSpec, SourceArtifactSpec]:
+    if authorization_type == "inference_repair":
+        relative_path = "manifests/approved_rerun_queue.csv"
+        executable = True
+    elif authorization_type == "offline_transformation":
+        relative_path = "manifests/canonical_results_manifest.csv"
+        executable = False
+    else:
+        raise Stage1ProfileError(f"Unsupported authorization_type {authorization_type!r}.")
+
+    expected_sha256 = ledger.get(relative_path)
+    if expected_sha256 is None:
+        raise Stage1ProfileError(f"{relative_path} has no checksum ledger entry.")
+    source_id = f"{cell_id}__{authorization_type}_authorization_source"
+    source = SourceArtifactSpec(
+        source_id=source_id,
+        path=freeze_root / relative_path,
+        logical_path=relative_path,
+        expected_sha256=expected_sha256,
+        format="csv",
+        format_version="paper_data_freeze.v1",
+        classification="canonical",
+        dialect=CsvDialectSpec(),
+        columns={},
+        expected_columns=(),
+        ignored_columns={},
+        null_values=(),
+        numeric_columns=(),
+        option_mapping=OptionMappingSpec(
+            mode="ordered_columns", ordered_columns=(), structured_column=None,
+            structured_label_key=None, structured_text_key=None,
+        ),
+        extra_field_policy="preserve_unmapped",
+        preserve_namespace="stage1_paper_freeze",
+        source_run_id=None, source_repository=None, source_commit=None,
+        notes={"role": f"{authorization_type}_authorization_evidence", "cell_id": cell_id},
+    )
+
+    purpose = (
+        "Stage 1 approved rerun repair" if authorization_type == "inference_repair"
+        else "Stage 1 offline-recoverable semantic rematch"
+    )
+    payload = {
+        "schema_version": "choicebench.authorization-bundle.v1",
+        "authorization_type": authorization_type,
+        "grants": {condition_digest: dict(question_reasons)},
+        "authority": "paper_data_freeze.manifests",
+        "purpose": purpose,
+        "executable": executable,
+        "source_sha256": expected_sha256,
+        "input_evidence_digests": {cell_id: cell_evidence_sha256},
+        "expected_snapshot_digests": {condition_digest: dataset_snapshot_digest},
+    }
+    authorization_id = short_id("auth", payload)
+    authorization = AuthorizationSpec(
+        authorization_id=authorization_id,
+        authorization_type=authorization_type,
+        source_id=source_id,
+        condition_question_reasons={condition_digest: dict(question_reasons)},
+        authority="paper_data_freeze.manifests",
+        purpose=purpose,
+        executable=executable,
+        input_evidence_digests={cell_id: cell_evidence_sha256},
+        expected_snapshot_digests={condition_digest: dataset_snapshot_digest},
+    )
+    return authorization, source
