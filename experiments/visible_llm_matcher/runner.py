@@ -18,6 +18,21 @@
 # are verified NOT behavior-identical — see historical_protocol.py's module
 # docstring).
 #
+# EXCEPTION, audited repair only: the historical protocol's 4-slot
+# serialization renders a missing 4th option as literal "D. nan" — a real
+# prompt defect at Stage-1 elicitation time for the 3 genuinely-3-option ARC
+# questions (see stage1_sources.KNOWN_3OPTION_ARC_QUESTION_IDS), which is
+# exactly what corrected replacement Stage-1 rows exist to fix. For THESE 3
+# question_ids only, Stage 2 renders via repaired_stage2.py's dedicated
+# A/B/C-only template instead of historical_protocol.build_option_matching_prompt
+# — otherwise Stage 2 would silently reintroduce the same phantom-option
+# contamination one stage later. historical_protocol.py itself is untouched
+# and its D.nan-producing output is retained only as provenance/regression
+# evidence (tests/experiments/test_historical_protocol.py); it is not called
+# by this runner for these 3 IDs. Every other row (all ordinary 4-option
+# questions) still goes through the byte-faithful historical path — see
+# _option_is_missing() and its use in run_one() below.
+#
 # This is deliberately NOT registered in choicebench.registry.METHOD_REGISTRY
 # and does not live under src/choicebench/methods/. Per the user's
 # instruction to keep this as custom experiment code rather than expand the
@@ -48,6 +63,8 @@
 
 from __future__ import annotations
 
+import math
+from pathlib import Path
 from typing import Any
 
 from choicebench.methods.base import ExperimentRunner
@@ -59,6 +76,26 @@ from experiments.visible_llm_matcher.historical_protocol import (
     build_option_matching_prompt,
     parse_model_answer,
 )
+from experiments.visible_llm_matcher.repaired_stage2 import (
+    REPAIRED_3OPTION_TEMPLATE_NAME,
+    build_repaired_3option_matching_prompt,
+)
+from experiments.visible_llm_matcher.stage1_sources import KNOWN_3OPTION_ARC_QUESTION_IDS
+
+
+def _option_is_missing(value: object) -> bool:
+    """True for None, NaN, or an empty/whitespace-only string.
+
+    Used only to decide which Stage-2 template to render (see run_one) —
+    not a parsing/scoring change.
+    """
+    if value is None:
+        return True
+    if isinstance(value, float) and math.isnan(value):
+        return True
+    if isinstance(value, str) and value.strip() == "":
+        return True
+    return False
 
 
 class VisibleLlmMatcherRunner(ExperimentRunner):
@@ -72,12 +109,22 @@ class VisibleLlmMatcherRunner(ExperimentRunner):
 
     def __init__(
         self,
-        *args,
+        *,
+        prompts_dir: Path,
+        prompt_version: str,
         stage1_lookup: dict[str, dict[str, Any]],
         **kwargs,
     ) -> None:
         """
         Args:
+            prompts_dir: Root prompt bundle directory, forwarded to
+                ExperimentRunner AND used here to separately load the
+                repaired 3-option template (see below) — kept as an
+                explicit keyword-only param, rather than fished out of
+                **kwargs, so this constructor fails loudly and immediately
+                if it's missing, instead of failing confusingly later.
+            prompt_version: Forwarded to ExperimentRunner and used the same
+                way as prompts_dir above.
             stage1_lookup: question_id -> row dict with at least
                 free_text_response, choice_a, choice_b, choice_c, choice_d.
                 Must be the output of
@@ -87,13 +134,21 @@ class VisibleLlmMatcherRunner(ExperimentRunner):
                 re-validate contamination/completeness; that is
                 stage1_sources.py's job, kept separate so this class stays
                 a plain per-question ExperimentRunner.
-            *args, **kwargs: forwarded to ExperimentRunner (backend,
-                method_name, split_name, prompt_version, prompts_dir,
-                run_id, temperature, max_tokens, seed, perturbation_name,
-                model_label).
+            **kwargs: forwarded to ExperimentRunner (backend, method_name,
+                split_name, run_id, temperature, max_tokens, seed,
+                perturbation_name, model_label).
         """
-        super().__init__(*args, **kwargs)
+        super().__init__(prompts_dir=prompts_dir, prompt_version=prompt_version, **kwargs)
         self._stage1_lookup = stage1_lookup
+        # choicebench.methods.base.ExperimentRunner._prompts only loads the
+        # 3 fixed built-in template names (direct_mcq, free_text,
+        # option_matching). The repaired 3-option template is this
+        # experiment's own addition, so it is loaded separately here rather
+        # than by widening the shared base-class loader's fixed name list.
+        repaired_template_path = (
+            Path(prompts_dir) / prompt_version / f"{REPAIRED_3OPTION_TEMPLATE_NAME}.txt"
+        )
+        self._repaired_3option_template = repaired_template_path.read_text(encoding="utf-8")
 
     def run_one(self, question_row: Any, sample_index: int) -> dict:
         """Execute Stage 2 only for one question.
@@ -123,15 +178,44 @@ class VisibleLlmMatcherRunner(ExperimentRunner):
 
         free_text_answer = stage1_row["free_text_response"]
 
-        matching_prompt = build_option_matching_prompt(
-            template=self._prompts["option_matching"],
-            question=question_row["question_text"],
-            free_text=free_text_answer,
-            option_a=question_row["choice_a"],
-            option_b=question_row["choice_b"],
-            option_c=question_row["choice_c"],
-            option_d=question_row["choice_d"],
-        )
+        option_d_missing = _option_is_missing(question_row["choice_d"])
+        if option_d_missing and question_id not in KNOWN_3OPTION_ARC_QUESTION_IDS:
+            # Defense in depth: stage1_sources.load_and_validate_stage1()
+            # should already have rejected this upstream. If a row somehow
+            # reaches the runner with a missing 4th option outside the
+            # audited repair set, refuse rather than silently rendering
+            # "D. nan" (or an empty D line) for an unaudited question.
+            raise ValueError(
+                f"question_id={question_id!r} has a missing option_d but is "
+                "not in KNOWN_3OPTION_ARC_QUESTION_IDS. Refusing to render "
+                "either the historical 4-slot template (would produce "
+                "'D. nan'/an empty D) or the repaired 3-option template "
+                "(reserved for the audited repair set only) for an "
+                "unaudited missing-option row."
+            )
+
+        if option_d_missing:
+            # Audited repair path: exactly the 3 known 3-option ARC
+            # questions. Renders A/B/C only — see repaired_stage2.py.
+            matching_prompt = build_repaired_3option_matching_prompt(
+                template=self._repaired_3option_template,
+                question=question_row["question_text"],
+                free_text=free_text_answer,
+                option_a=question_row["choice_a"],
+                option_b=question_row["choice_b"],
+                option_c=question_row["choice_c"],
+            )
+        else:
+            # Ordinary 4-option row: byte-faithful historical protocol.
+            matching_prompt = build_option_matching_prompt(
+                template=self._prompts["option_matching"],
+                question=question_row["question_text"],
+                free_text=free_text_answer,
+                option_a=question_row["choice_a"],
+                option_b=question_row["choice_b"],
+                option_c=question_row["choice_c"],
+                option_d=question_row["choice_d"],
+            )
         matching_response = self._call_backend_generate(matching_prompt)
 
         parsed_result = None

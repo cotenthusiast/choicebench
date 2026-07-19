@@ -20,7 +20,9 @@ import pytest
 
 from choicebench.scoring.types import SCORE_CORRECT, SCORE_INCORRECT, SCORE_UNSCORABLE
 
+from experiments.visible_llm_matcher.historical_protocol import build_option_matching_prompt
 from experiments.visible_llm_matcher.runner import VisibleLlmMatcherRunner
+from experiments.visible_llm_matcher.stage1_sources import KNOWN_3OPTION_ARC_QUESTION_IDS
 from tests.runners.conftest import MockBackend
 
 _PROMPTS_DIR = Path(__file__).resolve().parents[2] / "experiments" / "visible_llm_matcher" / "prompts"
@@ -146,63 +148,163 @@ class TestScoringMatchesLlmMatcherOutcome:
         assert result["score_status"] is None
 
 
-class TestHistoricalNanSerializationIsPreserved:
-    def test_missing_option_d_renders_literal_nan_not_dropped(self, stage1_lookup):
-        """The sibling cells' own Stage-2/Stage-1 protocol renders a missing
-        4th option as literal "D. nan" (verified against real historical
-        data in test_historical_protocol.py). VisibleLlmMatcherRunner must
-        reproduce that, not "fix" it — see historical_protocol.py and
-        stage1_sources.py module docstrings for why.
-        """
+_REPAIRED_ROW_TEMPLATE = {
+    "subject": "arc_challenge",
+    "question_text": "A toy truck rolls over a smooth surface...",
+    "choice_a": "slower",
+    "choice_b": "faster",
+    "choice_c": "at the same speed",
+    "choice_d": math.nan,
+    "correct_option": "A",
+}
+
+def _repaired_row(question_id: str) -> dict:
+    return {"question_id": question_id, **_REPAIRED_ROW_TEMPLATE}
+
+
+def _repaired_lookup(question_id: str, free_text: str = "The truck will most likely roll slower.") -> dict:
+    return {
+        question_id: {
+            "free_text_response": free_text,
+            "_source_repo": "corrected_replacement",
+            "_source_path": "<corrected replacement, supplied later>",
+        }
+    }
+
+
+class TestContaminatedRowsAreRejected:
+    """Production-path (defense in depth) counterpart to
+    stage1_sources.py's own fail-closed contamination tests: even if a
+    missing-4th-option row somehow reached the runner without going through
+    load_and_validate_stage1() first, the runner itself must still refuse
+    rather than silently render a 4-slot prompt for an unaudited question.
+    """
+
+    def test_missing_option_d_outside_the_audited_repair_set_raises(self, stage1_lookup):
         row = {
-            "question_id": "79e8c959bbeb74a0",
+            "question_id": "some_other_arc_question_not_in_repair_set",
             "subject": "arc_challenge",
-            "question_text": "A toy truck rolls over a smooth surface...",
-            "choice_a": "slower",
-            "choice_b": "faster",
-            "choice_c": "at the same speed",
+            "question_text": "Some other question with a missing option.",
+            "choice_a": "a",
+            "choice_b": "b",
+            "choice_c": "c",
             "choice_d": math.nan,
             "correct_option": "A",
         }
         lookup = {
-            "79e8c959bbeb74a0": {
-                "free_text_response": "The truck will most likely roll slower.",
-                "_source_repo": "two-stage-prompting",
-                "_source_path": "corrected_replacement_placeholder",
-            }
-        }
-        backend = MockBackend(responses=["A"])
-        result = _make_runner(backend, lookup).run_one(row, sample_index=0)
-
-        assert "D. nan" in result["prompt"]
-
-    def test_parser_does_not_restrict_to_real_option_letters(self, stage1_lookup):
-        """Faithful reproduction of TSP's parser: even for this 3-option
-        question, a bare "D" in the response is still accepted as
-        final_choice == "D" (an unscorable-against-gold but PARSE_OK
-        result) — matching two_prompt's own historical Stage-2 parsing,
-        not choicebench.parsing.parser's stricter real-letters-only
-        behavior.
-        """
-        row = {
-            "question_id": "79e8c959bbeb74a0",
-            "subject": "arc_challenge",
-            "question_text": "A toy truck rolls over a smooth surface...",
-            "choice_a": "slower",
-            "choice_b": "faster",
-            "choice_c": "at the same speed",
-            "choice_d": math.nan,
-            "correct_option": "A",
-        }
-        lookup = {
-            "79e8c959bbeb74a0": {
-                "free_text_response": "The truck will most likely roll slower.",
+            row["question_id"]: {
+                "free_text_response": "a",
                 "_source_repo": "two-stage-prompting",
                 "_source_path": "x",
             }
         }
-        backend = MockBackend(responses=["D"])
+        backend = MockBackend(responses=["A"])
+
+        with pytest.raises(ValueError, match="not in KNOWN_3OPTION_ARC_QUESTION_IDS"):
+            _make_runner(backend, lookup).run_one(row, sample_index=0)
+
+        assert len(backend.requests_received) == 0
+
+    def test_known_repair_id_with_empty_string_option_d_also_takes_repaired_path(self, stage1_lookup):
+        """choice_d may arrive as an empty string rather than NaN depending
+        on the CSV round-trip — both must be treated as "missing", not just
+        NaN.
+        """
+        row = _repaired_row("79e8c959bbeb74a0")
+        row["choice_d"] = ""
+        lookup = _repaired_lookup("79e8c959bbeb74a0")
+        backend = MockBackend(responses=["A"])
+
         result = _make_runner(backend, lookup).run_one(row, sample_index=0)
+
+        assert "D." not in result["prompt"]
+
+
+class TestRepairedThreeOptionRows:
+    """Corrected replacement rows for the 3 audited-repair ARC questions
+    must produce an A/B/C-only Stage-2 prompt — no D line, no "nan", no
+    empty 4th option. This is the production-path behavior; the OLD
+    D.nan-producing historical behavior is retained only as provenance
+    evidence in test_historical_protocol.py and is no longer reachable from
+    this runner for these question_ids.
+    """
+
+    @pytest.mark.parametrize("question_id", sorted(KNOWN_3OPTION_ARC_QUESTION_IDS))
+    def test_produces_abc_only_prompt_for_every_known_repair_id(self, question_id):
+        row = _repaired_row(question_id)
+        lookup = _repaired_lookup(question_id)
+        backend = MockBackend(responses=["A"])
+
+        result = _make_runner(backend, lookup).run_one(row, sample_index=0)
+
+        prompt = result["prompt"]
+        assert "nan" not in prompt.lower()
+        assert "D." not in prompt
+        assert "D " not in prompt
+        assert "A. slower" in prompt
+        assert "B. faster" in prompt
+        assert "C. at the same speed" in prompt
+        assert "and three options" in prompt
+
+    def test_repaired_prompt_uses_the_reused_free_text(self):
+        row = _repaired_row("79e8c959bbeb74a0")
+        lookup = _repaired_lookup("79e8c959bbeb74a0", free_text="corrected answer text")
+        backend = MockBackend(responses=["A"])
+
+        result = _make_runner(backend, lookup).run_one(row, sample_index=0)
+
+        assert "Reference answer: corrected answer text" in result["prompt"]
+
+    def test_repaired_row_still_makes_exactly_one_backend_call(self):
+        row = _repaired_row("79e8c959bbeb74a0")
+        lookup = _repaired_lookup("79e8c959bbeb74a0")
+        backend = MockBackend(responses=["A"])
+
+        _make_runner(backend, lookup).run_one(row, sample_index=0)
+
+        assert len(backend.requests_received) == 1
+
+    def test_repaired_row_is_still_scorable(self):
+        row = _repaired_row("79e8c959bbeb74a0")
+        lookup = _repaired_lookup("79e8c959bbeb74a0")
+        backend = MockBackend(responses=["A"])
+
+        result = _make_runner(backend, lookup).run_one(row, sample_index=0)
+
+        assert result["parsed_choice"] == "A"
+        assert result["is_correct"] is True
+
+
+class TestOrdinaryFourOptionRowsStayByteFaithful:
+    def test_matches_historical_protocol_output_directly(self, question_row, stage1_lookup):
+        """Byte-compare the runner's rendered Stage-2 prompt against calling
+        historical_protocol.build_option_matching_prompt directly with the
+        same inputs — proves the ordinary (4-option) path was not touched
+        by the variable-option repair.
+        """
+        backend = MockBackend(responses=["C"])
+        result = _make_runner(backend, stage1_lookup).run_one(question_row, sample_index=0)
+
+        expected = build_option_matching_prompt(
+            template=open(_PROMPTS_DIR / "v1" / "option_matching.txt", encoding="utf-8").read(),
+            question=question_row["question_text"],
+            free_text="HTTPS",
+            option_a="FTP",
+            option_b="HTTP",
+            option_c="HTTPS",
+            option_d="SMTP",
+        )
+        assert result["prompt"] == expected
+
+    def test_parser_does_not_restrict_to_real_option_letters(self, question_row, stage1_lookup):
+        """Faithful reproduction of TSP's parser for an ordinary 4-option
+        row (unaffected by the variable-option repair, which only changes
+        Stage-2 *serialization* for the 3 known 3-option questions, not
+        parsing behavior anywhere — see instruction not to modernize the
+        historical parser).
+        """
+        backend = MockBackend(responses=["D"])
+        result = _make_runner(backend, stage1_lookup).run_one(question_row, sample_index=0)
 
         assert result["parsed_choice"] == "D"
         assert result["is_correct"] is False

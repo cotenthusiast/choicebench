@@ -56,11 +56,22 @@ executable proof.
   reachable only via the `"module.path:ClassName"` external-method syntax
   documented in the ChoiceBench README, per the instruction to keep this as
   custom experiment code rather than expand the shipped method surface.
+- `repaired_stage2.py` + `prompts/v1/option_matching_repaired_3option.txt` —
+  narrow, audited-repair-only Stage-2 builder used exclusively for the 3
+  known 3-option ARC questions (see next section). Renders A/B/C only —
+  never `D. nan`, never an empty D. `historical_protocol.py` itself is
+  untouched; its 4-slot output is retained only as provenance evidence and
+  is no longer reachable from `runner.py` for these 3 question_ids.
+- `arc_question_id_mapping.py` — resolves the 6 ARC question_ids where
+  TSP's historical hash disagrees with ChoiceBench's own trusted
+  `data/processed/arc_challenge_normalized.csv` hash (see "ARC question_id
+  mismatches" below).
 - `../../tests/experiments/` — `test_historical_protocol.py` (includes a
   byte-for-byte regression test against a real, already-published
   `two_prompt` Stage-2 prompt), `test_stage1_sources.py` (fail-closed
-  behavior), `test_runner.py` (call-count isolation, provenance, historical
-  quirk preservation).
+  behavior), `test_runner.py` (call-count isolation, provenance, the
+  variable-option repair, and historical-protocol fidelity for ordinary
+  rows), `test_arc_question_id_mapping.py`.
 
 ## The 3 contaminated ARC-Challenge questions
 
@@ -93,14 +104,66 @@ case) rather than TSP's static 4-slot template. That CSV would be passed as
 replacement source instead of new inference — still to be confirmed against
 the corrected local ARC set as a whole, not assumed.
 
-Note Stage 2 is unaffected either way: `option_matching.txt`'s static
-`option_a`..`option_d` slots still render the corrected rows' missing 4th
-option as `D. nan`, exactly matching `two_prompt`'s own published Stage 2
-for these same 3 questions. See `historical_protocol.py`'s module docstring
-for why that is intentional, not a bug to fix.
+**Stage 2 is now repaired too, for these 3 rows only.** `option_matching.txt`'s
+static 4-slot template would still render these rows' missing 4th option as
+`D. nan` if used unchanged — reintroducing the same phantom-option
+contamination one stage later. `runner.py` detects a missing `choice_d` and,
+for exactly these 3 audited question_ids, renders through
+`repaired_stage2.py`'s dedicated 3-option template instead — real A/B/C
+options only. `historical_protocol.build_option_matching_prompt` is
+unmodified and still used for every ordinary 4-option row, and its `D. nan`
+output for these 3 rows is preserved as provenance/regression evidence in
+`test_historical_protocol.py` — it is simply no longer on the production
+path for them. A missing `choice_d` on any *other* question_id (i.e. outside
+the audited set) makes the runner raise rather than guess.
+
+## ARC question_id mismatches (resolved 3 of 6, 3 blocked)
+
+TSP's own `question_id` (used throughout this experiment, since Stage 1 is
+reused as-is) is not the identifier ChoiceBench's Stage-1-freeze/import
+workflow expects — that workflow keys everything off ChoiceBench's own
+`arc_challenge_normalized.csv` hash. Comparing all 1000 reused ARC rows by
+question text + ordered real options + gold answer against that trusted
+dataset found 6 mismatches, in two distinct categories
+(`arc_question_id_mapping.py`):
+
+**3 resolved (hash-only, content identical)** — exactly the 3 known
+3-option questions above. TSP's id-hash formula includes an empty 4th slot
+for a missing option; ChoiceBench's omits it entirely from the hash input.
+Same question, same 3 real options, same gold answer, different hash
+string. Mapped directly:
+
+| TSP `question_id` | ChoiceBench `question_id` |
+|---|---|
+| `79e8c959bbeb74a0` | `e3d2e85eb821d276` |
+| `ad6b5d46ae54842c` | `3d671e2f1721290d` |
+| `c30e75b011696a95` | `ed9db36b3d68e1f7` |
+
+**3 blocked — genuine content difference, not a hashing artifact.**
+ChoiceBench's trusted ARC dataset has a real 5th option (label E) for these
+3 questions that is **absent from every historical TSP row**, including the
+already-published `two_prompt`/`text_extraction` cells — traced to
+`two-stage-prompting`'s `benchmarks/arc.py`, whose normalizer only ever
+extracts labels A–D and has no handling for a 5th option at all. This means
+the model was never shown the true full option set for these 3 questions in
+*any* historical TSP cell, not just this experiment's reused Stage 1 — a
+more severe issue than the phantom-`D. nan` one, and one this experiment
+did not create. Per instruction, **not resolved here** —
+`translate_tsp_arc_question_id()` raises `MismatchBlockedError` for these:
+
+| TSP `question_id` | ChoiceBench `question_id` | Question | Missing option E |
+|---|---|---|---|
+| `f87cb129d9aa26c0` | `be30ca6f5bbf0daf` | "How are warm-blooded animals different from cold-blooded animals?" | "Warm-blooded animals are found only in warm climates." |
+| `e970a6b50d905595` | `751926ea49e0b65b` | "Sally placed electrodes into a beaker..." | "a hypothesis" |
+| `8aec8773c1d6b508` | `97e41313a7c454ea` | "Years ago farmers found that corn plants grew better..." | "water" |
+
+See the top-level report to the user for the explicit stop-and-ask on these
+3. The remaining 994/1000 ARC questions already hash identically in both
+repos and need no translation.
 
 ## Not done in this phase
 
 No YAML run config, no benchmark-grid wiring, no inference call. This is
-Stage-2-protocol implementation plus fail-closed Stage-1 reuse plus tests
-only, per instruction.
+Stage-2-protocol implementation, the audited 3-option Stage-2 repair,
+fail-closed Stage-1 reuse, the ARC question_id mapping, and tests only, per
+instruction.
