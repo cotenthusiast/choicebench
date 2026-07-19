@@ -345,3 +345,111 @@ class TestIsolationFromSiblingCells:
         assert "C. HTTPS" in prompt
         assert "D. SMTP" in prompt
         assert "Respond with only the letter." in prompt
+
+
+# The 3 questions where the upstream allenai/ai2_arc source has a real 5th
+# (E) option that the historical normalizer never extracted (see
+# arc_freeze_validation.KNOWN_UPSTREAM_MISSING_OPTION_E_IDS). Content below
+# is copied verbatim from the immutable Stage 1 freeze's
+# arc_challenge_normalized.csv, NOT from ChoiceBench's current
+# independently-renormalized dataset (which does carry the 5th option and
+# is the wrong authority for this comparison).
+_FROZEN_MISSING_E_ROWS = {
+    "f87cb129d9aa26c0": {
+        "question_text": "How are warm-blooded animals different from cold-blooded animals?",
+        "choice_a": "Warm-blooded animals have a higher metabolism in warm weather.",
+        "choice_b": "Warm-blooded animals are more aggressive in captivity.",
+        "choice_c": "Warm-blooded animals always have a higher blood temperature.",
+        "choice_d": "Warm-blooded animals normally maintain a fairly constant internal temperature at all air temperatures.",
+        "correct_option": "D",
+    },
+    "e970a6b50d905595": {
+        "question_text": (
+            'Sally placed electrodes into a beaker containing a solution and connected the '
+            'electrodes to a batter. Part of Sally\'s report stated "Bubbles were given off at '
+            'one of the electrodes." The statement is'
+        ),
+        "choice_a": "an observation",
+        "choice_b": "a prediction",
+        "choice_c": "a conclusion",
+        "choice_d": "a theory",
+        "correct_option": "A",
+    },
+    "8aec8773c1d6b508": {
+        "question_text": (
+            "Years ago farmers found that corn plants grew better if decaying fish were buried "
+            "near by. What did the decaying fish probably supply to the plants to improve their "
+            "growth?"
+        ),
+        "choice_a": "energy",
+        "choice_b": "minerals",
+        "choice_c": "protein",
+        "choice_d": "oxygen",
+        "correct_option": "B",
+    },
+}
+
+
+class TestFrozenMissingOptionERowsStayOnTheHistoricalPath:
+    """Requirement: the three frozen A-D rows remain consistent with the
+    historical cells. These 3 questions have a real 5th (E) option upstream
+    that the historical normalizer never extracted (see
+    arc_freeze_validation.py) — the frozen, already-used-by-every-historical-
+    cell representation is exactly 4 options (A-D), and this experiment must
+    keep using that A-D representation unchanged. Concretely: choice_d is
+    POPULATED for these rows (unlike the 3 genuine 3-option repair rows), so
+    they must go through the ordinary historical 4-slot Stage-2 path, not
+    the repaired 3-option path — and never gain a synthetic 5th option.
+    """
+
+    @pytest.mark.parametrize("question_id", sorted(_FROZEN_MISSING_E_ROWS))
+    def test_takes_the_ordinary_four_option_path_not_the_repaired_path(self, question_id):
+        frozen = _FROZEN_MISSING_E_ROWS[question_id]
+        row = {"question_id": question_id, "subject": "arc_challenge", **frozen}
+        lookup = {
+            question_id: {
+                "free_text_response": "some reused free-text answer",
+                "_source_repo": "two-stage-prompting",
+                "_source_path": "x",
+            }
+        }
+        backend = MockBackend(responses=["A"])
+
+        result = _make_runner(backend, lookup).run_one(row, sample_index=0)
+
+        prompt = result["prompt"]
+        assert "and four options." in prompt  # NOT "and three options."
+        assert f"A. {frozen['choice_a']}" in prompt
+        assert f"B. {frozen['choice_b']}" in prompt
+        assert f"C. {frozen['choice_c']}" in prompt
+        assert f"D. {frozen['choice_d']}" in prompt
+        # No 5th option was ever available to render, and nothing in the
+        # runner invents one — a 5th "E." line existing at all would only
+        # be possible if a caller passed one in, which nothing here does.
+        assert "\nE." not in prompt
+
+    @pytest.mark.parametrize("question_id", sorted(_FROZEN_MISSING_E_ROWS))
+    def test_byte_matches_historical_protocol_directly(self, question_id):
+        frozen = _FROZEN_MISSING_E_ROWS[question_id]
+        row = {"question_id": question_id, "subject": "arc_challenge", **frozen}
+        lookup = {
+            question_id: {
+                "free_text_response": "some reused free-text answer",
+                "_source_repo": "two-stage-prompting",
+                "_source_path": "x",
+            }
+        }
+        backend = MockBackend(responses=["A"])
+
+        result = _make_runner(backend, lookup).run_one(row, sample_index=0)
+
+        expected = build_option_matching_prompt(
+            template=open(_PROMPTS_DIR / "v1" / "option_matching.txt", encoding="utf-8").read(),
+            question=frozen["question_text"],
+            free_text="some reused free-text answer",
+            option_a=frozen["choice_a"],
+            option_b=frozen["choice_b"],
+            option_c=frozen["choice_c"],
+            option_d=frozen["choice_d"],
+        )
+        assert result["prompt"] == expected

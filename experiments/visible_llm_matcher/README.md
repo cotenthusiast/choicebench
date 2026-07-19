@@ -62,16 +62,21 @@ executable proof.
   never `D. nan`, never an empty D. `historical_protocol.py` itself is
   untouched; its 4-slot output is retained only as provenance evidence and
   is no longer reachable from `runner.py` for these 3 question_ids.
-- `arc_question_id_mapping.py` — resolves the 6 ARC question_ids where
-  TSP's historical hash disagrees with ChoiceBench's own trusted
-  `data/processed/arc_challenge_normalized.csv` hash (see "ARC question_id
-  mismatches" below).
+- `arc_freeze_validation.py` — checksum-verifies and validates all 1000
+  reused ARC rows against the **immutable Stage 1 freeze**
+  (`model-generalization/paper_data_freeze/raw/local_model_generalization/`),
+  which is the correct authority for this paper experiment — see "ARC
+  question_id verification" below. (An earlier version of this file
+  compared against ChoiceBench's own current, independently re-normalized
+  `data/processed/arc_challenge_normalized.csv` instead, found 6 apparent
+  mismatches, and was wrong to do so — corrected here.)
 - `../../tests/experiments/` — `test_historical_protocol.py` (includes a
   byte-for-byte regression test against a real, already-published
   `two_prompt` Stage-2 prompt), `test_stage1_sources.py` (fail-closed
   behavior), `test_runner.py` (call-count isolation, provenance, the
-  variable-option repair, and historical-protocol fidelity for ordinary
-  rows), `test_arc_question_id_mapping.py`.
+  variable-option repair, historical-protocol fidelity for ordinary rows,
+  and frozen-A-D-representation fidelity for the missing-option-E rows),
+  `test_arc_freeze_validation.py` (full 1000-row freeze comparison).
 
 ## The 3 contaminated ARC-Challenge questions
 
@@ -117,53 +122,62 @@ output for these 3 rows is preserved as provenance/regression evidence in
 path for them. A missing `choice_d` on any *other* question_id (i.e. outside
 the audited set) makes the runner raise rather than guess.
 
-## ARC question_id mismatches (resolved 3 of 6, 3 blocked)
+## ARC question_id verification — against the correct authority
 
-TSP's own `question_id` (used throughout this experiment, since Stage 1 is
-reused as-is) is not the identifier ChoiceBench's Stage-1-freeze/import
-workflow expects — that workflow keys everything off ChoiceBench's own
-`arc_challenge_normalized.csv` hash. Comparing all 1000 reused ARC rows by
-question text + ordered real options + gold answer against that trusted
-dataset found 6 mismatches, in two distinct categories
-(`arc_question_id_mapping.py`):
+**Correction:** the identifier authority for this paper experiment is the
+**immutable Stage 1 freeze**
+(`model-generalization/paper_data_freeze/raw/local_model_generalization/`,
+specifically `data/processed/arc_challenge_normalized.csv` +
+`data/splits/arc_challenge/robustness_ids.json`, both checksum-verified
+against `paper_data_freeze/checksums/checksums.sha256`), **not**
+ChoiceBench's current, independently re-normalized
+`data/processed/arc_challenge_normalized.csv`. All historical cells
+(`two_prompt`, `text_extraction`, and now this fourth cell) were and are
+evaluated against that same frozen dataset. An earlier version of this
+check compared against ChoiceBench's current file instead and reported 6
+apparent id mismatches, including 3 it wrongly flagged as a "genuine
+content difference" (a missing 5th option) requiring a stop-and-ask. That
+comparison used the wrong authority.
 
-**3 resolved (hash-only, content identical)** — exactly the 3 known
-3-option questions above. TSP's id-hash formula includes an empty 4th slot
-for a missing option; ChoiceBench's omits it entirely from the hash input.
-Same question, same 3 real options, same gold answer, different hash
-string. Mapped directly:
+Re-running the full 1000-row identity/content comparison — question_id,
+question_text, choice_a..choice_d, correct_option — against the actual
+freeze, for **all 6 reused Stage-1 sources** (4 API models + 2 local
+models), found **zero mismatches**. TSP's own `question_id` for every one
+of the 1000 ARC-Challenge robustness-split questions already **is** the
+freeze's `question_id` — verified by direct content comparison, not
+assumed. See `test_arc_freeze_validation.py::TestAllThousandRowsMatchTheFreeze`
+for the executable, real-data proof (all 6 sources × 1000 rows).
 
-| TSP `question_id` | ChoiceBench `question_id` |
-|---|---|
-| `79e8c959bbeb74a0` | `e3d2e85eb821d276` |
-| `ad6b5d46ae54842c` | `3d671e2f1721290d` |
-| `c30e75b011696a95` | `ed9db36b3d68e1f7` |
+Consequently: **no id translation happens anywhere in this experiment.**
+`arc_freeze_validation.validate_against_freeze()` checks reused rows
+against the freeze and fails closed (raises `FreezeValidationError`) if a
+row's `question_id` isn't in the frozen `robustness_ids` split — which is
+exactly what would happen if a current-ChoiceBench-normalizer id (e.g.
+`e3d2e85eb821d276`, that normalizer's id for the same question whose freeze
+id is `79e8c959bbeb74a0`) were substituted for a freeze id. Final outputs
+keep the freeze's own ids throughout, per instruction.
 
-**3 blocked — genuine content difference, not a hashing artifact.**
-ChoiceBench's trusted ARC dataset has a real 5th option (label E) for these
-3 questions that is **absent from every historical TSP row**, including the
-already-published `two_prompt`/`text_extraction` cells — traced to
-`two-stage-prompting`'s `benchmarks/arc.py`, whose normalizer only ever
-extracts labels A–D and has no handling for a 5th option at all. This means
-the model was never shown the true full option set for these 3 questions in
-*any* historical TSP cell, not just this experiment's reused Stage 1 — a
-more severe issue than the phantom-`D. nan` one, and one this experiment
-did not create. Per instruction, **not resolved here** —
-`translate_tsp_arc_question_id()` raises `MismatchBlockedError` for these:
-
-| TSP `question_id` | ChoiceBench `question_id` | Question | Missing option E |
-|---|---|---|---|
-| `f87cb129d9aa26c0` | `be30ca6f5bbf0daf` | "How are warm-blooded animals different from cold-blooded animals?" | "Warm-blooded animals are found only in warm climates." |
-| `e970a6b50d905595` | `751926ea49e0b65b` | "Sally placed electrodes into a beaker..." | "a hypothesis" |
-| `8aec8773c1d6b508` | `97e41313a7c454ea` | "Years ago farmers found that corn plants grew better..." | "water" |
-
-See the top-level report to the user for the explicit stop-and-ask on these
-3. The remaining 994/1000 ARC questions already hash identically in both
-repos and need no translation.
+**Known dataset-normalization limitation, recorded but not repaired here:**
+3 questions (`f87cb129d9aa26c0`, `e970a6b50d905595`, `8aec8773c1d6b508`) have
+a real 5th option in the upstream `allenai/ai2_arc` source that the
+historical normalizer which produced the frozen dataset never extracted (it
+only ever reads labels A–D). The frozen dataset — and therefore every
+historical cell, and this fourth cell — uses the plain 4-option (A–D)
+representation for these 3 questions unchanged. This is inherited from the
+freeze, affects the whole historical ARC matrix identically, and is
+explicitly **not** repaired in this branch: doing so only for this fourth
+cell would introduce an uncontrolled second difference into what must
+otherwise be a single-axis (matcher-only) 2×2 comparison. See
+`arc_freeze_validation.KNOWN_UPSTREAM_MISSING_OPTION_E_IDS` and
+`test_runner.py::TestFrozenMissingOptionERowsStayOnTheHistoricalPath`,
+which proves these 3 rows still take the ordinary 4-option historical Stage-2
+path (byte-identical to `historical_protocol.build_option_matching_prompt`'s
+direct output) — never the repaired 3-option path, and never a synthetic
+5th option.
 
 ## Not done in this phase
 
 No YAML run config, no benchmark-grid wiring, no inference call. This is
 Stage-2-protocol implementation, the audited 3-option Stage-2 repair,
-fail-closed Stage-1 reuse, the ARC question_id mapping, and tests only, per
-instruction.
+fail-closed Stage-1 reuse, freeze-authoritative ARC verification, and tests
+only, per instruction.
