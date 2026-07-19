@@ -130,6 +130,13 @@ class ImportRequest:
     deduplication the generic path cannot reproduce; spec.datasets is still
     populated for documentation/identity purposes, but is not read here when
     this override is supplied."""
+    source_containment_root: Path | None = None
+    """Root every declared source path must resolve under, checked by
+    open_verified_source. Defaults to workspace_root (the common case: a
+    self-contained fixture where sources and the run output share a root).
+    Set this separately when sources live under an independent, read-only
+    root distinct from where runs are written (e.g. importing a real,
+    immutable data freeze into an isolated temporary CHOICEBENCH_HOME)."""
 
 
 @dataclass(frozen=True)
@@ -350,6 +357,7 @@ def build_import_plan(request: ImportRequest) -> ImportPlan:
     Performs every read/validation/identity step but writes nothing."""
     spec = request.spec
     sources_by_id = {source.source_id: source for source in spec.sources}
+    containment_root = request.source_containment_root or request.workspace_root
     if request.expected_datasets is not None:
         expected_datasets: dict[str, ExpectedDataset] = dict(request.expected_datasets)
         missing_datasets = sorted(
@@ -365,7 +373,7 @@ def build_import_plan(request: ImportRequest) -> ImportPlan:
         for declaration in spec.datasets:
             opened = {
                 source_id: open_verified_source(
-                    sources_by_id[source_id], containment_root=request.workspace_root
+                    sources_by_id[source_id], containment_root=containment_root
                 )
                 for source_id in declaration.source_ids
             }
@@ -388,7 +396,7 @@ def build_import_plan(request: ImportRequest) -> ImportPlan:
         prompt = prompts_by_key[condition.prompt_key]
         realization, condition_record, result, evidence_records = _build_realization_for_condition(
             condition, spec=spec, dataset=dataset, model=model, method=method, prompt=prompt,
-            workspace_root=request.workspace_root, strict=request.strict,
+            workspace_root=containment_root, strict=request.strict,
         )
         semantic_conditions[condition_record["condition_id"]] = condition_record
         realizations[realization["realization_id"]] = realization
@@ -529,7 +537,10 @@ def _write_staged_run(staged_run: Path, request: ImportRequest, plan: ImportPlan
             continue
         written_digests.add(record["sha256"])
         declaration = sources_by_id[record["source_id"]]
-        opened = open_verified_source(declaration, containment_root=request.workspace_root)
+        opened = open_verified_source(
+            declaration,
+            containment_root=request.source_containment_root or request.workspace_root,
+        )
         index_records.append(write_evidence_blob(staged_run, opened, references=record["references"]))
     write_evidence_index(staged_run, index_records)
 
@@ -696,6 +707,11 @@ class OverlayImportRequest:
     expected_dataset: ExpectedDataset
     run_id: str
     workspace_root: Path
+    source_containment_root: Path | None = None
+    """Root every declared source path (authorization_source, overlay_source)
+    must resolve under. Defaults to workspace_root; set separately when
+    those sources live under an independent, read-only root distinct from
+    where the derived run is written -- see ImportRequest.source_containment_root."""
 
 
 def _merge_overlay_realization(
@@ -721,8 +737,9 @@ def _merge_overlay_realization(
     condition_id = base_realization_record["condition_id"]
     semantic_condition = base_manifest["payload"]["semantic_conditions"][condition_id]
 
+    containment_root = request.source_containment_root or request.workspace_root
     opened_auth_source = open_verified_source(
-        request.authorization_source, containment_root=request.workspace_root
+        request.authorization_source, containment_root=containment_root
     )
     bundle = validate_authorization_bundle(
         request.authorization, opened_source=opened_auth_source,
@@ -732,7 +749,7 @@ def _merge_overlay_realization(
     authorization = authorization_for_condition(bundle, condition_digest=base.condition_digest)
 
     opened_overlay_source = open_verified_source(
-        request.overlay_source, containment_root=request.workspace_root
+        request.overlay_source, containment_root=containment_root
     )
     overlay_table = parse_csv_source(opened_overlay_source, request.overlay_source, strict=True)
 
@@ -938,7 +955,7 @@ def execute_overlay_import(request: OverlayImportRequest, *, dry_run: bool = Fal
             published_root, manifest, realization, result_rows,
             overlay_source=request.overlay_source,
             overlay_evidence_record=overlay_evidence_record,
-            workspace_root=request.workspace_root,
+            workspace_root=request.source_containment_root or request.workspace_root,
         )
 
     with ImportTransaction(runs_dir=runs_dir, run_id=request.run_id) as txn:

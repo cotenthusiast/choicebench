@@ -2213,8 +2213,10 @@ def _validate_realization_identity(
             "Realization result origin question IDs are not an ordered subset of "
             "the expected dataset question set."
         )
-    if evidence_status in {"complete", "qualified"} and origin_question_ids != list(
-        expected_question_ids
+    if (
+        evidence_status in {"complete", "qualified"}
+        and evidence["scope_disposition"] == "included"
+        and origin_question_ids != list(expected_question_ids)
     ):
         raise ImportIdentityError(
             "Complete or qualified realization result origin question IDs do not "

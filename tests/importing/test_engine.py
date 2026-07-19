@@ -198,6 +198,33 @@ def test_build_import_plan_rejects_an_incomplete_expected_dataset_override(tmp_p
         build_import_plan(request)
 
 
+def test_build_import_plan_rejects_a_source_outside_the_workspace_by_default(tmp_path):
+    external_root = tmp_path / "external"
+    external_root.mkdir()
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    spec = _spec(external_root)
+    request = ImportRequest(spec=spec, run_id="run-1", workspace_root=workspace_root, strict=True)
+    with pytest.raises(Exception, match="escapes containment root"):
+        build_import_plan(request)
+
+
+def test_build_import_plan_accepts_a_source_outside_the_workspace_with_an_explicit_containment_root(
+    tmp_path,
+):
+    external_root = tmp_path / "external"
+    external_root.mkdir()
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    spec = _spec(external_root)
+    request = ImportRequest(
+        spec=spec, run_id="run-1", workspace_root=workspace_root, strict=True,
+        source_containment_root=external_root,
+    )
+    plan = build_import_plan(request)
+    assert len(plan.manifest["payload"]["realizations"]) == 1
+
+
 def test_dry_run_writes_nothing(tmp_path):
     spec = _spec(tmp_path)
     request = ImportRequest(spec=spec, run_id="run-1", workspace_root=tmp_path, strict=True)

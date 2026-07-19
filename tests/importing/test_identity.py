@@ -2489,6 +2489,51 @@ def test_realization_refuses_unowned_lineage_component_id():
         )
 
 
+def test_realization_refuses_partial_coverage_for_qualified_and_included():
+    condition = _records().condition
+    identity = _realization_identity()
+    identity["evidence"]["evidence_status"] = "qualified"
+    identity["evidence"]["scope_disposition"] = "included"
+    _attach_result_origin(
+        identity, derivation_origin="external_import",
+        assignments=(("q1", "external_historical_inference"),),  # missing q2
+    )
+    with pytest.raises(ImportIdentityError, match="match the full expected"):
+        make_realization(
+            condition_id=condition["condition_id"],
+            condition_digest=condition["condition_digest"],
+            identity=identity,
+            fields={},
+        )
+
+
+def test_realization_allows_partial_coverage_for_qualified_excluded_from_paper_matrix():
+    """A realization can be individually row-complete/qualified yet still
+    excluded from the paper's evaluation scope for an unrelated scientific
+    reason (e.g. a method whose scoring mechanism isn't comparable to the
+    others) -- normalize_realization_rows's own evaluable computation
+    already treats scope_disposition != "included" as non-evaluable
+    regardless of evidence_status, so the identity layer must not demand
+    full row_origin coverage in that case either. Discovered via a real
+    Stage 1 freeze cell (excluded_from_paper_matrix + qualified) that this
+    check previously refused unconditionally."""
+    condition = _records().condition
+    identity = _realization_identity()
+    identity["evidence"]["evidence_status"] = "qualified"
+    identity["evidence"]["scope_disposition"] = "excluded_from_paper_matrix"
+    _attach_result_origin(
+        identity, derivation_origin="external_import",
+        assignments=(("q1", "external_historical_inference"),),  # missing q2
+    )
+    realization = make_realization(
+        condition_id=condition["condition_id"],
+        condition_digest=condition["condition_digest"],
+        identity=identity,
+        fields={},
+    )
+    assert realization["condition_id"] == condition["condition_id"]
+
+
 @pytest.mark.parametrize(
     "logical_path",
     [r"C:\machine\results.csv", r"\\server\share\results.csv"],
