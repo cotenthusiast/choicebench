@@ -99,6 +99,19 @@ REQUIRED_COLUMNS = (
     "free_text_response",
 )
 
+# TSP's own API text_extraction CSVs (TextExtractionRunner._build_result_row)
+# store the Stage-1 free-text answer under raw_text only — there is no
+# free_text_response column at all (verified against
+# paper_results/eval_ready/paper_api_main/20260603_154649_text_extraction_*.csv).
+# MG's local text_extraction CSVs have BOTH raw_text and an explicit
+# free_text_response copy of the same value (verified against
+# runs/20260617_162624/*.csv). _load_csv() below derives free_text_response
+# from raw_text when the column is missing, rather than requiring every
+# historical source to already have it — REQUIRED_COLUMNS still lists
+# free_text_response because by the time _load_csv() returns, every row
+# must have one; the derivation just means "missing column" isn't
+# automatically fatal the way any other missing required column is.
+
 
 class Stage1ValidationError(RuntimeError):
     """Raised when reused Stage-1 input fails a fail-closed check.
@@ -119,6 +132,29 @@ class Stage1Source:
     repo: str  # "two-stage-prompting" | "model-generalization" — provenance only
 
 
+def _derive_free_text_response(df: pd.DataFrame) -> pd.DataFrame:
+    """See REQUIRED_COLUMNS comment above: TSP's own API text_extraction
+    CSVs have no free_text_response column, only raw_text. Derives it when
+    missing so both TSP's and MG's CSV shapes are accepted identically.
+    """
+    if "free_text_response" not in df.columns and "raw_text" in df.columns:
+        df = df.copy()
+        df["free_text_response"] = df["raw_text"]
+    return df
+
+
+def load_replacement_rows(path: Path) -> pd.DataFrame:
+    """Load a candidate replacement-rows CSV (e.g. a repaired
+    text_extraction output) with the same free_text_response derivation
+    _load_csv() applies to primary sources — for callers (like
+    repairs/group3_fourth_cell/run_fourth_cell.py) that read a replacement
+    CSV directly rather than through a Stage1Source.
+    """
+    if not path.is_file():
+        raise Stage1ValidationError(f"Replacement rows file does not exist: {path}")
+    return _derive_free_text_response(pd.read_csv(path))
+
+
 def _load_csv(source: Stage1Source) -> pd.DataFrame:
     if not source.path.is_file():
         raise Stage1ValidationError(
@@ -127,7 +163,7 @@ def _load_csv(source: Stage1Source) -> pd.DataFrame:
             f"repo={source.repo!r}). This loader never fabricates missing "
             "input — supply the correct historical path."
         )
-    df = pd.read_csv(source.path)
+    df = _derive_free_text_response(pd.read_csv(source.path))
     missing_cols = [c for c in REQUIRED_COLUMNS if c not in df.columns]
     if missing_cols:
         raise Stage1ValidationError(
@@ -224,6 +260,31 @@ def load_and_validate_stage1(
         df = df[~df["question_id"].isin(set(replacement_rows["question_id"]))]
         df = pd.concat([df, replacement_rows], ignore_index=True)
 
+    # Structural checks (choice_d present/absent) cannot by themselves tell
+    # "already repaired" apart from "still contaminated": a replacement_rows
+    # source that is the SAME underlying file as the primary source (e.g.
+    # an in-place repair before it has actually landed) would otherwise
+    # pass — self-referential NaN choice_d looks identical either way. The
+    # phantom-D contamination has a known, literal textual signature in the
+    # stored Stage-1 prompt ("D. nan"), so check for it directly wherever a
+    # prompt column exists, for every known-3-option-id row regardless of
+    # whether it came from a replacement or the primary source.
+    if "prompt" in df.columns:
+        known_id_rows = df[df["question_id"].isin(KNOWN_3OPTION_ARC_QUESTION_IDS)]
+        still_phantom_d = known_id_rows[
+            known_id_rows["prompt"].astype(str).str.contains("D. nan", regex=False)
+        ]
+        if not still_phantom_d.empty:
+            raise Stage1ValidationError(
+                f"{model_name}/{benchmark}: {len(still_phantom_d)} row(s) "
+                f"still show the literal phantom-D contamination signature "
+                f"('D. nan') in their stored Stage-1 prompt text "
+                f"(question_id(s) {still_phantom_d['question_id'].tolist()}), "
+                "even though a replacement was supplied. The replacement "
+                "source has not actually been repaired yet — do not "
+                "proceed with this input."
+            )
+
     # A NaN choice_d from a "corrected_replacement" row is a legitimate
     # 3-option question (already checked above via bad_replacements) and is
     # not contamination. Only a NaN choice_d still coming from an original,
@@ -272,3 +333,19 @@ def load_and_validate_stage1(
         )
 
     return df.sort_values("question_id").reset_index(drop=True)
+
+
+def build_stage1_lookup(df: pd.DataFrame) -> dict[str, dict]:
+    """Convert a load_and_validate_stage1() DataFrame into the
+    question_id -> row dict shape runner.VisibleLlmMatcherRunner expects
+    for its stage1_lookup constructor argument.
+
+    Pure reshaping — no validation here; df must already be the output of
+    load_and_validate_stage1(). Separated out (rather than folded into
+    load_and_validate_stage1() or the runner itself) so config-driven
+    execution (a YAML pointing at CSV paths) and direct/programmatic
+    construction (an in-memory DataFrame, as all of this experiment's
+    existing tests use) share one conversion path without either one
+    depending on the other's calling convention.
+    """
+    return df.set_index("question_id", drop=False).to_dict(orient="index")

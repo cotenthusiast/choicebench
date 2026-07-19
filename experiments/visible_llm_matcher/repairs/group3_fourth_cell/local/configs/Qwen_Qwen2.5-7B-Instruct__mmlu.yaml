@@ -1,0 +1,21 @@
+run_id: fourth_cell_v1
+model:
+  backend: huggingface
+  model_name_or_path: Qwen/Qwen2.5-7B-Instruct
+  device: cuda
+  generation_kwargs:
+    temperature: 0.0
+    max_new_tokens: 500
+    do_sample: false
+benchmark: mmlu
+seed: 42
+prompt_version: v1
+prompts_dir: experiments/visible_llm_matcher/prompts
+stage1_sources:
+- repo: two-stage-prompting
+  path: /home/cotenthusiast/Projects/two-stage-prompting/paper_results/eval_ready/paper_local_main/20260603_213613_text_extraction_Qwen_Qwen2.5-7B-Instruct_mmlu.csv
+  model_name: Qwen/Qwen2.5-7B-Instruct
+  benchmark: mmlu
+stage1_replacement_source: null
+output_csv: runs/fourth_cell_v1/fourth_cell_v1_visible_llm_matcher_Qwen_Qwen2.5-7B-Instruct_mmlu.csv
+checkpoint_dir: checkpoints

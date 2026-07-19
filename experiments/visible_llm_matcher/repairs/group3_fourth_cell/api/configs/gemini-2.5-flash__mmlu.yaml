@@ -1,0 +1,21 @@
+run_id: fourth_cell_v1
+model:
+  backend: api
+  provider: gemini
+  model_name_or_path: gemini-2.5-flash
+  generation_kwargs:
+    temperature: 0.0
+    max_new_tokens: 500
+  concurrency_limit: 1
+benchmark: mmlu
+seed: 42
+prompt_version: v1
+prompts_dir: experiments/visible_llm_matcher/prompts
+stage1_sources:
+- repo: two-stage-prompting
+  path: /home/cotenthusiast/Projects/two-stage-prompting/paper_results/eval_ready/paper_api_main/20260603_154649_text_extraction_gemini-2.5-flash_mmlu.csv
+  model_name: gemini-2.5-flash
+  benchmark: mmlu
+stage1_replacement_source: null
+output_csv: runs/fourth_cell_v1/fourth_cell_v1_visible_llm_matcher_gemini-2.5-flash_mmlu.csv
+checkpoint_dir: checkpoints

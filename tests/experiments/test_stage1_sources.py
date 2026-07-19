@@ -200,6 +200,89 @@ class TestFailClosedOnContamination:
         with pytest.raises(Stage1ValidationError, match="not in KNOWN_3OPTION_ARC_QUESTION_IDS"):
             load_and_validate_stage1([source], replacement_rows=bad_replacement)
 
+    def test_phantom_d_prompt_text_rejected_even_with_a_replacement_supplied(self, tmp_path):
+        """Regression test for a real gap found while wiring the fourth
+        cell's config generator: choice_d being NaN cannot by itself
+        distinguish "already repaired" from "still contaminated" when the
+        replacement source is the same underlying file as the primary
+        source (an in-place repair that has not landed yet). The stored
+        Stage-1 prompt's literal "D. nan" text is a directly checkable
+        contamination signature and must be rejected even though a
+        replacement was nominally supplied.
+        """
+        known_ids = sorted(KNOWN_3OPTION_ARC_QUESTION_IDS)
+        rows = []
+        for i in range(1000):
+            qid = known_ids[i] if i < len(known_ids) else f"arc{i:04d}"
+            is_contaminated = qid in KNOWN_3OPTION_ARC_QUESTION_IDS
+            rows.append(
+                {
+                    "question_id": qid,
+                    "question_text": f"ARC question {i}?",
+                    "choice_a": "a",
+                    "choice_b": "b",
+                    "choice_c": "c",
+                    "choice_d": math.nan if is_contaminated else "d",
+                    "correct_option": "A",
+                    "free_text_response": "a",
+                    "subject": "arc_challenge",
+                    "prompt": (
+                        "Options:\nA. a\nB. b\nC. c\nD. nan\n"
+                        if is_contaminated
+                        else "Options:\nA. a\nB. b\nC. c\nD. d\n"
+                    ),
+                }
+            )
+        path = tmp_path / "still_contaminated_with_prompt.csv"
+        pd.DataFrame(rows).to_csv(path, index=False)
+        source = Stage1Source(path=path, model_name="m", benchmark="arc_challenge", repo="two-stage-prompting")
+
+        # Same-file "self-replacement" -- exactly what an in-place repair
+        # that hasn't actually run yet would look like structurally.
+        replacement = pd.read_csv(path)
+        replacement = replacement[replacement["question_id"].isin(KNOWN_3OPTION_ARC_QUESTION_IDS)]
+
+        with pytest.raises(Stage1ValidationError, match="phantom-D contamination signature"):
+            load_and_validate_stage1([source], replacement_rows=replacement)
+
+    def test_clean_prompt_text_with_replacement_passes(self, tmp_path):
+        """Positive counterpart: once the stored prompt no longer contains
+        the phantom-D text (a genuine repair, or MG's always-clean local
+        elicitation), validation succeeds.
+        """
+        known_ids = sorted(KNOWN_3OPTION_ARC_QUESTION_IDS)
+        rows = []
+        for i in range(1000):
+            qid = known_ids[i] if i < len(known_ids) else f"arc{i:04d}"
+            is_repaired = qid in KNOWN_3OPTION_ARC_QUESTION_IDS
+            rows.append(
+                {
+                    "question_id": qid,
+                    "question_text": f"ARC question {i}?",
+                    "choice_a": "a",
+                    "choice_b": "b",
+                    "choice_c": "c",
+                    "choice_d": math.nan if is_repaired else "d",
+                    "correct_option": "A",
+                    "free_text_response": "a",
+                    "subject": "arc_challenge",
+                    "prompt": (
+                        "Options:\nA. a\nB. b\nC. c\n"  # no D line at all -- repaired
+                        if is_repaired
+                        else "Options:\nA. a\nB. b\nC. c\nD. d\n"
+                    ),
+                }
+            )
+        path = tmp_path / "repaired_with_clean_prompt.csv"
+        pd.DataFrame(rows).to_csv(path, index=False)
+        source = Stage1Source(path=path, model_name="m", benchmark="arc_challenge", repo="two-stage-prompting")
+
+        replacement = pd.read_csv(path)
+        replacement = replacement[replacement["question_id"].isin(KNOWN_3OPTION_ARC_QUESTION_IDS)]
+
+        df = load_and_validate_stage1([source], replacement_rows=replacement)
+        assert len(df) == 1000
+
 
 class TestFailClosedOnIncompleteInput:
     def test_wrong_row_count_raises(self, tmp_path):

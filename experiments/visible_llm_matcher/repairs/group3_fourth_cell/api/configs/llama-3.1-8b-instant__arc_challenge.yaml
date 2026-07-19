@@ -1,0 +1,25 @@
+run_id: fourth_cell_v1
+model:
+  backend: api
+  provider: groq
+  model_name_or_path: llama-3.1-8b-instant
+  generation_kwargs:
+    temperature: 0.0
+    max_new_tokens: 500
+  concurrency_limit: 2
+benchmark: arc_challenge
+seed: 42
+prompt_version: v1
+prompts_dir: experiments/visible_llm_matcher/prompts
+stage1_sources:
+- repo: two-stage-prompting
+  path: /home/cotenthusiast/Projects/two-stage-prompting/paper_results/eval_ready/paper_api_main/20260603_154649_text_extraction_llama-3.1-8b-instant_arc_challenge.csv
+  model_name: llama-3.1-8b-instant
+  benchmark: arc_challenge
+stage1_replacement_source:
+  repo: two-stage-prompting
+  path: /home/cotenthusiast/Projects/two-stage-prompting/paper_results/eval_ready/paper_api_main/20260603_154649_text_extraction_llama-3.1-8b-instant_arc_challenge.csv
+  model_name: llama-3.1-8b-instant
+  benchmark: arc_challenge
+output_csv: runs/fourth_cell_v1/fourth_cell_v1_visible_llm_matcher_llama-3.1-8b-instant_arc_challenge.csv
+checkpoint_dir: checkpoints

@@ -1,0 +1,30 @@
+models:
+  meta-llama/Llama-3.1-8B-Instruct:
+    model_path: meta-llama/Llama-3.1-8B-Instruct
+    family: llama
+    size_label: 8B
+    device: auto
+run:
+  temperature: 0.0
+  max_tokens: 500
+  seed: 42
+  prompt_version: v3
+  max_questions: 1000
+  checkpoint_every_n: 50
+  pride_calibration_n: 50
+  pride_calibration_seed: 42
+  fallback_on_parse_failure: false
+  jobs:
+  - model: meta-llama/Llama-3.1-8B-Instruct
+    methods:
+    - two_prompt
+    benchmark: arc_challenge
+    split: robustness
+paths:
+  runs_dir: runs
+  checkpoints_dir: checkpoints
+  cache_dir: .cache/responses
+  reports_dir: reports
+  data_processed_dir: data/processed
+  data_splits_dir: data/splits
+  prompts_dir: prompts

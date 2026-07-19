@@ -1,0 +1,22 @@
+run_id: fourth_cell_v1
+model:
+  backend: huggingface
+  model_name_or_path: meta-llama/Llama-3.1-8B-Instruct
+  device: cuda
+  generation_kwargs:
+    temperature: 0.0
+    max_new_tokens: 500
+    do_sample: false
+benchmark: arc_challenge
+seed: 42
+prompt_version: v1
+prompts_dir: experiments/visible_llm_matcher/prompts
+stage1_sources:
+- &id001
+  repo: model-generalization
+  path: /home/cotenthusiast/Projects/model-generalization/runs/20260617_162624/20260617_162624_text_extraction_meta-llama_Llama-3.1-8B-Instruct_arc_challenge.csv
+  model_name: meta-llama/Llama-3.1-8B-Instruct
+  benchmark: arc_challenge
+stage1_replacement_source: *id001
+output_csv: runs/fourth_cell_v1/fourth_cell_v1_visible_llm_matcher_meta-llama_Llama-3.1-8B-Instruct_arc_challenge.csv
+checkpoint_dir: checkpoints

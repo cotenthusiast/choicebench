@@ -1,0 +1,61 @@
+models:
+  gpt-4.1-mini:
+    provider: openai
+    concurrency: 10
+    min_delay_seconds: 0.0
+    max_retries: 3
+    timeout: 30
+    pricing:
+      input_per_1m: 0.4
+      output_per_1m: 1.6
+  gemini-2.5-flash:
+    provider: gemini
+    concurrency: 1
+    min_delay_seconds: 1.5
+    max_retries: 5
+    timeout: 30
+    pricing:
+      input_per_1m: 0.15
+      output_per_1m: 0.6
+  llama-3.1-8b-instant:
+    provider: groq
+    concurrency: 2
+    min_delay_seconds: 0.5
+    max_retries: 3
+    timeout: 30
+    pricing:
+      input_per_1m: 0.0
+      output_per_1m: 0.0
+  Qwen/Qwen2.5-7B-Instruct-Turbo:
+    provider: together
+    concurrency: 5
+    min_delay_seconds: 0.2
+    max_retries: 3
+    timeout: 60
+    pricing:
+      input_per_1m: 0.2
+      output_per_1m: 0.2
+run:
+  temperature: 0.0
+  max_tokens: 500
+  seed: 42
+  prompt_version: v1
+  checkpoint_every_n: 50
+  cache_enabled: true
+  pride_calibration_n: 50
+  pride_calibration_seed: 42
+  fallback_on_parse_failure: false
+  jobs:
+  - model: llama-3.1-8b-instant
+    methods:
+    - text_extraction
+    benchmark: arc_challenge
+    split: robustness
+paths:
+  runs_dir: runs
+  checkpoints_dir: checkpoints
+  cache_dir: .cache/responses
+  reports_dir: reports
+  data_processed_dir: data/processed
+  data_splits_dir: data/splits
+  prompts_dir: prompts

@@ -45,21 +45,27 @@
 # layout; see experiments/visible_llm_matcher/README.md for the exact
 # invocation once a run config exists).
 #
-# IMPORTANT: question_id compatibility. ChoiceBench's own benchmark
-# normalizers (src/choicebench/benchmarks/arc.py, mmlu.py) hash
-# question_id from subject+question+choices, and that hash does NOT agree
-# with two-stage-prompting's own historical question_id hash for at least 6
-# of the 1000 ARC-Challenge robustness-split questions (verified directly:
-# 3 are the known missing-4th-option rows — see
-# stage1_sources.KNOWN_3OPTION_ARC_QUESTION_IDS — and 3 more mismatch for an
-# unidentified text-normalization reason, all with 4 real options). Because
-# of this, VisibleLlmMatcherRunner does NOT go through ChoiceBench's normal
-# benchmark-loading path (config `benchmarks:` -> normalized CSV -> question
-# rows). It is driven directly by the validated Stage-1 DataFrame returned
-# by stage1_sources.load_and_validate_stage1(), which already carries
-# TSP's own question_id, question_text, choice_a..choice_d, and
-# correct_option for all 1000 questions. This sidesteps the mismatch
-# entirely rather than silently dropping or mis-joining 6 questions.
+# IMPORTANT: question_id authority. ChoiceBench's own benchmark normalizers
+# (src/choicebench/benchmarks/arc.py, mmlu.py) hash question_id from
+# subject+question+choices independently of the historical repos, and an
+# EARLIER version of this comment claimed that hash disagreed with TSP's for
+# 6 of the 1000 ARC-Challenge robustness-split questions. That comparison
+# used the wrong authority (ChoiceBench's current, independently
+# re-normalized dataset) — see arc_freeze_validation.py. Re-verified against
+# the actual authority for this paper experiment, the immutable Stage 1
+# freeze (model-generalization/paper_data_freeze/raw/local_model_generalization/),
+# there are ZERO id or content mismatches across all 1000 questions, for all
+# 6 reused Stage-1 sources. VisibleLlmMatcherRunner still does NOT go
+# through ChoiceBench's normal benchmark-loading path (config `benchmarks:`
+# -> normalized CSV -> question rows) — not because of an id mismatch, but
+# because Stage 1 is reused as-is and the freeze, not ChoiceBench's own
+# normalizer, is the correct identifier authority; see
+# arc_freeze_validation.validate_against_freeze(), which every ARC run must
+# pass before this runner is invoked (see repairs/group3_fourth_cell/).
+# It is driven directly by the validated Stage-1 DataFrame returned by
+# stage1_sources.load_and_validate_stage1(), which already carries the
+# freeze's own question_id, question_text, choice_a..choice_d, and
+# correct_option for all 1000 questions, unchanged.
 
 from __future__ import annotations
 
