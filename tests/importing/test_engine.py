@@ -25,7 +25,9 @@ from choicebench.importing.schema import load_import_spec
 _RESULTS_CSV = "qid,question,choice_a,choice_b,answer,gold,score\nq1,One?,x,y,a,a,0.9\nq2,Two?,m,n,b,b,0.7\n"
 
 
-def _raw_spec(tmp_path: Path, results_csv: str = _RESULTS_CSV) -> dict:
+def _raw_spec(
+    tmp_path: Path, results_csv: str = _RESULTS_CSV, question_ids: tuple[str, ...] = ("q1", "q2")
+) -> dict:
     results_path = tmp_path / "results.csv"
     results_path.write_bytes(results_csv.encode("utf-8"))
     expected_sha256 = sha256(results_csv.encode("utf-8")).hexdigest()
@@ -78,7 +80,7 @@ def _raw_spec(tmp_path: Path, results_csv: str = _RESULTS_CSV) -> dict:
                 "trust_label": "producer-supplied",
                 "source_ids": ["results"],
                 "selection_source_id": "results",
-                "expected_question_ids": ["q1", "q2"],
+                "expected_question_ids": list(question_ids),
                 "selection_seed": None,
                 "selection_n_samples": None,
                 "subject_filter": [],
@@ -132,7 +134,7 @@ def _raw_spec(tmp_path: Path, results_csv: str = _RESULTS_CSV) -> dict:
                     "calibration_identity": "not recorded by producer",
                     "preflight_identity": "not recorded by producer",
                 },
-                "expected_question_ids": ["q1", "q2"],
+                "expected_question_ids": list(question_ids),
                 "evidence_status": "complete", "scope_disposition": "included", "executable": None,
                 "qualifications": [], "limitations": [], "damaged_question_ids": [],
                 "recoverable_question_ids": [],

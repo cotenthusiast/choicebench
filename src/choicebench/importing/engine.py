@@ -769,14 +769,15 @@ def _merge_overlay_realization(
         if assignment["question_id"] not in derived.replacement_question_ids
     ]
     retained_lineage_ids = {assignment["prediction_lineage_id"] for assignment in retained_assignments}
-    retained_lineage_components = [base_lineage_by_id[lid] for lid in retained_lineage_ids]
-
-    all_lineage_components = [*retained_lineage_components, *derived.lineage_components]
 
     # Realization identity requires row_assignments to be an ordered subset of
     # the expected dataset's question order (identity.py), not "retained then
     # replaced" -- reassemble in dataset order regardless of which side (base
-    # or overlay) supplies each question.
+    # or overlay) supplies each question. lineage_components must follow the
+    # SAME deterministic order: canonicalize() hashes list order, so building
+    # it from set iteration (as an earlier version of this function did) made
+    # the realization/experiment digest nondeterministic across processes
+    # whenever more than one row was retained.
     assignments_by_qid = {
         assignment["question_id"]: (
             assignment["question_id"], assignment["prediction_origin"], assignment["prediction_lineage_id"]
@@ -795,6 +796,15 @@ def _merge_overlay_realization(
         assignments_by_qid[qid]
         for qid in request.expected_dataset.selected_question_ids
         if qid in assignments_by_qid
+    ]
+
+    lineage_components_by_id = {**base_lineage_by_id}
+    lineage_components_by_id.update(
+        {component["lineage_id"]: component for component in derived.lineage_components}
+    )
+    all_lineage_components = [
+        lineage_components_by_id[lineage_id]
+        for _question_id, _origin, lineage_id in row_assignments
     ]
     derivation_origin = derived.lineage_components[0]["identity"]["operation_type"]
     result_origin = make_result_origin(derivation_origin=derivation_origin, row_assignments=row_assignments)

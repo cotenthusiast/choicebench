@@ -6,6 +6,7 @@ via test_engine.py's fixtures, then applies an authorized overlay on top.
 from __future__ import annotations
 
 from hashlib import sha256
+import json
 from pathlib import Path
 
 import pytest
@@ -45,8 +46,8 @@ def _make_base_run(tmp_path: Path):
     return base_run_dir, base
 
 
-def _base_expected_dataset(tmp_path: Path):
-    spec = _spec(tmp_path)
+def _base_expected_dataset(tmp_path: Path, **spec_kwargs):
+    spec = _spec(tmp_path, **spec_kwargs)
     (dataset_ref,) = spec.datasets
     (results_source,) = spec.sources
     opened_results = open_verified_source(results_source, containment_root=tmp_path)
@@ -212,6 +213,80 @@ def test_execute_overlay_import_merges_repair_into_a_new_run(tmp_path):
     reverified_base = verify_import_run(base_run_dir)
     (base_again,) = reverified_base.realizations.values()
     assert base_again.realization_digest == base.realization_digest
+
+
+_THREE_QUESTION_RESULTS_CSV = (
+    "qid,question,choice_a,choice_b,answer,gold,score\n"
+    "q1,One?,x,y,a,a,0.9\n"
+    "q2,Two?,m,n,b,b,0.7\n"
+    "q3,Three?,p,q,a,a,0.8\n"
+)
+
+
+def test_execute_overlay_import_lineage_components_are_in_deterministic_dataset_order(tmp_path):
+    """Regression for a real bug found by review: with >=2 retained rows,
+    lineage_components was assembled by iterating a `set` of lineage_ids,
+    an order that depends on Python's per-process string hash
+    randomization -- and canonicalize() hashes list order, so the merged
+    realization/experiment digest was not reproducible across processes.
+    Uses a 3-question base (q1 replaced, q2/q3 retained -- 2 retained rows,
+    the minimum needed to exercise set-iteration nondeterminism) and
+    asserts lineage_components is in the same deterministic order as
+    row_assignments (expected_dataset question order), not "retained then
+    replaced" or any other order that could vary by run.
+    """
+    spec = _spec(tmp_path, results_csv=_THREE_QUESTION_RESULTS_CSV, question_ids=("q1", "q2", "q3"))
+    request = ImportRequest(spec=spec, run_id="base-run", workspace_root=tmp_path, strict=True)
+    execute_import(request, dry_run=False)
+    base_run_dir = tmp_path / "runs" / "base-run"
+    verified = verify_import_run(base_run_dir)
+    (base,) = verified.realizations.values()
+
+    auth_source = _authorization_source(tmp_path)
+    authorization = _authorization(base=base, authorization_type="inference_repair", executable=True)
+    overlay_source = _overlay_source(tmp_path)
+    overlay = _overlay_spec(base=base, authorization=authorization)
+    expected_dataset = _base_expected_dataset(
+        tmp_path, results_csv=_THREE_QUESTION_RESULTS_CSV, question_ids=("q1", "q2", "q3"),
+    )
+    request = OverlayImportRequest(
+        base_run_dir=base_run_dir,
+        base_realization_id=base.realization_id,
+        authorization=authorization,
+        authorization_source=auth_source,
+        overlay=overlay,
+        overlay_source=overlay_source,
+        overlay_mapping={"question_id": "qid", "prediction": "predicted_letter"},
+        condition_digests={"cond_key": base.condition_digest},
+        expected_dataset=expected_dataset,
+        run_id="overlay-run",
+        workspace_root=tmp_path,
+    )
+    report = execute_overlay_import(request, dry_run=False)
+    assert report.import_state == "imported", report.failures
+
+    overlay_run_dir = tmp_path / "runs" / "overlay-run"
+    manifest = json.loads((overlay_run_dir / "manifest.json").read_text())
+    (realization,) = manifest["payload"]["realizations"].values()
+    realization_identity = realization["identity"]["realization"]
+
+    row_assignment_order = [
+        assignment["question_id"]
+        for assignment in realization_identity["result_origin"]["row_assignments"]
+    ]
+    lineage_component_order = [
+        component["identity"]["question_id"]
+        for component in realization_identity["lineage_components"]
+    ]
+    assert row_assignment_order == list(expected_dataset.selected_question_ids), (
+        "row_assignments must follow expected_dataset's own question order, "
+        "not 'retained then replaced' concatenation order"
+    )
+    assert lineage_component_order == row_assignment_order, (
+        "lineage_components must be in the same deterministic order as "
+        "row_assignments (previously built from set(retained_lineage_ids), "
+        "which is nondeterministic across processes)"
+    )
 
 
 def test_execute_overlay_import_merges_offline_transformation_retaining_origin(tmp_path):
