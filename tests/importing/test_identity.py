@@ -53,6 +53,10 @@ def _transform(value: str) -> str:
     return value.strip()
 
 
+def _transform_required(value: str, *, threshold: float) -> str:
+    return value if threshold >= 0 else ""
+
+
 class _StatefulCallable:
     def __init__(self, value: str) -> None:
         self.value = value
@@ -887,6 +891,7 @@ def _realization_identity() -> dict:
             "snapshot_digest": "3" * 64,
             "question_set_digest": integrity_digest(["q2", "q1"]),
             "derivation_digest": "5" * 64,
+            "question_ids": ["q2", "q1"],
         },
         "importer_implementation": importer_implementation_identity(
             adapter=_adapter, validator=_validator
@@ -1512,7 +1517,7 @@ def test_native_dataset_source_refuses_audit_and_machine_metadata():
             "output_name": None,
         },
         "content_digest": dataset_content_digest(dataset.artifact_frame),
-        "source": {"audit_path": "/machine/a/input.csv", "timestamp": "now"},
+        "source": {"audit": {"operator": "alice"}, "node": "machine-a"},
     }
     artifact_id = short_id("ds", artifact_payload)
     selection_payload = {**dataset.selection_payload, "artifact_id": artifact_id}
@@ -1534,6 +1539,44 @@ def test_native_dataset_source_refuses_audit_and_machine_metadata():
             method=_method(),
             prompt=_prompt(),
         )
+
+
+def test_partial_realization_origin_may_be_an_ordered_expected_subset():
+    condition = _records().condition
+    identity = _realization_identity()
+    identity["evidence"]["evidence_status"] = "partial"
+    identity["result_origin"] = make_result_origin(
+        derivation_origin="external_import",
+        row_assignments=(
+            ("q2", "external_historical_inference", f"lin_{'a' * 16}"),
+        ),
+    )
+    realization = make_realization(
+        condition_id=condition["condition_id"],
+        condition_digest=condition["condition_digest"],
+        identity=identity,
+        fields={},
+    )
+    assignments = realization["identity"]["realization"]["result_origin"][
+        "row_assignments"
+    ]
+    assert assignments[0]["question_id"] == "q2"
+
+
+def test_malformed_realization_origin_may_have_no_evaluable_rows():
+    condition = _records().condition
+    identity = _realization_identity()
+    identity["evidence"]["evidence_status"] = "malformed"
+    identity["result_origin"] = make_result_origin(
+        derivation_origin="external_import", row_assignments=()
+    )
+    realization = make_realization(
+        condition_id=condition["condition_id"],
+        condition_digest=condition["condition_digest"],
+        identity=identity,
+        fields={},
+    )
+    assert realization["identity"]["realization"]["result_origin"]["row_assignments"] == []
 
 
 @pytest.mark.parametrize("kind", ["model", "prompt", "condition"])
@@ -1656,6 +1699,22 @@ def test_lineage_refuses_bound_methods_with_unbound_instance_state():
             source_digests=("2" * 64,),
             authorization_digest="3" * 64,
             implementation=_StatefulCallable("state").transform,
+            parameters={},
+            input_digest="4" * 64,
+            preownership_output_digest="5" * 64,
+            prediction_origin="external_historical_inference",
+        )
+
+
+def test_lineage_requires_mandatory_runtime_keyword_parameters():
+    with pytest.raises(ImportIdentityError, match="required|threshold"):
+        make_lineage_component(
+            operation_type="offline_transformation",
+            question_id="q1",
+            parent_digests=("1" * 64,),
+            source_digests=("2" * 64,),
+            authorization_digest="3" * 64,
+            implementation=_transform_required,
             parameters={},
             input_digest="4" * 64,
             preownership_output_digest="5" * 64,

@@ -149,6 +149,18 @@ _FORBIDDEN_IDENTITY_KEYS = {
     "child_lineage_id",
 }
 _PROTOCOL_SETTING_KEYS = {"pride_modal_k_threshold"}
+_NATIVE_DATASET_SOURCE_KEYS = {
+    "generator",
+    "seed",
+    "hf_path",
+    "hf_subset",
+    "split",
+    "requested_revision",
+    "resolved_revision",
+    "hf_fingerprint",
+    "hf_dataset_info",
+    "revision",
+}
 
 
 def _unknown(reason: str | None, field: str) -> dict[str, Any]:
@@ -479,9 +491,49 @@ def _validate_expected_dataset_contract(dataset: ExpectedDataset) -> None:
             )
         if not isinstance(artifact["source"], Mapping):
             raise ImportIdentityError("Expected dataset native source is invalid.")
-        _validate_stable_values(
-            artifact["source"], "Expected dataset native source"
-        )
+        source = artifact["source"]
+        unexpected_source = sorted(set(source) - _NATIVE_DATASET_SOURCE_KEYS)
+        if unexpected_source:
+            raise ImportIdentityError(
+                "Expected dataset native source contains unsupported audit or "
+                f"source fields {unexpected_source}."
+            )
+        if "generator" in source and (
+            not isinstance(source["generator"], str) or not source["generator"]
+        ):
+            raise ImportIdentityError("Expected dataset native source generator is invalid.")
+        if "seed" in source and (
+            not isinstance(source["seed"], int) or isinstance(source["seed"], bool)
+        ):
+            raise ImportIdentityError("Expected dataset native source seed is invalid.")
+        for field in (
+            "hf_path",
+            "hf_subset",
+            "split",
+            "requested_revision",
+            "resolved_revision",
+            "hf_fingerprint",
+            "revision",
+        ):
+            if field in source and source[field] is not None and not isinstance(
+                source[field], str
+            ):
+                raise ImportIdentityError(
+                    f"Expected dataset native source {field} is invalid."
+                )
+        if "hf_dataset_info" in source:
+            info = _exact_mapping(
+                source["hf_dataset_info"],
+                {"builder_name", "config_name", "version"},
+                "Expected dataset native source hf_dataset_info",
+            )
+            if any(
+                item is not None and not isinstance(item, str)
+                for item in info.values()
+            ):
+                raise ImportIdentityError(
+                    "Expected dataset native source hf_dataset_info is invalid."
+                )
     if artifact["content_digest"] != dataset_content_digest(dataset.artifact_frame):
         raise ImportIdentityError(
             "Expected dataset artifact content digest does not own its frame."
@@ -1078,18 +1130,27 @@ def _runtime_callable_record(target: Callable[..., Any], where: str) -> dict[str
     return record
 
 
-def _runtime_parameter_names(target: Callable[..., Any]) -> set[str]:
+def _runtime_parameter_schema(
+    target: Callable[..., Any],
+) -> tuple[set[str], set[str]]:
     try:
         signature = inspect.signature(target)
     except (TypeError, ValueError) as exc:
         raise ImportIdentityError(
             "Lineage runtime implementation has no inspectable parameter schema."
         ) from exc
-    return {
+    allowed = {
         name
         for name, parameter in signature.parameters.items()
         if parameter.kind is inspect.Parameter.KEYWORD_ONLY
     }
+    required = {
+        name
+        for name, parameter in signature.parameters.items()
+        if parameter.kind is inspect.Parameter.KEYWORD_ONLY
+        and parameter.default is inspect.Parameter.empty
+    }
+    return allowed, required
 
 
 def make_lineage_component(
@@ -1134,12 +1195,20 @@ def make_lineage_component(
         validated_implementation = _runtime_callable_record(
             implementation, "Lineage runtime implementation"
         )
-        allowed_parameters = _runtime_parameter_names(implementation)
+        allowed_parameters, required_parameters = _runtime_parameter_schema(
+            implementation
+        )
         unexpected_parameters = sorted(set(parameters) - allowed_parameters)
         if unexpected_parameters:
             raise ImportIdentityError(
                 "Lineage parameters contain undeclared field(s) "
                 f"{unexpected_parameters}."
+            )
+        missing_parameters = sorted(required_parameters - set(parameters))
+        if missing_parameters:
+            raise ImportIdentityError(
+                "Lineage parameters are missing required field(s) "
+                f"{missing_parameters}."
             )
     elif implementation_mode == "declared_external":
         try:
@@ -1203,8 +1272,6 @@ def make_result_origin(
     """Record constituent and ordered per-row prediction origins."""
     if derivation_origin not in _DERIVATION_ORIGINS:
         raise ImportIdentityError(f"Invalid derivation origin {derivation_origin!r}.")
-    if not row_assignments:
-        raise ImportIdentityError("Result origin requires row assignments.")
     rows: list[dict[str, str]] = []
     seen: set[str] = set()
     counts: dict[str, int] = {}
@@ -1379,11 +1446,35 @@ def _validate_realization_identity(
 
     expected = _exact_mapping(
         raw["expected_dataset"],
-        {"snapshot_digest", "question_set_digest", "derivation_digest"},
+        {
+            "snapshot_digest",
+            "question_set_digest",
+            "derivation_digest",
+            "question_ids",
+        },
         "Realization expected_dataset",
     )
-    for field, digest in expected.items():
+    for field in ("snapshot_digest", "question_set_digest", "derivation_digest"):
+        digest = expected[field]
         _validate_digest(digest, f"expected_dataset.{field}")
+    expected_question_ids = expected["question_ids"]
+    if not isinstance(expected_question_ids, (list, tuple)) or not all(
+        isinstance(question_id, str) and question_id
+        for question_id in expected_question_ids
+    ):
+        raise ImportIdentityError(
+            "Realization expected dataset question_ids must be a non-empty string list."
+        )
+    if not expected_question_ids or len(expected_question_ids) != len(
+        set(expected_question_ids)
+    ):
+        raise ImportIdentityError(
+            "Realization expected dataset question_ids must be non-empty and unique."
+        )
+    if integrity_digest(list(expected_question_ids)) != expected["question_set_digest"]:
+        raise ImportIdentityError(
+            "Realization expected dataset question_ids do not match question_set_digest."
+        )
 
     raw_importer = raw["importer_implementation"]
     if canonicalize(raw_importer) != canonicalize(runtime_importer):
@@ -1490,10 +1581,27 @@ def _validate_realization_identity(
     origin_question_ids = [
         row["question_id"] for row in result_origin["row_assignments"]
     ]
-    if integrity_digest(origin_question_ids) != expected["question_set_digest"]:
+    evidence_status = evidence["evidence_status"]
+    origin_question_id_set = set(origin_question_ids)
+    unexpected_origin_ids = sorted(
+        origin_question_id_set - set(expected_question_ids)
+    )
+    ordered_subset = [
+        question_id
+        for question_id in expected_question_ids
+        if question_id in origin_question_id_set
+    ]
+    if unexpected_origin_ids or ordered_subset != origin_question_ids:
         raise ImportIdentityError(
-            "Realization result origin question IDs do not match the expected "
-            "dataset question set."
+            "Realization result origin question IDs are not an ordered subset of "
+            "the expected dataset question set."
+        )
+    if evidence_status in {"complete", "qualified"} and origin_question_ids != list(
+        expected_question_ids
+    ):
+        raise ImportIdentityError(
+            "Complete or qualified realization result origin question IDs do not "
+            "match the full expected dataset question set."
         )
     parents = _exact_mapping(
         raw["parent_digests"],
