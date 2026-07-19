@@ -12,7 +12,9 @@ directly, not merely assumed from the plan.
 
 from __future__ import annotations
 
+import csv
 from hashlib import sha256
+import io
 import json
 from pathlib import Path
 
@@ -21,6 +23,7 @@ import pytest
 from choicebench.importing.profiles.stage1_paper_freeze import (
     STATUS_MAP,
     Stage1ProfileError,
+    build_stage1_expected_datasets,
     translate_stage1_paper_freeze,
 )
 
@@ -281,3 +284,255 @@ def test_status_map_matches_canonical_values():
     assert STATUS_MAP["incomplete_requires_inference"] == "partial"
     assert STATUS_MAP["malformed_requires_inference"] == "malformed"
     assert "excluded_from_paper_matrix" not in STATUS_MAP  # not an evidence-status input
+
+
+# --- ARC/MMLU expected-dataset trust chain (Task 16) ------------------------
+#
+# Synthetic fixture shaped exactly like the real freeze's raw/normalized/
+# split file formats (verified against the real freeze during development):
+# ARC raw choices are {"text": [...], "label": [...]}; MMLU raw choices are a
+# Python-repr list with an integer answer index; both normalized files share
+# one schema (question_id/subject/question_text/choice_a..d/correct_option/
+# correct_answer_text). Includes ARC's real edge cases: a 3-option row
+# (variable option count) and a 5-option row (the archived normalizer
+# silently truncates to 4, verified in the real freeze to never drop the
+# correct option) -- plus an MMLU field-identical duplicate question_id.
+
+_DATASET_RELATIVE_PATHS = (
+    "raw/local_model_generalization/data/raw/arc_challenge_raw.csv",
+    "raw/local_model_generalization/data/processed/arc_challenge_normalized.csv",
+    "raw/local_model_generalization/data/splits/arc_challenge/robustness_ids.json",
+    "raw/local_model_generalization/data/splits/arc_challenge/robustness_metadata.json",
+    "raw/local_model_generalization/data/raw/mmlu_raw.csv",
+    "raw/local_model_generalization/data/processed/mmlu_normalized.csv",
+    "raw/local_model_generalization/data/splits/benchmark/robustness_ids.json",
+    "raw/local_model_generalization/data/splits/benchmark/robustness_metadata.json",
+)
+
+
+def _arc_raw_csv(rows):
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=["id", "question", "choices", "answerKey"])
+    writer.writeheader()
+    for row_id, question, texts, labels, answer_key in rows:
+        writer.writerow({
+            "id": row_id, "question": question,
+            "choices": json.dumps({"text": texts, "label": labels}),
+            "answerKey": answer_key,
+        })
+    return buffer.getvalue()
+
+
+def _normalized_csv(rows):
+    fieldnames = [
+        "question_id", "subject", "question_text", "choice_a", "choice_b",
+        "choice_c", "choice_d", "correct_option", "correct_answer_text",
+    ]
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=fieldnames)
+    writer.writeheader()
+    for row in rows:
+        writer.writerow(row)
+    return buffer.getvalue()
+
+
+def _default_arc_raw_rows():
+    return [
+        ("r1", "Q1?", ["a1", "b1", "c1", "d1"], ["A", "B", "C", "D"], "A"),
+        ("r2", "Q2?", ["a2", "b2", "c2", "d2"], ["A", "B", "C", "D"], "B"),
+        ("r3", "Q3?", ["a3", "b3", "c3"], ["A", "B", "C"], "A"),  # 3-option
+        ("r4", "Q4?", ["a4", "b4", "c4", "d4", "e4"], ["A", "B", "C", "D", "E"], "B"),  # 5-option
+    ]
+
+
+def _default_arc_normalized_rows():
+    return [
+        {"question_id": "arc_q1", "subject": "arc_challenge", "question_text": "Q1?",
+         "choice_a": "a1", "choice_b": "b1", "choice_c": "c1", "choice_d": "d1",
+         "correct_option": "A", "correct_answer_text": "a1"},
+        {"question_id": "arc_q2", "subject": "arc_challenge", "question_text": "Q2?",
+         "choice_a": "a2", "choice_b": "b2", "choice_c": "c2", "choice_d": "d2",
+         "correct_option": "B", "correct_answer_text": "b2"},
+        {"question_id": "arc_q3", "subject": "arc_challenge", "question_text": "Q3?",
+         "choice_a": "a3", "choice_b": "b3", "choice_c": "c3", "choice_d": "",
+         "correct_option": "A", "correct_answer_text": "a3"},
+        {"question_id": "arc_q4", "subject": "arc_challenge", "question_text": "Q4?",
+         "choice_a": "a4", "choice_b": "b4", "choice_c": "c4", "choice_d": "d4",
+         "correct_option": "B", "correct_answer_text": "b4"},
+    ]
+
+
+def _default_mmlu_raw_rows():
+    # (question, subject, choices_repr, answer_index)
+    return [
+        ("MQ1?", "history", "['x1', 'y1', 'z1', 'w1']", 0),
+        ("MQ2?", "history", "['x2', 'y2', 'z2', 'w2']", 2),
+        ("MQ2?", "history", "['x2', 'y2', 'z2', 'w2']", 2),  # duplicate row -> same question_id
+    ]
+
+
+def _default_mmlu_normalized_rows():
+    return [
+        {"question_id": "mmlu_q1", "subject": "history", "question_text": "MQ1?",
+         "choice_a": "x1", "choice_b": "y1", "choice_c": "z1", "choice_d": "w1",
+         "correct_option": "A", "correct_answer_text": "x1"},
+        {"question_id": "mmlu_q2", "subject": "history", "question_text": "MQ2?",
+         "choice_a": "x2", "choice_b": "y2", "choice_c": "z2", "choice_d": "w2",
+         "correct_option": "C", "correct_answer_text": "z2"},
+        {"question_id": "mmlu_q2", "subject": "history", "question_text": "MQ2?",
+         "choice_a": "x2", "choice_b": "y2", "choice_c": "z2", "choice_d": "w2",
+         "correct_option": "C", "correct_answer_text": "z2"},
+    ]
+
+
+def _build_dataset_freeze(
+    tmp_path,
+    *,
+    arc_raw_rows=None,
+    arc_normalized_rows=None,
+    mmlu_raw_rows=None,
+    mmlu_normalized_rows=None,
+    arc_selected_ids=None,
+    mmlu_selected_ids=None,
+    tamper_checksum_for=None,
+):
+    freeze_root = tmp_path / "freeze"
+    arc_raw_rows = _default_arc_raw_rows() if arc_raw_rows is None else arc_raw_rows
+    arc_normalized_rows = (
+        _default_arc_normalized_rows() if arc_normalized_rows is None else arc_normalized_rows
+    )
+    mmlu_raw_rows = _default_mmlu_raw_rows() if mmlu_raw_rows is None else mmlu_raw_rows
+    mmlu_normalized_rows = (
+        _default_mmlu_normalized_rows() if mmlu_normalized_rows is None else mmlu_normalized_rows
+    )
+    arc_selected_ids = (
+        [row["question_id"] for row in arc_normalized_rows]
+        if arc_selected_ids is None else arc_selected_ids
+    )
+    mmlu_selected_ids = (
+        sorted({row["question_id"] for row in mmlu_normalized_rows})
+        if mmlu_selected_ids is None else mmlu_selected_ids
+    )
+
+    _write(
+        freeze_root / "raw/local_model_generalization/data/raw/arc_challenge_raw.csv",
+        _arc_raw_csv(arc_raw_rows),
+    )
+    _write(
+        freeze_root / "raw/local_model_generalization/data/processed/arc_challenge_normalized.csv",
+        _normalized_csv(arc_normalized_rows),
+    )
+    _write(
+        freeze_root / "raw/local_model_generalization/data/splits/arc_challenge/robustness_ids.json",
+        json.dumps(arc_selected_ids),
+    )
+    _write(
+        freeze_root / "raw/local_model_generalization/data/splits/arc_challenge/robustness_metadata.json",
+        json.dumps({"seed": 42, "actual_size": len(arc_selected_ids)}),
+    )
+
+    mmlu_buffer = io.StringIO()
+    writer = csv.DictWriter(mmlu_buffer, fieldnames=["question", "subject", "choices", "answer"])
+    writer.writeheader()
+    for question, subject, choices_repr, answer in mmlu_raw_rows:
+        writer.writerow({"question": question, "subject": subject, "choices": choices_repr, "answer": answer})
+    _write(
+        freeze_root / "raw/local_model_generalization/data/raw/mmlu_raw.csv", mmlu_buffer.getvalue(),
+    )
+    _write(
+        freeze_root / "raw/local_model_generalization/data/processed/mmlu_normalized.csv",
+        _normalized_csv(mmlu_normalized_rows),
+    )
+    _write(
+        freeze_root / "raw/local_model_generalization/data/splits/benchmark/robustness_ids.json",
+        json.dumps(mmlu_selected_ids),
+    )
+    _write(
+        freeze_root / "raw/local_model_generalization/data/splits/benchmark/robustness_metadata.json",
+        json.dumps({"seed": 7, "actual_size": len(mmlu_selected_ids)}),
+    )
+
+    ledger_lines = []
+    for relative_path in _DATASET_RELATIVE_PATHS:
+        data = (freeze_root / relative_path).read_bytes()
+        digest = sha256(data).hexdigest()
+        if tamper_checksum_for == relative_path:
+            digest = "f" * 64
+        ledger_lines.append(f"{digest}  {relative_path}")
+    _write(freeze_root / "checksums" / "checksums.sha256", "\n".join(ledger_lines) + "\n")
+    return freeze_root
+
+
+def test_build_stage1_expected_datasets_happy_path(tmp_path):
+    freeze_root = _build_dataset_freeze(tmp_path)
+    datasets = build_stage1_expected_datasets(freeze_root)
+    assert set(datasets) == {"arc_challenge", "mmlu"}
+    arc = datasets["arc_challenge"]
+    assert arc.reference_kind == "independent_input_snapshot"
+    assert arc.trust_label == "checksum_verified_freeze_internal"
+    assert set(arc.selected_question_ids) == {"arc_q1", "arc_q2", "arc_q3", "arc_q4"}
+    mmlu = datasets["mmlu"]
+    # the duplicate mmlu_q2 row collapses to one selected ID (keep-first)
+    assert set(mmlu.selected_question_ids) == {"mmlu_q1", "mmlu_q2"}
+
+
+def test_build_stage1_expected_datasets_handles_variable_arc_option_count(tmp_path):
+    freeze_root = _build_dataset_freeze(tmp_path)
+    datasets = build_stage1_expected_datasets(freeze_root)
+    arc_frame = datasets["arc_challenge"].artifact_frame
+    row = arc_frame[arc_frame["question_id"] == "arc_q3"].iloc[0]
+    choices = json.loads(row["choices_json"])
+    assert len(choices) == 3  # variable option count preserved, not padded
+
+
+def test_build_stage1_expected_datasets_truncates_five_option_arc_row(tmp_path):
+    freeze_root = _build_dataset_freeze(tmp_path)
+    datasets = build_stage1_expected_datasets(freeze_root)
+    arc_frame = datasets["arc_challenge"].artifact_frame
+    row = arc_frame[arc_frame["question_id"] == "arc_q4"].iloc[0]
+    choices = json.loads(row["choices_json"])
+    assert len(choices) == 4  # 5th raw option dropped, matching the archived normalizer
+    assert row["correct_option"] == "B"
+
+
+def test_build_stage1_expected_datasets_verifies_checksums(tmp_path):
+    freeze_root = _build_dataset_freeze(
+        tmp_path,
+        tamper_checksum_for="raw/local_model_generalization/data/processed/arc_challenge_normalized.csv",
+    )
+    with pytest.raises(Stage1ProfileError, match="checksum mismatch"):
+        build_stage1_expected_datasets(freeze_root)
+
+
+def test_build_stage1_expected_datasets_rejects_revalidation_mismatch(tmp_path):
+    tampered = _default_arc_normalized_rows()
+    tampered[0] = {**tampered[0], "correct_option": "B"}  # disagrees with raw answerKey "A"
+    freeze_root = _build_dataset_freeze(tmp_path, arc_normalized_rows=tampered)
+    with pytest.raises(Stage1ProfileError, match="revalidation failure"):
+        build_stage1_expected_datasets(freeze_root)
+
+
+def test_build_stage1_expected_datasets_rejects_disagreeing_duplicate(tmp_path):
+    # The mutated 3rd row must still positionally revalidate against its OWN
+    # raw row (answer index 0 -> "A"/"x2"), so the disagreement is caught at
+    # the duplicate-question_id stage, not the raw/normalized revalidation
+    # stage -- isolating the specific invariant this test targets.
+    raw_rows = _default_mmlu_raw_rows()
+    raw_rows[2] = ("MQ2?", "history", "['x2', 'y2', 'z2', 'w2']", 0)
+    mismatched = _default_mmlu_normalized_rows()
+    mismatched[2] = {**mismatched[2], "correct_option": "A", "correct_answer_text": "x2"}
+    freeze_root = _build_dataset_freeze(tmp_path, mmlu_raw_rows=raw_rows, mmlu_normalized_rows=mismatched)
+    with pytest.raises(Stage1ProfileError, match="disagreeing field values"):
+        build_stage1_expected_datasets(freeze_root)
+
+
+def test_build_stage1_expected_datasets_rejects_selected_id_missing_from_source(tmp_path):
+    freeze_root = _build_dataset_freeze(tmp_path, arc_selected_ids=["arc_q1", "arc_qXX"])
+    with pytest.raises(Stage1ProfileError, match="absent from the"):
+        build_stage1_expected_datasets(freeze_root)
+
+
+def test_build_stage1_expected_datasets_rejects_raw_normalized_row_count_mismatch(tmp_path):
+    freeze_root = _build_dataset_freeze(tmp_path, arc_raw_rows=_default_arc_raw_rows()[:2])
+    with pytest.raises(Stage1ProfileError, match="row counts disagree"):
+        build_stage1_expected_datasets(freeze_root)

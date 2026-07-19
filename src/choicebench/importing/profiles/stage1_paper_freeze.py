@@ -27,12 +27,18 @@ generic importer module imports from here.
 
 from __future__ import annotations
 
+import ast
 from dataclasses import dataclass
 from hashlib import sha256
 import csv
+import io
 import json
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
+
+from choicebench.importing.csv_adapter import OpenedSource
+from choicebench.importing.dataset_reference import ExpectedDataset, build_expected_dataset
+from choicebench.importing.schema import DatasetReferenceSpec
 
 STATUS_MAP = {
     "canonical_complete": "complete",
@@ -313,3 +319,230 @@ def translate_stage1_paper_freeze(freeze_root: Path) -> Stage1Translation:
         offline_authority=offline_authority,
         verified_relative_paths=_VERIFIED_RELATIVE_PATHS,
     )
+
+
+# --- ARC/MMLU expected-dataset trust chain (Task 16) -----------------------
+#
+# Reduced scope, verified directly against the real freeze: this recomputes
+# question_text/correct_option/correct_answer_text/choices from each raw row
+# and compares them fieldwise against the archived normalized row at the
+# SAME position -- raw and normalized files have identical row counts and
+# the same row order, so a positional join is sufficient and avoids needing
+# to reproduce the archived normalizer's own question_id hash algorithm.
+# This is a ChoiceBench revalidation of internal freeze consistency, not
+# proof that the archived normalizer (or the raw upstream publisher) was
+# authentic -- recorded as a limitation on the returned ExpectedDataset.
+
+_DATASET_RELATIVE_PATHS = {
+    "arc_challenge": {
+        "raw": "raw/local_model_generalization/data/raw/arc_challenge_raw.csv",
+        "normalized": "raw/local_model_generalization/data/processed/arc_challenge_normalized.csv",
+        "ids": "raw/local_model_generalization/data/splits/arc_challenge/robustness_ids.json",
+        "metadata": "raw/local_model_generalization/data/splits/arc_challenge/robustness_metadata.json",
+    },
+    "mmlu": {
+        "raw": "raw/local_model_generalization/data/raw/mmlu_raw.csv",
+        "normalized": "raw/local_model_generalization/data/processed/mmlu_normalized.csv",
+        "ids": "raw/local_model_generalization/data/splits/benchmark/robustness_ids.json",
+        "metadata": "raw/local_model_generalization/data/splits/benchmark/robustness_metadata.json",
+    },
+}
+
+
+_ARC_MAX_OPTIONS = 4
+
+
+def _recompute_arc_fields(raw_row: Mapping[str, str]) -> dict[str, str]:
+    """The archived normalizer caps ARC options at _ARC_MAX_OPTIONS, silently
+    dropping any raw option beyond it -- verified against the real freeze:
+    3 raw ARC questions have a 5th option, and all 3 have their answerKey
+    within the first _ARC_MAX_OPTIONS, so truncation never drops the correct
+    option. If a future/other freeze ever did drop the correct option, the
+    index check below still fails closed rather than silently truncating it.
+    """
+    try:
+        parsed = json.loads(raw_row["choices"])
+        texts = list(parsed["text"])
+        labels = list(parsed["label"])
+        index = labels.index(raw_row["answerKey"])
+    except (KeyError, ValueError, TypeError) as exc:
+        raise Stage1ProfileError(
+            f"ARC raw row {raw_row.get('id')!r} has malformed choices/answerKey: {exc}."
+        ) from exc
+    if index >= _ARC_MAX_OPTIONS:
+        raise Stage1ProfileError(
+            f"ARC raw row {raw_row.get('id')!r} answerKey index {index} falls outside the "
+            f"archived normalizer's first {_ARC_MAX_OPTIONS} options; truncation would drop "
+            "the correct option, so this cannot be safely revalidated."
+        )
+    texts = texts[:_ARC_MAX_OPTIONS]
+    fields = {
+        "question_text": raw_row["question"],
+        "correct_option": chr(ord("A") + index),
+        "correct_answer_text": texts[index],
+    }
+    for offset in range(_ARC_MAX_OPTIONS):
+        fields[f"choice_{chr(ord('a') + offset)}"] = texts[offset] if offset < len(texts) else ""
+    return fields
+
+
+def _recompute_mmlu_fields(raw_row: Mapping[str, str]) -> dict[str, str]:
+    try:
+        choices = list(ast.literal_eval(raw_row["choices"]))
+        index = int(raw_row["answer"])
+    except (SyntaxError, ValueError, TypeError) as exc:
+        raise Stage1ProfileError(
+            f"MMLU raw row has malformed choices/answer: {exc}."
+        ) from exc
+    if not (0 <= index < len(choices)):
+        raise Stage1ProfileError(
+            f"MMLU raw row answer index {index} is out of range for choices {choices!r}."
+        )
+    fields = {
+        "question_text": raw_row["question"],
+        "correct_option": chr(ord("A") + index),
+        "correct_answer_text": str(choices[index]),
+    }
+    for offset, text in enumerate(choices):
+        fields[f"choice_{chr(ord('a') + offset)}"] = str(text)
+    return fields
+
+
+def _revalidate_positional(
+    raw_rows: list[dict[str, str]],
+    normalized_rows: list[dict[str, str]],
+    *,
+    recompute: Callable[[Mapping[str, str]], dict[str, str]],
+    benchmark_name: str,
+) -> None:
+    if len(raw_rows) != len(normalized_rows):
+        raise Stage1ProfileError(
+            f"{benchmark_name}: raw ({len(raw_rows)}) and normalized ({len(normalized_rows)}) "
+            "row counts disagree; this revalidation assumes positional 1:1 correspondence."
+        )
+    for index, (raw_row, normalized_row) in enumerate(zip(raw_rows, normalized_rows)):
+        recomputed = recompute(raw_row)
+        for field, expected_value in recomputed.items():
+            actual_value = (normalized_row.get(field) or "").strip()
+            if actual_value != expected_value.strip():
+                raise Stage1ProfileError(
+                    f"{benchmark_name} row {index} ({normalized_row.get('question_id')!r}): "
+                    f"recomputed {field}={expected_value!r} does not match the archived "
+                    f"normalized value {actual_value!r} (ChoiceBench revalidation failure)."
+                )
+
+
+def _drop_duplicate_questions(
+    normalized_rows: list[dict[str, str]], *, benchmark_name: str
+) -> list[dict[str, str]]:
+    """pandas.DataFrame.drop_duplicates(subset="question_id", keep="first")
+    semantics -- but only after requiring every duplicate occurrence to agree
+    on all parsed fields; a disagreeing duplicate fails closed rather than
+    silently picking one."""
+    seen: dict[str, dict[str, str]] = {}
+    order: list[str] = []
+    for row in normalized_rows:
+        question_id = row["question_id"]
+        if question_id in seen:
+            if row != seen[question_id]:
+                raise Stage1ProfileError(
+                    f"{benchmark_name}: duplicate question_id {question_id!r} occurs with "
+                    "disagreeing field values; cannot apply keep-first deduplication."
+                )
+            continue
+        seen[question_id] = row
+        order.append(question_id)
+    return [seen[question_id] for question_id in order]
+
+
+def _build_expected_dataset_for_benchmark(
+    freeze_root: Path,
+    ledger: Mapping[str, str],
+    *,
+    benchmark_name: str,
+    raw_recompute: Callable[[Mapping[str, str]], dict[str, str]],
+) -> ExpectedDataset:
+    paths = _DATASET_RELATIVE_PATHS[benchmark_name]
+    raw_bytes = _verify_checksummed_file(freeze_root, ledger, paths["raw"])
+    normalized_bytes = _verify_checksummed_file(freeze_root, ledger, paths["normalized"])
+    ids_bytes = _verify_checksummed_file(freeze_root, ledger, paths["ids"])
+    metadata_bytes = _verify_checksummed_file(freeze_root, ledger, paths["metadata"])
+
+    raw_rows = list(csv.DictReader(io.StringIO(raw_bytes.decode("utf-8"))))
+    normalized_rows = list(csv.DictReader(io.StringIO(normalized_bytes.decode("utf-8"))))
+    _revalidate_positional(
+        raw_rows, normalized_rows, recompute=raw_recompute, benchmark_name=benchmark_name
+    )
+
+    deduplicated_rows = _drop_duplicate_questions(normalized_rows, benchmark_name=benchmark_name)
+    selected_ids = json.loads(ids_bytes)
+    metadata = json.loads(metadata_bytes)
+
+    available_ids = {row["question_id"] for row in deduplicated_rows}
+    missing = [question_id for question_id in selected_ids if question_id not in available_ids]
+    if missing:
+        raise Stage1ProfileError(
+            f"{benchmark_name}: {len(missing)} selected question ID(s) are absent from the "
+            f"normalized/deduplicated source, e.g. {missing[:3]}."
+        )
+
+    fieldnames = list(deduplicated_rows[0].keys())
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=fieldnames)
+    writer.writeheader()
+    writer.writerows(deduplicated_rows)
+    deduplicated_bytes = buffer.getvalue().encode("utf-8")
+    opened_source = OpenedSource(
+        source_id="normalized",
+        audit_path=freeze_root / paths["normalized"],
+        logical_path=paths["normalized"],
+        data=deduplicated_bytes,
+        sha256=sha256(deduplicated_bytes).hexdigest(),
+    )
+
+    choice_columns = {
+        key: key for key in fieldnames if key.startswith("choice_") and len(key) == 8
+    }
+    declaration = DatasetReferenceSpec(
+        dataset_id=benchmark_name,
+        benchmark_name=benchmark_name,
+        split="robustness",
+        reference_kind="independent_input_snapshot",
+        trust_label="checksum_verified_freeze_internal",
+        source_ids=("normalized",),
+        selection_source_id="normalized",
+        expected_question_ids=tuple(selected_ids),
+        selection_seed=metadata.get("seed"),
+        selection_n_samples=metadata.get("actual_size"),
+        subject_filter=(),
+        selection_unknown_reasons={},
+        columns={
+            "question_id": "question_id",
+            "question_text": "question_text",
+            "correct_option": "correct_option",
+            **choice_columns,
+        },
+        revision=None,
+        fingerprint=None,
+        derivation={"source_role": f"{benchmark_name}_stage1_freeze_normalized"},
+        limitations=(
+            "Stage 1 freeze: field content independently revalidated against the raw "
+            "source by ChoiceBench; this proves internal freeze consistency, not that "
+            "the archived normalizer or the upstream publisher was authentic.",
+        ),
+        native_compatibility_identity=None,
+    )
+    return build_expected_dataset(declaration, {"normalized": opened_source})
+
+
+def build_stage1_expected_datasets(freeze_root: Path) -> dict[str, ExpectedDataset]:
+    freeze_root = Path(freeze_root)
+    ledger = _load_checksum_ledger(freeze_root)
+    return {
+        "arc_challenge": _build_expected_dataset_for_benchmark(
+            freeze_root, ledger, benchmark_name="arc_challenge", raw_recompute=_recompute_arc_fields,
+        ),
+        "mmlu": _build_expected_dataset_for_benchmark(
+            freeze_root, ledger, benchmark_name="mmlu", raw_recompute=_recompute_mmlu_fields,
+        ),
+    }
