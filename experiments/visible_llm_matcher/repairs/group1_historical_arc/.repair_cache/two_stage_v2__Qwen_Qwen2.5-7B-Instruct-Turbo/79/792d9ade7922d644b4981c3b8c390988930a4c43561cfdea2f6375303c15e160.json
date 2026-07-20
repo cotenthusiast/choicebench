@@ -1,0 +1,15 @@
+{
+  "namespace": "two_stage_v2__Qwen_Qwen2.5-7B-Instruct-Turbo",
+  "payload": {
+    "finish_reason": "stop",
+    "logprobs": null,
+    "raw_text": "A",
+    "usage": {
+      "completion_tokens": 2,
+      "prompt_tokens": 131,
+      "total_tokens": 133
+    }
+  },
+  "payload_digest": "7defa6b04d064fca10a2713389ab9c2c710b41d549e1da017b9cdd4a8faa9260",
+  "schema_version": "choicebench.response-cache.v1"
+}

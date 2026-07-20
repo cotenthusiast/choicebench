@@ -1,0 +1,15 @@
+{
+  "namespace": "cyclic_generation_majority__Qwen_Qwen2.5-7B-Instruct-Turbo",
+  "payload": {
+    "finish_reason": "stop",
+    "logprobs": null,
+    "raw_text": "C",
+    "usage": {
+      "completion_tokens": 2,
+      "prompt_tokens": 86,
+      "total_tokens": 88
+    }
+  },
+  "payload_digest": "ad4e4e950e1183b0794d83076570eec821de72f060c5f074c8d4ce76db000fc7",
+  "schema_version": "choicebench.response-cache.v1"
+}

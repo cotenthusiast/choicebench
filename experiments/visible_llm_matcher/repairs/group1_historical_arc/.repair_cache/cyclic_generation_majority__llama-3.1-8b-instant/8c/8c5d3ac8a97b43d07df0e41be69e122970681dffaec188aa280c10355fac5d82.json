@@ -1,0 +1,15 @@
+{
+  "namespace": "cyclic_generation_majority__llama-3.1-8b-instant",
+  "payload": {
+    "finish_reason": "stop",
+    "logprobs": null,
+    "raw_text": "C",
+    "usage": {
+      "completion_tokens": 2,
+      "prompt_tokens": 91,
+      "total_tokens": 93
+    }
+  },
+  "payload_digest": "fd444f0674e9120db6bd544f7288e6c7a1e8d329234d2d5d65dcbcd6b2b411a4",
+  "schema_version": "choicebench.response-cache.v1"
+}

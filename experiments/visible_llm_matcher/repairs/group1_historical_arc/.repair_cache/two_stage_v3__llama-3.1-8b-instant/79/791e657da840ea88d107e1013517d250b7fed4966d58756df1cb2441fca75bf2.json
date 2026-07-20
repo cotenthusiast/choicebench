@@ -1,0 +1,15 @@
+{
+  "namespace": "two_stage_v3__llama-3.1-8b-instant",
+  "payload": {
+    "finish_reason": "stop",
+    "logprobs": null,
+    "raw_text": "A",
+    "usage": {
+      "completion_tokens": 2,
+      "prompt_tokens": 135,
+      "total_tokens": 137
+    }
+  },
+  "payload_digest": "c6abb234d0aa9cf850ea67661686287e309fd483b05a067ab90479d70d9f34fb",
+  "schema_version": "choicebench.response-cache.v1"
+}

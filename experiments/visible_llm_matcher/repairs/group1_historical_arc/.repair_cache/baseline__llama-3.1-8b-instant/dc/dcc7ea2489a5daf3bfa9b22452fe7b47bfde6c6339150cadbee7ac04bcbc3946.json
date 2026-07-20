@@ -1,0 +1,15 @@
+{
+  "namespace": "baseline__llama-3.1-8b-instant",
+  "payload": {
+    "finish_reason": "stop",
+    "logprobs": null,
+    "raw_text": "A",
+    "usage": {
+      "completion_tokens": 2,
+      "prompt_tokens": 91,
+      "total_tokens": 93
+    }
+  },
+  "payload_digest": "05391f3faf988444403d5096bd1320b2b41a7e3a01b330c22b4e012730404aa9",
+  "schema_version": "choicebench.response-cache.v1"
+}

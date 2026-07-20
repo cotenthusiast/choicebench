@@ -1,0 +1,15 @@
+{
+  "namespace": "baseline__Qwen_Qwen2.5-7B-Instruct-Turbo",
+  "payload": {
+    "finish_reason": "stop",
+    "logprobs": null,
+    "raw_text": "A",
+    "usage": {
+      "completion_tokens": 2,
+      "prompt_tokens": 85,
+      "total_tokens": 87
+    }
+  },
+  "payload_digest": "b890c95b9a9ed6c9cb1ef7ccd1189d2c78f76c1b53f9d81ddd8fae71c8a10d3d",
+  "schema_version": "choicebench.response-cache.v1"
+}
