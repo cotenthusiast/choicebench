@@ -1,0 +1,15 @@
+{
+  "namespace": "baseline__gpt-4.1-mini",
+  "payload": {
+    "finish_reason": null,
+    "logprobs": null,
+    "raw_text": "A",
+    "usage": {
+      "completion_tokens": 2,
+      "prompt_tokens": 64,
+      "total_tokens": 66
+    }
+  },
+  "payload_digest": "f18f5cb731c172248cf1dc78ef5e7ab54d0f205ffa377ec0d710d07d5da7557b",
+  "schema_version": "choicebench.response-cache.v1"
+}

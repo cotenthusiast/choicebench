@@ -1,0 +1,16 @@
+run_id,question_id,split_name,subject,method_name,prompt_version,perturbation_name,sample_index,provider,model_name,temperature,max_tokens,seed,question_text,choices_json,correct_index,correct_option,n_choices,prompt,transport_status,answer_status,raw_text,finish_reason,latency_seconds,timestamp_utc,error_type,error_message,error_stage,error_retryable,parsed_choice,parse_status,normalized_text,parse_reason,is_correct,score_status,free_text_response,free_text_source_repo,free_text_source_path
+fourth_cell_v1_CANARY,00139064e4eaa23a,robustness,high_school_microeconomics,visible_llm_matcher,v1,,0,openai,gpt-4.1-mini,0.0,500,42,"At the birthday party of your best friend, you see Skylar help himself to a second piece of cake. For this individual, it must be the case that","[{""text"": ""the marginal benefit of the second piece of cake is less than the marginal cost."", ""source_index"": 0}, {""text"": ""the total benefit received from eating cake is falling."", ""source_index"": 1}, {""text"": ""the ratio of marginal benefit over marginal cost is less than one."", ""source_index"": 2}, {""text"": ""the marginal benefit of the second piece of cake is greater than the marginal cost."", ""source_index"": 3}]",3,D,4,"You are given a question, a reference answer, and four options.
+
+Question: At the birthday party of your best friend, you see Skylar help himself to a second piece of cake. For this individual, it must be the case that
+
+Reference answer: the marginal benefit of the second piece of cake is greater than the marginal cost.
+
+Options:
+A. the marginal benefit of the second piece of cake is less than the marginal cost.
+B. the total benefit received from eating cake is falling.
+C. the ratio of marginal benefit over marginal cost is less than one.
+D. the marginal benefit of the second piece of cake is greater than the marginal cost.
+
+Select the option that best matches the reference answer in the context of the question.
+If the reference answer is imperfect or incomplete, choose the closest option.
+Respond with only the letter.",success,success,D,,3.0893155420053517,,,,,,D,parse_ok,D,Answer successfully parsed,True,score_correct,the marginal benefit of the second piece of cake is greater than the marginal cost.,two-stage-prompting,/home/cotenthusiast/Projects/two-stage-prompting/paper_results/eval_ready/paper_api_main/20260603_154649_text_extraction_gpt-4.1-mini_mmlu.csv

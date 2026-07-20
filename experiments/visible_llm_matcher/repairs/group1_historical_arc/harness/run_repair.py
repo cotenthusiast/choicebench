@@ -120,42 +120,53 @@ async def run_repair_for_cell_async(cell_id: str) -> dict:
     method = cell["method"]
     job_method = cell["job_matrix_method"]
     model_name = cell["model"]
-    benchmark = cell["run_id"]  # not used for path; kept for clarity below
     is_local = cell["is_local"]
-
-    if is_local:
-        raise NotImplementedError(
-            f"cell_id={cell_id!r} is a local/Kelvin2 cell — this driver only "
-            "handles API cells directly. Local repairs run via the same "
-            "harness modules but through a Kelvin2 sbatch entry point "
-            "(not implemented in this phase)."
-        )
 
     cfg_path = REPO_ROOT / "experiments" / "visible_llm_matcher" / "repairs" / "group1_historical_arc" / "configs" / f"{cell_id}.yaml"
     import yaml
 
     cfg = yaml.safe_load(cfg_path.read_text())
     model_cfg = cfg["models"][model_name]
-    provider = model_cfg["provider"]
-    concurrency = model_cfg.get("concurrency", 10)
     temperature = cfg["run"]["temperature"]
     max_tokens = cfg["run"]["max_tokens"]
     seed = cfg["run"]["seed"]
 
-    client = _build_client(provider, model_name, concurrency)
     cache_namespace = f"{method}__{model_name.replace('/', '_')}"
-    backend = build_repair_backend(
-        provider=provider,
-        model_name=model_name,
-        client=client,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        seed=seed,
-        concurrency_limit=concurrency,
-        cache_namespace=cache_namespace,
-    )
+    n_before = 0  # local path has no cache layer at all — see below
 
-    n_before = count_cache_entries(cache_namespace)
+    if is_local:
+        # Local/Kelvin2: HuggingFaceBackend has a completely different
+        # (sync, no-cache) interface — see local_backend_adapter.py. Must
+        # run on a GPU node (Kelvin2 sbatch), not this driver's own host.
+        from choicebench.backends.hf_backend import HuggingFaceBackend
+
+        from experiments.visible_llm_matcher.local_backend_adapter import LocalBackendAsyncAdapter
+
+        hf_backend = HuggingFaceBackend(
+            model_name_or_path=model_cfg["model_path"],
+            device=model_cfg.get("device", "cuda"),
+            max_new_tokens=max_tokens,
+            temperature=temperature,
+            do_sample=False,
+        )
+        hf_backend.load()
+        backend = LocalBackendAsyncAdapter(hf_backend)
+    else:
+        provider = model_cfg["provider"]
+        concurrency = model_cfg.get("concurrency", 10)
+        client = _build_client(provider, model_name, concurrency)
+        backend = build_repair_backend(
+            provider=provider,
+            model_name=model_name,
+            client=client,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            seed=seed,
+            concurrency_limit=concurrency,
+            cache_namespace=cache_namespace,
+        )
+        n_before = count_cache_entries(cache_namespace)
+
     rows = _three_repaired_rows(model_name)
 
     repaired: list[dict] = []
@@ -186,7 +197,17 @@ async def run_repair_for_cell_async(cell_id: str) -> dict:
 
     n_calls_per_question = _CALLS_PER_QUESTION[method]
     expected_new_cache_entries = n_calls_per_question * len(rows)
-    assert_cache_grew_by(cache_namespace, before=n_before, expected_new_entries=expected_new_cache_entries)
+    if is_local:
+        # HuggingFaceBackend has no caching layer at all (every call is a
+        # genuine forward pass) -- the cache-file-growth check is
+        # meaningless here, not skipped out of laziness. Freshness for
+        # local calls is instead evidenced by positive latency (checked
+        # per-response by assert_fresh_call already) and, for a real GPU
+        # run, plausible multi-second-per-call latency reflecting actual
+        # model inference.
+        pass
+    else:
+        assert_cache_grew_by(cache_namespace, before=n_before, expected_new_entries=expected_new_cache_entries)
 
     # Merge with the 997 seeded "keep" rows into a NEW staged artifact.
     checkpoint_seed_path = REPO_ROOT / cell["generated_checkpoint_seed"]
@@ -206,8 +227,12 @@ async def run_repair_for_cell_async(cell_id: str) -> dict:
         method=method,
         model=model_name,
         benchmark="arc_challenge",
-        source_repo="two-stage-prompting",
-        source_commit="b8e784f3eb5d2a727a97eb675140b383a34584fa",
+        source_repo="model-generalization" if is_local else "two-stage-prompting",
+        source_commit=(
+            "24403d8da9c7c11189bf56439b4040bc7cad1efd"
+            if is_local
+            else "b8e784f3eb5d2a727a97eb675140b383a34584fa"
+        ),
         source_config_path=cell["source_config"],
         source_run_id=cell["run_id"],
         prompt_template_historical=_historical_template_name(job_method),

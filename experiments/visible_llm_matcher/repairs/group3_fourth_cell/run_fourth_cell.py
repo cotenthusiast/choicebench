@@ -124,7 +124,26 @@ def prepare_stage1(cfg: dict) -> pd.DataFrame:
     return df
 
 
-def run_cell(config_path: Path) -> None:
+async def run_cell_async(config_path: Path, *, canary_limit: int | None = None) -> None:
+    """
+    Args:
+        canary_limit: if set, only the first N Stage-1 rows (still drawn
+            from the full, freeze-validated 1000-row Stage-1 input — the
+            validation itself is never skipped) are actually sent through
+            the runner. Output goes to a CANARY_-prefixed path under
+            group3_fourth_cell/CANARY_outputs/, and the checkpoint uses a
+            run_id suffixed "_CANARY" — both deliberately distinct from
+            the real run_id/output_csv so a canary can never be mistaken
+            for, merged into, or accidentally imported as the real
+            1000-row artifact.
+
+    Async: VisibleLlmMatcherRunner.run_one_async() is used (not run_one())
+    because choicebench's real APIBackend.generate() always raises
+    RuntimeError ("requires a running event loop") -- discovered live via
+    the very first canary run against gpt-4.1-mini, not assumed. Local
+    (HuggingFaceBackend) calls are wrapped in LocalBackendAsyncAdapter so
+    both paths share one call site.
+    """
     cfg = load_config(config_path)
     run_id = cfg["run_id"]
     benchmark = cfg["benchmark"]
@@ -134,13 +153,21 @@ def run_cell(config_path: Path) -> None:
     stage1_lookup = build_stage1_lookup(stage1_df)
 
     model_config = build_model_config(cfg)
-    backend = build_backend(
+    is_canary = canary_limit is not None
+    effective_run_id = f"{run_id}_CANARY" if is_canary else run_id
+    raw_backend = build_backend(
         model_config=model_config,
-        run_id=run_id,
+        run_id=effective_run_id,
         run_seed=cfg["seed"],
         default_concurrency_limit=cfg["model"].get("concurrency_limit") or 10,
-        model_identity=f"{run_id}__{model_name.replace('/', '_')}",
+        model_identity=f"{effective_run_id}__{model_name.replace('/', '_')}",
     )
+    if model_config.backend == "huggingface":
+        from experiments.visible_llm_matcher.local_backend_adapter import LocalBackendAsyncAdapter
+
+        backend = LocalBackendAsyncAdapter(raw_backend)
+    else:
+        backend = raw_backend
 
     runner = VisibleLlmMatcherRunner(
         backend=backend,
@@ -148,7 +175,7 @@ def run_cell(config_path: Path) -> None:
         split_name="robustness",
         prompt_version=cfg["prompt_version"],
         prompts_dir=Path(cfg["prompts_dir"]),
-        run_id=run_id,
+        run_id=effective_run_id,
         temperature=model_config.generation_kwargs.temperature,
         max_tokens=model_config.generation_kwargs.max_new_tokens,
         seed=cfg["seed"],
@@ -157,8 +184,12 @@ def run_cell(config_path: Path) -> None:
     )
 
     checkpoint_mgr = CheckpointManager(
-        checkpoint_dir=REPO_ROOT / cfg["checkpoint_dir"],
-        run_id=run_id,
+        checkpoint_dir=(
+            (REPO_ROOT / "experiments" / "visible_llm_matcher" / "repairs" / "group3_fourth_cell" / "CANARY_outputs" / "checkpoints")
+            if is_canary
+            else (REPO_ROOT / cfg["checkpoint_dir"])
+        ),
+        run_id=effective_run_id,
         condition="visible_llm_matcher",
         model=model_name,
         benchmark=benchmark,
@@ -168,12 +199,18 @@ def run_cell(config_path: Path) -> None:
     accumulated: list[dict] = state["results"] if state else []
 
     rows = stage1_df.to_dict(orient="records")
+    if is_canary:
+        rows = rows[:canary_limit]
     remaining = [r for r in rows if r["question_id"] not in completed_ids]
 
-    print(f"{run_id}: {len(completed_ids)}/{EXPECTED_ROWS} already complete, {len(remaining)} remaining.")
+    expected = len(rows) if is_canary else EXPECTED_ROWS
+    print(f"{effective_run_id}: {len(completed_ids)}/{expected} already complete, {len(remaining)} remaining.")
 
+    stage1_calls_made = 0  # this driver never calls a backend for Stage 1 — always 0, asserted below
+    stage2_calls_made = 0
     for i, row in enumerate(remaining):
-        result = runner.run_one(row, sample_index=i)
+        result = await runner.run_one_async(row, sample_index=i)
+        stage2_calls_made += 1
         accumulated.append(result)
         completed_ids.add(row["question_id"])
         if (i + 1) % 50 == 0:
@@ -181,14 +218,36 @@ def run_cell(config_path: Path) -> None:
 
     checkpoint_mgr.save(list(completed_ids), accumulated, started_at="")
 
-    out_path = REPO_ROOT / cfg["output_csv"]
-    out_path.parent.mkdir(parents=True, exist_ok=True)
+    if is_canary:
+        out_dir = REPO_ROOT / "experiments" / "visible_llm_matcher" / "repairs" / "group3_fourth_cell" / "CANARY_outputs"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / f"CANARY_{config_path.stem}_{canary_limit}row.csv"
+    else:
+        out_path = REPO_ROOT / cfg["output_csv"]
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+
     pd.DataFrame(accumulated).to_csv(out_path, index=False)
     print(f"Wrote {len(accumulated)} rows to {out_path}")
+    print(f"stage1_calls_made={stage1_calls_made} stage2_calls_made={stage2_calls_made}")
+
+
+def run_cell(config_path: Path, *, canary_limit: int | None = None) -> None:
+    """Sync entry point — wraps run_cell_async in asyncio.run()."""
+    import asyncio
+
+    asyncio.run(run_cell_async(config_path, canary_limit=canary_limit))
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True, type=Path)
+    parser.add_argument(
+        "--canary-limit",
+        type=int,
+        default=None,
+        help="If set, only process this many Stage-1 rows and write to an "
+        "isolated CANARY_-prefixed output/checkpoint that can't be confused "
+        "with the real 1000-row run.",
+    )
     args = parser.parse_args()
-    run_cell(args.config)
+    run_cell(args.config, canary_limit=args.canary_limit)

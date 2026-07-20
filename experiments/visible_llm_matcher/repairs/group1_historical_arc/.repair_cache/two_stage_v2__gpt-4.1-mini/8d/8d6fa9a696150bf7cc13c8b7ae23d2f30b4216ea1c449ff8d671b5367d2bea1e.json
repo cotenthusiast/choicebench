@@ -1,0 +1,15 @@
+{
+  "namespace": "two_stage_v2__gpt-4.1-mini",
+  "payload": {
+    "finish_reason": null,
+    "logprobs": null,
+    "raw_text": "A",
+    "usage": {
+      "completion_tokens": 2,
+      "prompt_tokens": 112,
+      "total_tokens": 114
+    }
+  },
+  "payload_digest": "9bf19a937c53cebf1f590faa196f42e533ffe181902d9e0fe1c5de0eae52270b",
+  "schema_version": "choicebench.response-cache.v1"
+}

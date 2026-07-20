@@ -1,0 +1,15 @@
+{
+  "namespace": "cyclic_generation_majority__gpt-4.1-mini",
+  "payload": {
+    "finish_reason": null,
+    "logprobs": null,
+    "raw_text": "A",
+    "usage": {
+      "completion_tokens": 2,
+      "prompt_tokens": 50,
+      "total_tokens": 52
+    }
+  },
+  "payload_digest": "7d5f632691627f05c0850414fc36779dd9b08ab6eeada3d55b96109d11e2835c",
+  "schema_version": "choicebench.response-cache.v1"
+}

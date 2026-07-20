@@ -251,6 +251,93 @@ class VisibleLlmMatcherRunner(ExperimentRunner):
 
         return result
 
+    async def run_one_async(self, question_row: Any, sample_index: int) -> dict:
+        """Async twin of run_one() — identical protocol, identical checks,
+        identical result schema. The ONLY difference is how the backend is
+        called: run_one() uses self._call_backend_generate(), a synchronous
+        wrapper that calls self.backend.generate(prompt) directly — which
+        works for DummyBackend/HuggingFaceBackend/MockBackend (all
+        genuinely synchronous) but ALWAYS raises RuntimeError for
+        choicebench's real APIBackend ("requires a running event loop").
+        This was only discovered live, via a canary run against a real
+        API backend (see group3_fourth_cell canary evidence) — every
+        prior test used a synchronous mock, which never exercised this
+        path. run_one() is kept exactly as it was (all of
+        tests/experiments/test_runner.py's existing, passing coverage
+        exercises it unchanged); this method exists alongside it for
+        run_fourth_cell.py to call against real backends (API directly via
+        backend.generate_single_async(); local via
+        local_backend_adapter.LocalBackendAsyncAdapter, which gives
+        HuggingFaceBackend the same async interface).
+        """
+        question_id = question_row["question_id"]
+        stage1_row = self._stage1_lookup.get(question_id)
+        if stage1_row is None:
+            raise KeyError(
+                f"No reused Stage-1 row for question_id={question_id!r}. "
+                "stage1_lookup must cover every question in the run — this "
+                "should have been caught by stage1_sources.py's row-count "
+                "validation before the runner was constructed."
+            )
+
+        free_text_answer = stage1_row["free_text_response"]
+
+        option_d_missing = _option_is_missing(question_row["choice_d"])
+        if option_d_missing and question_id not in KNOWN_3OPTION_ARC_QUESTION_IDS:
+            raise ValueError(
+                f"question_id={question_id!r} has a missing option_d but is "
+                "not in KNOWN_3OPTION_ARC_QUESTION_IDS. Refusing to render "
+                "either the historical 4-slot template (would produce "
+                "'D. nan'/an empty D) or the repaired 3-option template "
+                "(reserved for the audited repair set only) for an "
+                "unaudited missing-option row."
+            )
+
+        if option_d_missing:
+            matching_prompt = build_repaired_3option_matching_prompt(
+                template=self._repaired_3option_template,
+                question=question_row["question_text"],
+                free_text=free_text_answer,
+                option_a=question_row["choice_a"],
+                option_b=question_row["choice_b"],
+                option_c=question_row["choice_c"],
+            )
+        else:
+            matching_prompt = build_option_matching_prompt(
+                template=self._prompts["option_matching"],
+                question=question_row["question_text"],
+                free_text=free_text_answer,
+                option_a=question_row["choice_a"],
+                option_b=question_row["choice_b"],
+                option_c=question_row["choice_c"],
+                option_d=question_row["choice_d"],
+            )
+        matching_response = await self.backend.generate_single_async(matching_prompt)
+
+        parsed_result = None
+        score_result = None
+        if matching_response.is_success():
+            parsed_result, score_result = self._parse_and_score(
+                raw_text=matching_response.raw_text,
+                correct_option=question_row["correct_option"],
+                options=self._build_options(question_row),
+            )
+
+        result = self._build_result_row(
+            question_row=question_row,
+            prompt=matching_prompt,
+            sample_index=sample_index,
+            model_response=matching_response,
+            parsed_result=parsed_result,
+            score_result=score_result,
+        )
+
+        result["free_text_response"] = free_text_answer
+        result["free_text_source_repo"] = stage1_row.get("_source_repo")
+        result["free_text_source_path"] = stage1_row.get("_source_path")
+
+        return result
+
     @staticmethod
     def _parse(raw_text: str, options: dict[str, str]) -> ParseResult:
         """Override: use the ported TSP parser, not choicebench.parsing.parser.

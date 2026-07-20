@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pytest
 
+from choicebench.clients.types import FAILURE_STATUS, SUCCESS_STATUS, ModelResponse
 from choicebench.scoring.types import SCORE_CORRECT, SCORE_INCORRECT, SCORE_UNSCORABLE
 
 from experiments.visible_llm_matcher.historical_protocol import build_option_matching_prompt
@@ -453,3 +454,97 @@ class TestFrozenMissingOptionERowsStayOnTheHistoricalPath:
             option_d=frozen["choice_d"],
         )
         assert result["prompt"] == expected
+
+
+class _MockAsyncOnlyBackend:
+    """Minimal test double implementing ONLY generate_single_async() —
+    deliberately has NO generate() method at all, so a test that
+    accidentally calls the sync path (run_one() / _call_backend_generate())
+    fails with a clear AttributeError instead of silently succeeding
+    against the wrong code path.
+    """
+
+    def __init__(self, responses: list[str | Exception]):
+        self._responses = list(responses)
+        self._call_count = 0
+        self.prompts_received: list[str] = []
+
+    @property
+    def provider(self) -> str:
+        return "openai"
+
+    @property
+    def model_name(self) -> str:
+        return "gpt-4.1-mini"
+
+    async def generate_single_async(self, prompt: str) -> ModelResponse:
+        self.prompts_received.append(prompt)
+        entry = self._responses[self._call_count]
+        self._call_count += 1
+        if isinstance(entry, Exception):
+            return ModelResponse(
+                provider=self.provider, model_name=self.model_name,
+                status=FAILURE_STATUS, latency_seconds=0.01, raw_text=None,
+            )
+        return ModelResponse(
+            provider=self.provider, model_name=self.model_name,
+            status=SUCCESS_STATUS, latency_seconds=0.42, raw_text=entry,
+        )
+
+
+@pytest.mark.asyncio
+class TestRunOneAsync:
+    """Regression coverage for a critical bug found live (not by any prior
+    test): choicebench's real APIBackend.generate() always raises
+    RuntimeError ("requires a running event loop") -- run_one() (via
+    _call_backend_generate -> backend.generate()) silently could never
+    have worked against a real API backend. run_one_async() is the fix;
+    run_one() is left exactly as-is (still correct for synchronous
+    backends/mocks) -- these tests exist specifically to prove the async
+    path behaves identically, using a backend double that has NO sync
+    generate() method at all so a regression back to the sync call path
+    would fail loudly, not silently pass.
+    """
+
+    async def test_matches_sync_run_one_for_an_ordinary_four_option_question(
+        self, question_row, stage1_lookup
+    ):
+        backend = _MockAsyncOnlyBackend(["C"])
+        result = await _make_runner(backend, stage1_lookup).run_one_async(question_row, sample_index=0)
+
+        assert result["parsed_choice"] == "C"
+        assert result["is_correct"] is True
+        assert result["score_status"] == SCORE_CORRECT
+        assert len(backend.prompts_received) == 1
+
+    async def test_repaired_three_option_row_is_abc_only(self):
+        row = {
+            "question_id": "79e8c959bbeb74a0",
+            "subject": "arc_challenge",
+            "question_text": "A toy truck rolls over a smooth surface...",
+            "choice_a": "slower",
+            "choice_b": "faster",
+            "choice_c": "at the same speed",
+            "choice_d": math.nan,
+            "correct_option": "A",
+        }
+        lookup = {
+            "79e8c959bbeb74a0": {
+                "free_text_response": "The truck will most likely roll slower.",
+                "_source_repo": "two-stage-prompting",
+                "_source_path": "x",
+            }
+        }
+        backend = _MockAsyncOnlyBackend(["A"])
+        result = await _make_runner(backend, lookup).run_one_async(row, sample_index=0)
+
+        assert "D." not in result["prompt"]
+        assert "nan" not in result["prompt"].lower()
+        assert result["is_correct"] is True
+
+    async def test_backend_failure_yields_no_parse_or_score(self, question_row, stage1_lookup):
+        backend = _MockAsyncOnlyBackend([RuntimeError("simulated failure")])
+        result = await _make_runner(backend, stage1_lookup).run_one_async(question_row, sample_index=0)
+
+        assert result["parsed_choice"] is None
+        assert result["is_correct"] is None
