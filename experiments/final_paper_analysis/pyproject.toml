@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "final-paper-analysis"
+version = "0.1.0"
+description = "Offline analysis system for the final ChoiceBench paper evaluation (branch analysis/final-paper-eval)"
+requires-python = ">=3.10"
+dependencies = [
+    "choicebench",
+    "pandas",
+    "numpy",
+    "scipy",
+    "sentence-transformers",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
