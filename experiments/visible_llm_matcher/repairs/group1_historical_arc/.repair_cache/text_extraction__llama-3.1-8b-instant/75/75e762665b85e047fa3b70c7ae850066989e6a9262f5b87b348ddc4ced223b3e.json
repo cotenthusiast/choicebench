@@ -1,0 +1,15 @@
+{
+  "namespace": "text_extraction__llama-3.1-8b-instant",
+  "payload": {
+    "finish_reason": "stop",
+    "logprobs": null,
+    "raw_text": "solid",
+    "usage": {
+      "completion_tokens": 2,
+      "prompt_tokens": 94,
+      "total_tokens": 96
+    }
+  },
+  "payload_digest": "d4d796997bb5262eb6f2107a0d7778bddf43504ab16f1f169a672eb9c48a6966",
+  "schema_version": "choicebench.response-cache.v1"
+}

@@ -1,0 +1,15 @@
+{
+  "namespace": "text_extraction__gemini-2.5-flash",
+  "payload": {
+    "finish_reason": "STOP",
+    "logprobs": null,
+    "raw_text": "slower",
+    "usage": {
+      "completion_tokens": 2,
+      "prompt_tokens": 76,
+      "total_tokens": 443
+    }
+  },
+  "payload_digest": "e5c206c1ba84f7e0cab9df68fe6097cb22e66cd8e53e6b8740b3a25990975bde",
+  "schema_version": "choicebench.response-cache.v1"
+}

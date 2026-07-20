@@ -1,0 +1,20 @@
+{
+  "cell_id": "cbp__qwen-qwen2-5-7b-instruct-turbo__arc_challenge__text_extraction",
+  "method": "text_extraction",
+  "model": "Qwen/Qwen2.5-7B-Instruct-Turbo",
+  "benchmark": "arc_challenge",
+  "source_repo": "two-stage-prompting",
+  "source_commit": "b8e784f3eb5d2a727a97eb675140b383a34584fa",
+  "source_config_path": "/home/cotenthusiast/Projects/two-stage-prompting/runs/20260603_154649/config.yaml",
+  "source_run_id": "20260603_154649",
+  "prompt_template_historical": "prompts/v1/text_extraction.txt",
+  "prompt_template_repaired": "experiments/visible_llm_matcher/prompts/v1/text_extraction_repaired_3option.txt",
+  "repaired_question_ids": [
+    "79e8c959bbeb74a0",
+    "ad6b5d46ae54842c",
+    "c30e75b011696a95"
+  ],
+  "correction_description": "Real option count only (A/B/C) for the 3 audited 3-option ARC questions; never render/parse/permute/match a synthetic D. nan.",
+  "stage1_disposition": "not_applicable",
+  "stage1_disposition_reason": "Method has no separate hidden-options Stage 1 (single-call or visible-options-only method)."
+}

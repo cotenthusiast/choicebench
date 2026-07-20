@@ -1,0 +1,15 @@
+{
+  "namespace": "text_extraction__Qwen_Qwen2.5-7B-Instruct-Turbo",
+  "payload": {
+    "finish_reason": "stop",
+    "logprobs": null,
+    "raw_text": "slower",
+    "usage": {
+      "completion_tokens": 3,
+      "prompt_tokens": 101,
+      "total_tokens": 104
+    }
+  },
+  "payload_digest": "d64e3d00b4757f4a03cf61107261837243e5fbef8eceaa3ef92e65136ff6a747",
+  "schema_version": "choicebench.response-cache.v1"
+}
