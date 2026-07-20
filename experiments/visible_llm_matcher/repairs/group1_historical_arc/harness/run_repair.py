@@ -41,10 +41,20 @@ from .stage1_reuse_sources import load_reused_free_text, resolve_stage1_source_p
 from .text_extraction_repair import repair_one_text_extraction_question
 from .two_stage_repair import STAGE1_REUSE_DECISION, STAGE1_REUSE_REASON, repair_one_two_stage_question
 
+import os
+
 REPO_ROOT = Path(__file__).resolve().parents[5]
 MANIFEST_PATH = REPO_ROOT / "experiments" / "visible_llm_matcher" / "repairs" / "group1_historical_arc" / "manifest_summary.json"
+# Overridable via VLM_FREEZE_ROOT (e.g. on Kelvin2, where the freeze lives
+# at a synced copy, not the local sandbox's model-generalization checkout
+# path) -- the freeze files themselves are checksum-verified on every load
+# (arc_freeze_validation.py), so a copy at a different path is only ever
+# trusted if it is byte-identical to the original.
 FREEZE_ROOT = Path(
-    "/home/cotenthusiast/Projects/model-generalization/paper_data_freeze/raw/local_model_generalization"
+    os.environ.get(
+        "VLM_FREEZE_ROOT",
+        "/home/cotenthusiast/Projects/model-generalization/paper_data_freeze/raw/local_model_generalization",
+    )
 )
 
 _CALLS_PER_QUESTION = {

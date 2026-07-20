@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from dataclasses import asdict
 from pathlib import Path
 
@@ -60,8 +61,15 @@ from experiments.visible_llm_matcher.stage1_sources import (
 from experiments.visible_llm_matcher.runner import VisibleLlmMatcherRunner
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
+# Overridable via VLM_FREEZE_ROOT -- see harness/run_repair.py's identical
+# override for why (Kelvin2 has no local model-generalization checkout at
+# this sandbox's path; the freeze files are checksum-verified on every
+# load regardless of where they're read from).
 FREEZE_ROOT = Path(
-    "/home/cotenthusiast/Projects/model-generalization/paper_data_freeze/raw/local_model_generalization"
+    os.environ.get(
+        "VLM_FREEZE_ROOT",
+        "/home/cotenthusiast/Projects/model-generalization/paper_data_freeze/raw/local_model_generalization",
+    )
 )
 PROMPTS_DIR = REPO_ROOT / "experiments" / "visible_llm_matcher" / "prompts"
 
