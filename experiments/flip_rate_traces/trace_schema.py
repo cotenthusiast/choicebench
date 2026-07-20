@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+import json
+
 TRACE_SCHEMA_VERSION = "flip_rate_traces.trace.v1"
 
 # Column order for CSV serialization. Keep in sync with build_trace_row().
@@ -131,11 +133,17 @@ def validate_question_traces(question_id: str, rows: list[dict]) -> None:
                 f"{question_id} perm {r['permutation_index']}: n_options={r['n_options']} "
                 f"!= n_permutations={n_perm}."
             )
-        if "nan" in (r["displayed_options_json"] or "").lower():
-            raise TraceValidationError(
-                f"{question_id} perm {r['permutation_index']}: displayed_options_json "
-                "contains a literal 'nan' — phantom option was rendered."
-            )
+        # Check for an option VALUE that IS exactly "nan" (the phantom-option
+        # pattern), not merely a substring -- real option text legitimately
+        # contains "nan" as letters inside ordinary words (e.g. "dominant",
+        # "resonance"), which a naive substring check would false-positive on.
+        options_dict = json.loads(r["displayed_options_json"])
+        for letter, text in options_dict.items():
+            if str(text).strip().lower() == "nan":
+                raise TraceValidationError(
+                    f"{question_id} perm {r['permutation_index']}: option {letter!r} "
+                    f"has value {text!r} — phantom option was rendered."
+                )
         if r["transport_status"] != "success":
             if not r["error_type"] or not r["error_message"] or not r["error_stage"]:
                 raise TraceValidationError(
