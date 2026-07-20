@@ -20,7 +20,7 @@ from typing import Any
 from choicebench.clients.types import ErrorInfo, ModelResponse
 from choicebench.identity import redact_text
 from choicebench.parsing.parser import parse_model_answer
-from choicebench.parsing.types import PARSE_OK
+from choicebench.parsing.types import ParseResult
 from choicebench.pipeline.options import build_option_map
 from choicebench.pipeline.prompt_builder import (
     build_direct_mcq_prompt,
@@ -131,12 +131,26 @@ class TraceRetainingCyclicRunner:
             per_perm_latency, per_perm_cache_hit,
         )):
             if parsed is not None:
-                score = score_prediction(parsed, q.correct_option) if sem else None
-                is_correct = (sem == q.correct_option) if sem else False
+                # score_prediction must be scored in SEMANTIC (canonical) space,
+                # not displayed space -- parsed.final_choice is the letter as
+                # shown for this permutation, which only equals the canonical
+                # letter for permutation 0. Build a semantic-space ParseResult
+                # (same status/reason, final_choice replaced by sem) so
+                # score_status and is_correct always agree.
+                semantic_parse_result = ParseResult(
+                    final_choice=sem,
+                    status=parsed.status,
+                    raw_text=parsed.raw_text,
+                    normalized_text=parsed.normalized_text,
+                    reason=parsed.reason,
+                )
+                score = score_prediction(semantic_parse_result, q.correct_option)
+                is_correct = score.is_correct if score.is_correct is not None else False
                 parse_status = parsed.status
                 parse_reason = parsed.reason
                 normalized_text = parsed.normalized_text
             else:
+                score = None
                 is_correct = False
                 parse_status = None
                 parse_reason = None
