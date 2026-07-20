@@ -55,22 +55,21 @@
 #   scan canonical_options for the matching text -> canonical letter.
 #   Byte-identical logic. Reused directly.
 #
-#   Prompt rendering for the *local* side: model-generalization's own v1
-#   direct_mcq template (at bb9d3c6) is `"...Options:\n{options}\n\n..."`
-#   with a dynamic per-label options block — textually identical to
-#   choicebench's own src/choicebench/resources/prompts/v1/direct_mcq.txt
-#   and to choicebench.pipeline.prompt_builder._build_options_block's
-#   "LETTER. text" newline-joined rendering. Reusing choicebench's own
-#   prompt_builder/template here reproduces the local historical prompt
-#   byte-for-byte, including correctly omitting a missing option (no
-#   phantom "D. nan"), because model-generalization's local _build_options
-#   already dropped empty choices at bb9d3c6 (unlike the cloud side; see
-#   below).
+#   Prompt rendering: v1 of this experiment reused choicebench's own packaged
+#   v1 direct_mcq template for both sides. That template's CONTENT is
+#   byte-identical to model-generalization's own v1 template (both use a
+#   dynamic per-label `{options}` block) -- but choicebench's packaged copy
+#   carries an extra trailing newline neither historical template has, and
+#   this went undetected through a full broad launch (found only via
+#   post-hoc comparison against preserved historical data; see
+#   diagnostics_excluded_from_authoritative/flip_traces_trailing_newline_variant/
+#   in the paper bundle for the excluded v1 traces and full writeup). This
+#   version instead loads the two historical template files verbatim (see
+#   build_api_prompt/build_local_prompt below and
+#   historical_templates/{api,local}_v1_direct_mcq.txt) and never touches
+#   choicebench's packaged copy.
 #
-# --- What is NOT identical, and must be corrected here (per explicit user
-#     instruction, not a silent framework fix) ---
-#
-#   Prompt rendering for the *cloud* side: two-stage-prompting's v1 template
+#   Cloud/API template specifically: two-stage-prompting's v1 template
 #   hardcodes four literal lines ("A. {option_a}\nB. {option_b}\nC.
 #   {option_c}\nD. {option_d}"), and its _build_options() never dropped a
 #   missing choice_d. Verified directly against the canonical CSV
@@ -81,15 +80,15 @@
 #   status=malformed_requires_inference / damaged_question_ids for this one
 #   cell. Per this experiment's explicit instructions ("no synthetic D. nan
 #   option may be rendered, parsed or permuted" / "the three genuine
-#   three-option ARC questions use exactly three permutations"), this
-#   runner does NOT reproduce that bug: it uses choicebench's own dynamic
-#   options-block rendering (identical to the local side) for BOTH models,
-#   which produces byte-identical output to history for all ordinary
-#   4-option questions (verified: two-stage-prompting's hardcoded "A. x\nB.
-#   y\nC. z\nD. w" and choicebench's "\n".join(f"{L}. {t}") produce the same
-#   literal text whenever all four options are real) and correctly renders
-#   exactly 3 lines / 3 permutations for the 3 known-contaminated ARC
-#   questions instead.
+#   three-option ARC questions use exactly three permutations"),
+#   build_api_prompt does NOT reproduce that bug: for the 997 ordinary
+#   questions it substitutes the historical template's 4 positional slots
+#   exactly (byte-identical to history, verified against real historical
+#   rows in tests/experiments/test_flip_rate_traces.py); for the 3
+#   known-contaminated ARC questions it removes only the "D. {option_d}"
+#   line from that same historical template string before substituting --
+#   so the repaired prompt differs from the historical contaminated prompt
+#   by exactly that one line's removal, nothing else.
 #
 #   Majority-vote tie-break: choicebench's own current
 #   methods/library/permutation.py._majority_vote breaks ties by
@@ -171,3 +170,84 @@ def historical_majority_vote(choices: list[str | None]) -> str | None:
     if len(top) == 1 or top[0][1] != top[1][1]:
         return top[0][0]
     return cleaned[0]
+
+
+# --- Prompt rendering (v2 correction) ---
+#
+# v1 of this experiment (see docs/flip_rate_traces/PROTOCOL_DIFF.md and the
+# excluded-diagnostic README under
+# diagnostics_excluded_from_authoritative/flip_traces_trailing_newline_variant/
+# in the paper bundle) reused choicebench's own packaged v1 direct_mcq
+# template. That template is byte-identical in CONTENT to the historical
+# local template, but ChoiceBench's copy carries an extra trailing newline
+# neither historical template has, and it renders options via a dynamic
+# {options} block rather than the historical API template's hardcoded
+# A/B/C/D slots. Confirmed by direct byte diff (od -c) against clean
+# checkouts of both source repos -- not assumed.
+#
+# This version instead loads the two historical template files verbatim
+# (historical_templates/api_v1_direct_mcq.txt, byte-identical to
+# two-stage-prompting @ b8e784f's prompts/v1/direct_mcq.txt, 165 bytes, no
+# trailing newline; historical_templates/local_v1_direct_mcq.txt,
+# byte-identical to model-generalization @ bb9d3c6's prompts/v1/direct_mcq.txt,
+# 119 bytes, no trailing newline) and renders each per its own historical
+# structure.
+
+from pathlib import Path as _Path
+
+_TEMPLATE_DIR = _Path(__file__).resolve().parent / "historical_templates"
+API_TEMPLATE = (_TEMPLATE_DIR / "api_v1_direct_mcq.txt").read_text()
+LOCAL_TEMPLATE = (_TEMPLATE_DIR / "local_v1_direct_mcq.txt").read_text()
+
+_LETTER_TO_SLOT = {"A": "option_a", "B": "option_b", "C": "option_c", "D": "option_d"}
+
+
+def build_api_prompt(question_text: str, options: dict[str, str]) -> str:
+    """Render the API-side prompt using the historical hardcoded template.
+
+    For the 997 ordinary 4-option questions, this substitutes all four
+    positional slots exactly as two-stage-prompting's
+    build_direct_mcq_prompt did -- byte-identical output.
+
+    For the 3 known 3-option ARC questions, historically this template's
+    unconditional 4-slot substitution produced the literal contaminated line
+    "D. nan" (option_d arriving as NaN from pandas, then str-formatted). Per
+    this experiment's explicit instruction, that contamination is not
+    reproduced. The repaired prompt is derived by removing ONLY the "D.
+    {option_d}" line from the same historical template string and
+    substituting the remaining slots -- so the repaired prompt differs from
+    the historical contaminated prompt by exactly that one line's removal
+    (the surrounding blank line before "Respond with only the letter."
+    already exists in the historical template and needs no adjustment).
+    """
+    real_letters = list(options.keys())
+    if real_letters == ["A", "B", "C", "D"]:
+        return API_TEMPLATE.format(
+            question=question_text,
+            option_a=options["A"], option_b=options["B"],
+            option_c=options["C"], option_d=options["D"],
+        )
+    # Reduced case: drop the template line for every missing letter.
+    missing = [letter for letter in ("A", "B", "C", "D") if letter not in options]
+    lines = API_TEMPLATE.split("\n")
+    kept_lines = [
+        line for line in lines
+        if not any(line.startswith(f"{letter}. {{{_LETTER_TO_SLOT[letter]}}}") for letter in missing)
+    ]
+    reduced_template = "\n".join(kept_lines)
+    format_kwargs = {"question": question_text}
+    for letter in real_letters:
+        format_kwargs[_LETTER_TO_SLOT[letter]] = options[letter]
+    return reduced_template.format(**format_kwargs)
+
+
+def build_local_prompt(question_text: str, options: dict[str, str]) -> str:
+    """Render the local-side prompt using the historical dynamic-block template.
+
+    Byte-identical to model-generalization @ bb9d3c6's own rendering for
+    every question (that repo's local _build_options already dropped missing
+    choices before this template ever saw them, so no separate reduced case
+    is needed here).
+    """
+    options_block = "\n".join(f"{letter}. {text}" for letter, text in options.items())
+    return LOCAL_TEMPLATE.format(question=question_text, options=options_block)

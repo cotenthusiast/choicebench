@@ -34,8 +34,8 @@ from experiments.flip_rate_traces.runner import TraceRetainingCyclicRunner  # no
 from experiments.flip_rate_traces.trace_schema import validate_question_traces  # noqa: E402
 
 CANARY_OUTPUT_DIR = REPO_ROOT / "runs" / "flip_rate_traces" / "_canary"
-FRESH_CACHE_DIR = REPO_ROOT / ".cache" / "flip_rate_traces_v1"
-CACHE_NAMESPACE = "flip_rate_traces_v1"
+FRESH_CACHE_DIR = REPO_ROOT / ".cache" / "flip_rate_traces_v2_exact_historical_prompt"
+CACHE_NAMESPACE = "flip_rate_traces_v2_exact_historical_prompt"
 
 
 def _load_env_file(path: Path) -> None:
@@ -93,7 +93,7 @@ async def run_api_canary(cell_id: str, model_name: str, benchmark: str, split_na
     runner = TraceRetainingCyclicRunner(
         backend=backend, model_name=model_name, provider="openai",
         benchmark=benchmark, split_name=split_name,
-        cell_id=f"{cell_id}_traced_v1_CANARY", run_id="canary",
+        cell_id=f"{cell_id}_traced_v2_CANARY", run_id="canary",
     )
     rows = await runner.run_one_async(q, sample_index=0, is_diagnostic_canary=True)
     after = _cache_file_count(FRESH_CACHE_DIR)
@@ -110,7 +110,7 @@ def run_local_canary(cell_id: str, model_name: str, benchmark: str, split_name: 
     runner = TraceRetainingCyclicRunner(
         backend=backend, model_name=model_name, provider="huggingface",
         benchmark=benchmark, split_name=split_name,
-        cell_id=f"{cell_id}_traced_v1_CANARY", run_id="canary",
+        cell_id=f"{cell_id}_traced_v2_CANARY", run_id="canary",
     )
     return runner.run_one_sync(q, sample_index=0, is_diagnostic_canary=True)
 
@@ -155,7 +155,7 @@ def main() -> None:
     verify_and_report(rows, rows[0]["question_id"])
 
     CANARY_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = CANARY_OUTPUT_DIR / f"{args.backend}_{args.benchmark}_{args.question_kind}.json"
+    out_path = CANARY_OUTPUT_DIR / f"v2_{args.backend}_{args.benchmark}_{args.question_kind}.json"
     out_path.write_text(json.dumps(rows, indent=2, default=str))
     print(f"[canary] wrote {out_path}")
 

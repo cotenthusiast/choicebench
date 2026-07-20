@@ -22,10 +22,6 @@ from choicebench.identity import redact_text
 from choicebench.parsing.parser import parse_model_answer
 from choicebench.parsing.types import ParseResult
 from choicebench.pipeline.options import build_option_map
-from choicebench.pipeline.prompt_builder import (
-    build_direct_mcq_prompt,
-    load_prompt_templates,
-)
 from choicebench.scoring.scorer import score_prediction
 
 from experiments.flip_rate_traces.data_source import FrozenQuestion
@@ -34,6 +30,8 @@ from experiments.flip_rate_traces.historical_protocol import (
     HISTORICAL_PROMPT_VERSION,
     HISTORICAL_SEED,
     HISTORICAL_TEMPERATURE,
+    build_api_prompt,
+    build_local_prompt,
     generate_permutations,
     historical_majority_vote,
     unpermute_choice,
@@ -77,14 +75,11 @@ class TraceRetainingCyclicRunner:
         self._split_name = split_name
         self._cell_id = cell_id
         self._run_id = run_id
-        self._prompts = load_prompt_templates(HISTORICAL_PROMPT_VERSION)
 
     def _build_prompt(self, question_text: str, options: dict[str, str]) -> str:
-        return build_direct_mcq_prompt(
-            template=self._prompts["direct_mcq"],
-            question=question_text,
-            options=options,
-        )
+        if self._provider == "huggingface":
+            return build_local_prompt(question_text, options)
+        return build_api_prompt(question_text, options)
 
     def _assemble_rows(
         self,

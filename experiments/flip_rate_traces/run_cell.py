@@ -31,10 +31,10 @@ from experiments.flip_rate_traces.data_source import load_frozen_questions  # no
 from experiments.flip_rate_traces.runner import TraceRetainingCyclicRunner  # noqa: E402
 from experiments.flip_rate_traces.trace_schema import TRACE_COLUMNS, validate_question_traces  # noqa: E402
 
-CACHE_NAMESPACE = "flip_rate_traces_v1"
+CACHE_NAMESPACE = "flip_rate_traces_v2_exact_historical_prompt"
 OUTPUT_ROOT = REPO_ROOT / "runs" / "flip_rate_traces"
 CHECKPOINT_ROOT = REPO_ROOT / "checkpoints" / "flip_rate_traces"
-FRESH_CACHE_DIR = REPO_ROOT / ".cache" / "flip_rate_traces_v1"
+FRESH_CACHE_DIR = REPO_ROOT / ".cache" / "flip_rate_traces_v2_exact_historical_prompt"
 
 
 def _load_env_file(path: Path) -> None:
@@ -86,7 +86,7 @@ def main() -> None:
     output_dir = OUTPUT_ROOT / run_id
     output_path = output_dir / f"{run_id}_{cell_id}_traced.csv"
     ckpt = CheckpointManager(
-        checkpoint_dir=CHECKPOINT_ROOT, run_id=run_id, condition="cyclic_generation_majority_traced_v1",
+        checkpoint_dir=CHECKPOINT_ROOT, run_id=run_id, condition="cyclic_generation_majority_traced_v2",
         model=model_name, benchmark=benchmark,
     )
     state = ckpt.load() or {"completed_ids": [], "results": [], "started_at": datetime.now(timezone.utc).isoformat()}
@@ -110,7 +110,7 @@ def main() -> None:
         runner = TraceRetainingCyclicRunner(
             backend=backend, model_name=model_name, provider=provider,
             benchmark=benchmark, split_name=split_name,
-            cell_id=f"{cell_id}_traced_v1", run_id=run_id,
+            cell_id=f"{cell_id}_traced_v2", run_id=run_id,
         )
 
         async def _drive():
@@ -133,7 +133,7 @@ def main() -> None:
         runner = TraceRetainingCyclicRunner(
             backend=backend, model_name=model_name, provider=provider,
             benchmark=benchmark, split_name=split_name,
-            cell_id=f"{cell_id}_traced_v1", run_id=run_id,
+            cell_id=f"{cell_id}_traced_v2", run_id=run_id,
         )
         for i, q in enumerate(remaining):
             rows = runner.run_one_sync(q, sample_index=i)

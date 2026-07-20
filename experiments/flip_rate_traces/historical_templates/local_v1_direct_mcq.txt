@@ -1,0 +1,8 @@
+Answer the following multiple-choice question.
+
+Question: {question}
+
+Options:
+{options}
+
+Respond with only the letter.
