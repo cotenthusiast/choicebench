@@ -219,6 +219,18 @@ async def run_repair_for_cell_async(cell_id: str) -> dict:
     else:
         assert_cache_grew_by(cache_namespace, before=n_before, expected_new_entries=expected_new_cache_entries)
 
+    failed = [r for r in repaired if r["model_status"] != "success"]
+    if failed:
+        details = "; ".join(
+            f"{r['question_id']}: {r.get('error_type')} - {r.get('error_message')}"
+            for r in failed
+        )
+        raise RuntimeError(
+            f"{len(failed)}/{len(repaired)} repair calls failed for "
+            f"cell_id={cell_id!r} — refusing to stage a repaired artifact "
+            f"built from failed generations: {details}"
+        )
+
     # Merge with the 997 seeded "keep" rows into a NEW staged artifact.
     checkpoint_seed_path = REPO_ROOT / cell["generated_checkpoint_seed"]
     checkpoint = json.loads(checkpoint_seed_path.read_text())

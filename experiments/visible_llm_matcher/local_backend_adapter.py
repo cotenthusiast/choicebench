@@ -20,7 +20,13 @@ import asyncio
 import time
 
 from choicebench.backends.hf_backend import HuggingFaceBackend
-from choicebench.clients.types import FAILURE_STATUS, SUCCESS_STATUS, ModelResponse
+from choicebench.clients.types import (
+    FAILURE_STATUS,
+    SUCCESS_STATUS,
+    ErrorInfo,
+    ModelResponse,
+)
+from choicebench.identity import redact_text
 
 
 class LocalBackendAsyncAdapter:
@@ -50,7 +56,12 @@ class LocalBackendAsyncAdapter:
                 status=FAILURE_STATUS,
                 latency_seconds=time.perf_counter() - start,
                 raw_text=None,
-                error=None,
+                error=ErrorInfo(
+                    error_type=type(exc).__name__,
+                    message=redact_text(exc) if str(exc) else "Unexpected exception with no message.",
+                    retryable=False,
+                    stage="generation",
+                ),
             )
         return ModelResponse(
             provider=self.provider,
