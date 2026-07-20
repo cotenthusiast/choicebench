@@ -77,8 +77,10 @@ EXPECTED_ROWS = 1000
 
 
 def _load_source(entry: dict) -> Stage1Source:
+    from experiments.visible_llm_matcher.source_path_rewrite import rewrite_source_path
+
     return Stage1Source(
-        path=Path(entry["path"]),
+        path=rewrite_source_path(entry["path"]),
         model_name=entry["model_name"],
         benchmark=entry["benchmark"],
         repo=entry["repo"],

@@ -43,6 +43,8 @@ class Stage1ReuseSourceError(RuntimeError):
 
 
 def resolve_stage1_source_path(method: str, model_name: str) -> Path:
+    from experiments.visible_llm_matcher.source_path_rewrite import rewrite_source_path
+
     version = _METHOD_TO_VERSION.get(method)
     if version is None:
         raise Stage1ReuseSourceError(f"Not a two_stage method: {method!r}")
@@ -53,6 +55,7 @@ def resolve_stage1_source_path(method: str, model_name: str) -> Path:
             f"No known Stage-1 reuse source for method={method!r} model={model_name!r}. "
             "two_stage_v1 is not in the local repair scope (only v2/v3 are)."
         )
+    path = rewrite_source_path(path)
     if not path.is_file():
         raise Stage1ReuseSourceError(f"Stage-1 reuse source does not exist: {path}")
     return path
