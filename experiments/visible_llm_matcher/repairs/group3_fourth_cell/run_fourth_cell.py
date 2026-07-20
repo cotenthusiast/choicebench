@@ -229,6 +229,17 @@ async def run_cell_async(config_path: Path, *, canary_limit: int | None = None) 
     checkpoint_mgr.save(list(completed_ids), accumulated, started_at="")
 
     if is_canary:
+        failed = [r for r in accumulated if r.get("transport_status") != "success"]
+        if failed:
+            details = "; ".join(
+                f"{r['question_id']}: {r.get('error_type')} - {r.get('error_message')}"
+                for r in failed
+            )
+            raise RuntimeError(
+                f"{len(failed)}/{len(accumulated)} canary rows failed for "
+                f"{effective_run_id!r} — refusing to report a successful "
+                f"canary built from failed generations: {details}"
+            )
         out_dir = REPO_ROOT / "experiments" / "visible_llm_matcher" / "repairs" / "group3_fourth_cell" / "CANARY_outputs"
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / f"CANARY_{config_path.stem}_{canary_limit}row.csv"
