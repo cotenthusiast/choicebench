@@ -19,12 +19,17 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
-FREEZE_ROOT = Path(
-    "/home/cotenthusiast/Projects/model-generalization/paper_data_freeze"
-)
+# Overridable so Kelvin2 (no laptop filesystem) can point at a synced subset
+# of the freeze instead of the full model-generalization checkout. Laptop/API
+# runs use the real, full paper_data_freeze by default.
+FREEZE_ROOT = Path(os.environ.get(
+    "FLIP_RATE_TRACES_FREEZE_ROOT",
+    "/home/cotenthusiast/Projects/model-generalization/paper_data_freeze",
+))
 CANONICAL_DIR = FREEZE_ROOT / "canonical"
 MANIFEST_CSV = FREEZE_ROOT / "manifests" / "canonical_results_manifest.csv"
 

@@ -23,13 +23,14 @@
 set -euo pipefail
 
 REPO="/mnt/scratch2/users/40482774/repos/choicebench-flip-rate-traces"
-PINNED_SHA="38e4daf3caaa4f256cbaa89b5b7264e85ef0bb99"
+PINNED_SHA="PLACEHOLDER_SHA"
 
 cd "${REPO}"
 git fetch origin
 git checkout --detach "${PINNED_SHA}"
 
 export HF_HOME="/mnt/scratch2/users/40482774/hf"
+export FLIP_RATE_TRACES_FREEZE_ROOT="/mnt/scratch2/users/40482774/paper_data_freeze_subset"
 export HF_HUB_CACHE="${HF_HOME}/hub"
 export PYTHONPATH="${REPO}/src:${REPO}"
 
