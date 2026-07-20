@@ -23,7 +23,7 @@
 set -euo pipefail
 
 REPO="/mnt/scratch2/users/40482774/repos/choicebench-flip-rate-traces"
-PINNED_SHA="PLACEHOLDER_SHA"
+PINNED_SHA="982a3c54db6ef8b33afefea607c06cdff3f2d5ae"
 
 cd "${REPO}"
 git fetch origin
