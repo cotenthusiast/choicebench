@@ -823,14 +823,27 @@ def _merge_overlay_realization(
         "implementation_digest": None,
     }
     if derivation_origin == "offline_transformation":
+        # The lineage/overlay digests MUST be computed from the derived
+        # components in the SAME canonical order the identity verifier uses
+        # (identity.py filters the realization's own dataset-ordered
+        # lineage_components by operation_type), NOT in derive_overlay's
+        # sorted(replacement_ids) order. integrity_digest hashes list order, so
+        # whenever the replaced IDs' dataset order differs from their sorted
+        # order the two digests diverge and identity validation raised a
+        # false-positive "digest conflicts with its lineage components".
+        ordered_derived_components = [
+            component
+            for component in all_lineage_components
+            if component["identity"]["operation_type"] == derivation_origin
+        ]
         overlay_dict["transformation_input_digest"] = integrity_digest(
-            [component["identity"]["input_digest"] for component in derived.lineage_components]
+            [component["identity"]["input_digest"] for component in ordered_derived_components]
         )
         overlay_dict["preownership_output_digest"] = integrity_digest(
-            [component["identity"]["preownership_output_digest"] for component in derived.lineage_components]
+            [component["identity"]["preownership_output_digest"] for component in ordered_derived_components]
         )
         overlay_dict["implementation_digest"] = integrity_digest(
-            derived.lineage_components[0]["identity"]["implementation"]
+            ordered_derived_components[0]["identity"]["implementation"]
         )
 
     overlay_source_notes_digest = (

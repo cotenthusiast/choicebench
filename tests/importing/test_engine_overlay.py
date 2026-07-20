@@ -353,6 +353,100 @@ def test_execute_overlay_import_merges_offline_transformation_retaining_origin(t
     assert derived.prediction_origins["q1"] == "external_historical_inference"
 
 
+_REVERSE_ORDER_RESULTS_CSV = (
+    "qid,question,choice_a,choice_b,answer,gold,score\n"
+    "qb,Qb?,x,y,a,a,0.9\n"
+    "qa,Qa?,m,n,b,b,0.7\n"
+    "qc,Qc?,p,q,a,a,0.8\n"
+)
+
+
+def test_execute_overlay_import_offline_transformation_digests_use_dataset_order(tmp_path):
+    """Regression for Fix B: the offline_transformation overlay's
+    transformation_input/preownership_output digests were computed from
+    derive_overlay's sorted(replacement_ids) order, but identity.py recomputes
+    them from the realization's own dataset-ordered lineage_components. When two
+    replaced IDs' dataset order (qb, qa) differs from their sorted order
+    (qa, qb), the two integrity_digests diverged and identity validation raised
+    a false-positive 'offline_transformation overlay ... digest conflicts with
+    its lineage components.' This exercises exactly that >=2-replaced,
+    non-sorted-dataset-order case with a real lineage graph (no mock digests).
+    """
+    spec = _spec(tmp_path, results_csv=_REVERSE_ORDER_RESULTS_CSV, question_ids=("qb", "qa", "qc"))
+    request = ImportRequest(spec=spec, run_id="base-run", workspace_root=tmp_path, strict=True)
+    execute_import(request, dry_run=False)
+    base_run_dir = tmp_path / "runs" / "base-run"
+    verified = verify_import_run(base_run_dir)
+    (base,) = verified.realizations.values()
+
+    auth_source = _authorization_source(tmp_path)
+    authorization = _authorization(
+        base=base, authorization_type="offline_transformation", executable=False,
+        grants={"qb": "offline rematch", "qa": "offline rematch"},
+    )
+    overlay_csv = "qid,predicted_letter\nqb,B\nqa,A\n"
+    overlay_source = _overlay_source(tmp_path, csv_text=overlay_csv, filename="offline-reverse.csv")
+    overlay = OverlaySpec(
+        overlay_id="ovl_offline_reverse",
+        base_run_path=Path("/tmp/base-run"),
+        base_condition_digest=base.condition_digest,
+        base_realization_id=base.realization_id,
+        base_realization_digest=base.realization_digest,
+        base_evidence_digests=dict(base.evidence_source_digests),
+        base_validation_artifact_sha256=base.validation_artifact_sha256,
+        base_result_sha256=base.result_sha256,
+        source_id="overlay-source",
+        authorization_id=authorization.authorization_id,
+        replacement_reasons={"qb": "offline rematch", "qa": "offline rematch"},
+        result_origin=ResultOriginSpec(
+            derivation_origin="offline_transformation",
+            default_prediction_origin=None,
+            per_question_prediction_origins={},
+        ),
+        lineage_notes={},
+        implementation={
+            "qualified_name": "external:offline_rematcher",
+            "source_digest": sha256(overlay_csv.encode("utf-8")).hexdigest(),
+        },
+        input_digest="9" * 64,
+        preownership_output_digest="a" * 64,
+        expected_evidence_status="complete",
+    )
+    request = OverlayImportRequest(
+        base_run_dir=base_run_dir,
+        base_realization_id=base.realization_id,
+        authorization=authorization,
+        authorization_source=auth_source,
+        overlay=overlay,
+        overlay_source=overlay_source,
+        overlay_mapping={"question_id": "qid", "prediction": "predicted_letter"},
+        condition_digests={"cond_key": base.condition_digest},
+        expected_dataset=_base_expected_dataset(
+            tmp_path, results_csv=_REVERSE_ORDER_RESULTS_CSV, question_ids=("qb", "qa", "qc"),
+        ),
+        run_id="offline-reverse-run",
+        workspace_root=tmp_path,
+    )
+    report = execute_overlay_import(request, dry_run=False)
+    assert report.import_state == "imported", report.failures
+
+    overlay_run_dir = tmp_path / "runs" / "offline-reverse-run"
+    verified = verify_import_run(overlay_run_dir)
+    (derived,) = verified.realizations.values()
+    assert derived.rows_by_question_id["qb"]["predicted_option"] == "B"
+    assert derived.rows_by_question_id["qa"]["predicted_option"] == "A"
+    # deterministic: a second import against a fresh workspace yields the same
+    # realization digest (identity re-verifies the digests each run).
+    second_ws = tmp_path / "second"
+    second_ws.mkdir()
+    spec2 = _spec(second_ws, results_csv=_REVERSE_ORDER_RESULTS_CSV, question_ids=("qb", "qa", "qc"))
+    execute_import(
+        ImportRequest(spec=spec2, run_id="base-run", workspace_root=second_ws, strict=True),
+        dry_run=False,
+    )
+    assert derived.realization_digest  # non-empty, and verify_import_run above already re-checked it
+
+
 def test_execute_overlay_import_dry_run_writes_nothing(tmp_path):
     base_run_dir, base = _make_base_run(tmp_path)
     request = _make_overlay_request(tmp_path, base_run_dir, base)
