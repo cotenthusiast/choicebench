@@ -1,0 +1,15 @@
+{
+  "namespace": "two_stage_v2__gemini-2.5-flash",
+  "payload": {
+    "finish_reason": "STOP",
+    "logprobs": null,
+    "raw_text": "A",
+    "usage": {
+      "completion_tokens": 1,
+      "prompt_tokens": 105,
+      "total_tokens": 583
+    }
+  },
+  "payload_digest": "cd8cb2aa9e8a6440b45aa3081d6b9e3822fb591fe29c279f12c9cf1a8b76cff2",
+  "schema_version": "choicebench.response-cache.v1"
+}

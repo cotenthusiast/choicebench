@@ -1,0 +1,20 @@
+{
+  "cell_id": "cbp__gemini-2-5-flash__arc_challenge__two_stage_v1",
+  "method": "two_stage_v1",
+  "model": "gemini-2.5-flash",
+  "benchmark": "arc_challenge",
+  "source_repo": "two-stage-prompting",
+  "source_commit": "b8e784f3eb5d2a727a97eb675140b383a34584fa",
+  "source_config_path": "/home/cotenthusiast/Projects/two-stage-prompting/runs/20260601_183346/config.yaml",
+  "source_run_id": "20260601_183346",
+  "prompt_template_historical": "prompts/v1/option_matching.txt (Stage 2); free_text.txt (Stage 1, reused unchanged)",
+  "prompt_template_repaired": "experiments/visible_llm_matcher/prompts/v1/option_matching_repaired_3option.txt (Stage 2 only)",
+  "repaired_question_ids": [
+    "79e8c959bbeb74a0",
+    "ad6b5d46ae54842c",
+    "c30e75b011696a95"
+  ],
+  "correction_description": "Real option count only (A/B/C) for the 3 audited 3-option ARC questions; never render/parse/permute/match a synthetic D. nan.",
+  "stage1_disposition": "reused_verified_clean",
+  "stage1_disposition_reason": "Stage 1 (free_text.txt, all versions) never renders options at all, so it cannot show a synthetic D regardless of prompt version; confirmed complete (non-empty free_text_response) and content-plausible for all 3 repaired IDs across all 16 (version, model) historical sources. Not reused on the basis of a cache hit or row presence alone."
+}

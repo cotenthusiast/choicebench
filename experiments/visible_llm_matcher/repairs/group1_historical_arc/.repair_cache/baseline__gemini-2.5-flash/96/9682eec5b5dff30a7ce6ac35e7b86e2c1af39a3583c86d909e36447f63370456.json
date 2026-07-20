@@ -1,0 +1,15 @@
+{
+  "namespace": "baseline__gemini-2.5-flash",
+  "payload": {
+    "finish_reason": "STOP",
+    "logprobs": null,
+    "raw_text": "C",
+    "usage": {
+      "completion_tokens": 1,
+      "prompt_tokens": 48,
+      "total_tokens": 116
+    }
+  },
+  "payload_digest": "5fde40627bc60859f51678d5c0158ac9134585a3efd5c08b50a6b6332a1962a4",
+  "schema_version": "choicebench.response-cache.v1"
+}

@@ -1,0 +1,15 @@
+{
+  "namespace": "cyclic_generation_majority__gemini-2.5-flash",
+  "payload": {
+    "finish_reason": "STOP",
+    "logprobs": null,
+    "raw_text": "B",
+    "usage": {
+      "completion_tokens": 1,
+      "prompt_tokens": 61,
+      "total_tokens": 254
+    }
+  },
+  "payload_digest": "24a9fce681a1e92adea5e10fef75e8b10ff712a009b5311c5f2abcfc35a8a335",
+  "schema_version": "choicebench.response-cache.v1"
+}
