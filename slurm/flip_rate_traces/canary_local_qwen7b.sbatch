@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=flip_rate_canary_qwen7b
-#SBATCH --partition=k2-gpu-interactive
+#SBATCH --partition=k2-gpu-a100
 #SBATCH --gres=gpu:a100:1
 #SBATCH --time=00:30:00
 #SBATCH --mem=32G
