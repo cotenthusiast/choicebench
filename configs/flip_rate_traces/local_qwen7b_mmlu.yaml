@@ -1,0 +1,8 @@
+backend: local
+provider: huggingface
+cell_id: cbp__qwen-qwen2-5-7b-instruct__mmlu__cyclic_generation_majority
+model_name: Qwen/Qwen2.5-7B-Instruct
+benchmark: mmlu
+split_name: robustness
+run_id: flip_rate_traces_v1_local_qwen7b_mmlu
+device: cuda

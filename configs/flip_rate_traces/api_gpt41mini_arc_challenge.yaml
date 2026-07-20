@@ -1,0 +1,7 @@
+backend: api
+provider: openai
+cell_id: cbp__gpt-4-1-mini__arc_challenge__cyclic_generation_majority
+model_name: gpt-4.1-mini
+benchmark: arc_challenge
+split_name: robustness
+run_id: flip_rate_traces_v1_api_gpt41mini_arc_challenge

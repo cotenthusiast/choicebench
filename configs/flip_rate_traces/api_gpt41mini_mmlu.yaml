@@ -1,0 +1,7 @@
+backend: api
+provider: openai
+cell_id: cbp__gpt-4-1-mini__mmlu__cyclic_generation_majority
+model_name: gpt-4.1-mini
+benchmark: mmlu
+split_name: robustness
+run_id: flip_rate_traces_v1_api_gpt41mini_mmlu
