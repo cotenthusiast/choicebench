@@ -463,12 +463,36 @@ def build_semantic_rematch_overlay_rows(
 # --- 4. Fourth-cell import (12 new conditions, not overlays) ----------------
 
 
+def compute_fourth_cell_evidence_status(rows: Sequence[Mapping[str, str]]) -> str:
+    """Compute the true evidence_status for a fourth-cell realization from
+    its own row content, instead of assuming 'complete'. Discovered against
+    real data: 4 of the 12 real fourth-cell CSVs (gemini-2.5-flash x
+    {arc_challenge, mmlu}; meta-llama-3.1-8b-instruct x {arc_challenge,
+    mmlu}) have a nonzero number of rows with an empty ``parsed_choice`` --
+    the Stage-2 LLM-matcher's own genuine parse misses (a real model
+    response is present, no transport/execution error occurred; the same
+    "legitimate parse failure with a stored raw response" category as the
+    historical freeze's own undocumented parse_missing rows). All 12 real
+    files are independently confirmed structurally complete (1000/1000
+    unique question IDs, no duplicates), so the only two reachable outcomes
+    here are 'malformed' (>=1 row lacks a usable prediction) or 'complete'
+    (all rows have one) -- mirrors validation.py's own
+    ``compute_evidence_status`` for the malformed/complete branches
+    specifically (fourth cells never declare qualifications or
+    recoverable_question_ids, so the qualified/recoverable branches never
+    apply here)."""
+    if any(not (row.get("predicted_option") or row.get("parsed_choice") or "").strip() for row in rows):
+        return "malformed"
+    return "complete"
+
+
 def build_fourth_cell_condition(
     *,
     condition_key: str,
     dataset_id: str,
     model_key: str,
     expected_question_ids: Sequence[str],
+    evidence_status: str = "complete",
 ) -> ImportConditionSpec:
     """Build the ImportConditionSpec for one of the 12 fourth-cell
     (visible_llm_matcher) realizations. This is a brand-new condition, not an
@@ -478,7 +502,16 @@ def build_fourth_cell_condition(
     prediction_origin uses FOURTH_CELL_PREDICTION_ORIGIN -- see module
     docstring for the documented reasoning; this is the one methodology-lock
     decision this session makes on the handoff's behalf and must be
-    reconfirmed before the authoritative import."""
+    reconfirmed before the authoritative import.
+
+    ``evidence_status`` must be the REAL cell's computed status (see
+    ``compute_fourth_cell_evidence_status``) -- the 'complete' default is a
+    convenience only for cells actually confirmed complete (e.g. tests
+    constructing an all-parseable fixture); real callers must always compute
+    and pass this explicitly rather than relying on the default, or a
+    genuinely malformed real cell will hit the engine's declared-vs-computed
+    mismatch check and fail closed (as discovered against the real
+    gemini-2.5-flash/meta-llama-3.1-8b-instruct fourth-cell files)."""
     return ImportConditionSpec(
         condition_key=condition_key,
         source_ids=(condition_key,),
@@ -496,7 +529,7 @@ def build_fourth_cell_condition(
             "preflight_identity": "not recorded by the fourth-cell bundle",
         },
         expected_question_ids=tuple(expected_question_ids),
-        evidence_status="complete",
+        evidence_status=evidence_status,
         scope_disposition="included",
         executable=None,
         qualifications=(),

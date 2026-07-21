@@ -214,6 +214,77 @@ def test_fourth_cell_import_executes_end_to_end_against_the_real_engine(tmp_path
         assert realization.prediction_origins[qid] == FOURTH_CELL_PREDICTION_ORIGIN
 
 
+def test_fourth_cell_import_with_genuine_parse_misses_declares_malformed(tmp_path):
+    """Regression: real fourth-cell CSVs are not all fully parseable (found
+    against the real bundle: gemini-2.5-flash and meta-llama-3.1-8b-instruct
+    both have genuine Stage-2 LLM-matcher parse misses on some rows -- a real
+    model response present, no error, just unparseable). The condition's
+    declared evidence_status must be computed from the actual data
+    (compute_fourth_cell_evidence_status), not hardcoded to 'complete', or
+    the engine's declared-vs-computed mismatch check fails the whole import."""
+    from final_paper_analysis.import_orchestration import (
+        build_fourth_cell_import_request,
+        build_fourth_cell_source,
+        compute_fourth_cell_evidence_status,
+    )
+
+    ctx = _historical_run(tmp_path)
+    all_ids = ctx["arc_ids"]
+    base_rows = _arc_result_rows(all_correct=True)
+    # blank out one row's parsed_choice -- a genuine, benign parse miss,
+    # unrelated to the other 3 rows, same as the real gemini/meta-llama data.
+    fourth_cell_rows = [
+        _choices_json_row(
+            row["question_id"], row["correct_option"],
+            [row["choice_a"], row["choice_b"], row["choice_c"], row["choice_d"]],
+            "" if row["question_id"] == all_ids[0] else row["correct_option"],
+        )
+        for row in base_rows
+    ]
+
+    computed_status = compute_fourth_cell_evidence_status(fourth_cell_rows)
+    assert computed_status == "malformed"
+
+    import csv
+
+    csv_path = tmp_path / "fourth_cell_malformed.csv"
+    fieldnames = ["question_id", "correct_option", "choices_json", "parsed_choice"]
+    with csv_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(fourth_cell_rows)
+    expected_sha256 = sha256(csv_path.read_bytes()).hexdigest()
+
+    condition_key = "fourth_cell__gpt-4-1-mini__arc_challenge__malformed"
+    condition = build_fourth_cell_condition(
+        condition_key=condition_key, dataset_id="arc_challenge",
+        model_key="gpt-4-1-mini", expected_question_ids=all_ids,
+        evidence_status=computed_status,
+    )
+    source = build_fourth_cell_source(
+        condition_key=condition_key, csv_path=csv_path, expected_sha256=expected_sha256,
+        expected_columns=fieldnames, generation_commit="b9454aa",
+        collection_backfill_commit="02e5437c3e91f9a13ccf3c8bb357106e6a16e210",
+    )
+    request = build_fourth_cell_import_request(
+        condition=condition, source=source, dataset_id="arc_challenge",
+        expected_dataset=ctx["expected_dataset"], model_key="gpt-4-1-mini", backend="api",
+        run_id="fourth-cell-malformed-run", workspace_root=tmp_path / "fourth_cell_workspace_malformed",
+        source_containment_root=tmp_path,
+    )
+    report = execute_import(request, dry_run=False)
+    assert report.import_state == "imported", report.failures
+
+    run_dir = tmp_path / "fourth_cell_workspace_malformed" / "runs" / "fourth-cell-malformed-run"
+    verified = verify_import_run(run_dir)
+    (realization,) = verified.realizations.values()
+    assert realization.rows_by_question_id[all_ids[0]]["predicted_option"] is None
+    for qid in all_ids[1:]:
+        assert realization.rows_by_question_id[qid]["predicted_option"] is not None
+    evidence = verified.manifest["payload"]["realizations"][realization.realization_id]["identity"]["realization"]["evidence"]
+    assert evidence["evidence_status"] == "malformed"
+
+
 def test_fourth_cell_source_rejects_choices_json_missing_source_index(tmp_path):
     """Regression: a structured choice object with neither a string label nor
     a valid positional source_index must still fail closed, not silently
