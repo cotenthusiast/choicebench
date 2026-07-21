@@ -353,7 +353,8 @@ def test_build_repair_overlay_request_executes_a_real_three_row_repair(tmp_path)
         freeze_root=ctx["freeze_root"], cell_id=ctx["cell_id"], condition_digest=ctx["condition_digest"],
         base_run_dir=ctx["base_run_dir"], base_realization_id=ctx["base"].realization_id,
         expected_dataset=ctx["expected_dataset"], patch_source=patch_source,
-        patch_question_reasons=question_reasons, dataset_snapshot_digest=ctx["expected_dataset"].snapshot_digest,
+        patch_question_reasons=question_reasons, authorized_question_ids=repaired_ids,
+        dataset_snapshot_digest=ctx["expected_dataset"].snapshot_digest,
         cell_evidence_sha256=ctx["cell_source_sha256"],
         prediction_origins={qid: "native_inference" for qid in repaired_ids},
         scope_disposition="included", run_id="repair-run", workspace_root=ctx["workspace_root"],
@@ -399,7 +400,7 @@ def test_build_repair_overlay_request_rejects_excluded_pride_cell(tmp_path):
             freeze_root=ctx["freeze_root"], cell_id=ctx["cell_id"], condition_digest=ctx["condition_digest"],
             base_run_dir=ctx["base_run_dir"], base_realization_id=ctx["base"].realization_id,
             expected_dataset=ctx["expected_dataset"], patch_source=patch_source,
-            patch_question_reasons=question_reasons,
+            patch_question_reasons=question_reasons, authorized_question_ids=[repaired_id],
             dataset_snapshot_digest=ctx["expected_dataset"].snapshot_digest,
             cell_evidence_sha256=ctx["cell_source_sha256"],
             prediction_origins={repaired_id: "native_inference"},
@@ -421,10 +422,40 @@ def test_build_repair_overlay_request_rejects_wrong_row_count(tmp_path):
             freeze_root=ctx["freeze_root"], cell_id=ctx["cell_id"], condition_digest=ctx["condition_digest"],
             base_run_dir=ctx["base_run_dir"], base_realization_id=ctx["base"].realization_id,
             expected_dataset=ctx["expected_dataset"], patch_source=patch_source,
-            patch_question_reasons=question_reasons,
+            patch_question_reasons=question_reasons, authorized_question_ids=list(question_reasons),
             dataset_snapshot_digest=ctx["expected_dataset"].snapshot_digest,
             cell_evidence_sha256=ctx["cell_source_sha256"],
             prediction_origins={qid: "native_inference" for qid in question_reasons},
+            scope_disposition="included", run_id="repair-run", workspace_root=ctx["workspace_root"],
+        )
+
+
+def test_build_repair_overlay_request_rejects_correct_count_wrong_id_swap(tmp_path):
+    """Fix A regression: a patch with the right row COUNT (3) but one ID
+    swapped for an unauthorized one must fail closed, not silently pass.
+    build_repair_overlay_request must cross-check the patch's actual question
+    IDs against the caller-supplied authorized set (in the real pipeline,
+    loaded from repair_overlay_manifest.csv) -- it must not just trust
+    whatever IDs the patch file itself declares."""
+    ctx = _historical_run(tmp_path)
+    # patch declares arc_ids[0], arc_ids[1], arc_ids[3] (3 rows, right count)
+    # but the manifest's real authorized set is arc_ids[0], arc_ids[1], arc_ids[2].
+    swapped_ids = [ctx["arc_ids"][0], ctx["arc_ids"][1], ctx["arc_ids"][3]]
+    authorized_ids = [ctx["arc_ids"][0], ctx["arc_ids"][1], ctx["arc_ids"][2]]
+    patch_rows = [
+        _result_row(qid, "A", ["a1", "b1", "c1", "d1"], "A") for qid in swapped_ids
+    ]
+    patch_source, question_reasons = _repair_patch_source(tmp_path, rows=patch_rows)
+
+    with pytest.raises(OrchestrationError, match="unexpected question ID.*missing question ID"):
+        build_repair_overlay_request(
+            freeze_root=ctx["freeze_root"], cell_id=ctx["cell_id"], condition_digest=ctx["condition_digest"],
+            base_run_dir=ctx["base_run_dir"], base_realization_id=ctx["base"].realization_id,
+            expected_dataset=ctx["expected_dataset"], patch_source=patch_source,
+            patch_question_reasons=question_reasons, authorized_question_ids=authorized_ids,
+            dataset_snapshot_digest=ctx["expected_dataset"].snapshot_digest,
+            cell_evidence_sha256=ctx["cell_source_sha256"],
+            prediction_origins={qid: "native_inference" for qid in swapped_ids},
             scope_disposition="included", run_id="repair-run", workspace_root=ctx["workspace_root"],
         )
 
@@ -445,7 +476,7 @@ def test_build_repair_overlay_request_rejects_wrong_format_version(tmp_path):
             freeze_root=ctx["freeze_root"], cell_id=ctx["cell_id"], condition_digest=ctx["condition_digest"],
             base_run_dir=ctx["base_run_dir"], base_realization_id=ctx["base"].realization_id,
             expected_dataset=ctx["expected_dataset"], patch_source=wrong_source,
-            patch_question_reasons=question_reasons,
+            patch_question_reasons=question_reasons, authorized_question_ids=repaired_ids,
             dataset_snapshot_digest=ctx["expected_dataset"].snapshot_digest,
             cell_evidence_sha256=ctx["cell_source_sha256"],
             prediction_origins={qid: "native_inference" for qid in repaired_ids},
@@ -469,7 +500,7 @@ def test_build_repair_overlay_request_rejects_diagnostic_path(tmp_path):
             freeze_root=ctx["freeze_root"], cell_id=ctx["cell_id"], condition_digest=ctx["condition_digest"],
             base_run_dir=ctx["base_run_dir"], base_realization_id=ctx["base"].realization_id,
             expected_dataset=ctx["expected_dataset"], patch_source=diagnostic_source,
-            patch_question_reasons=question_reasons,
+            patch_question_reasons=question_reasons, authorized_question_ids=[repaired_id],
             dataset_snapshot_digest=ctx["expected_dataset"].snapshot_digest,
             cell_evidence_sha256=ctx["cell_source_sha256"],
             prediction_origins={repaired_id: "native_inference"},
@@ -529,7 +560,8 @@ def test_build_offline_transformation_overlay_request_executes_a_real_semantic_r
         freeze_root=ctx["freeze_root"], cell_id=ctx["cell_id"], condition_digest=ctx["condition_digest"],
         base_run_dir=ctx["base_run_dir"], base_realization_id=ctx["base"].realization_id,
         expected_dataset=ctx["expected_dataset"], overlay_source=overlay_source,
-        question_reasons=question_reasons, dataset_snapshot_digest=ctx["expected_dataset"].snapshot_digest,
+        question_reasons=question_reasons, authorized_question_ids=rematch_ids,
+        dataset_snapshot_digest=ctx["expected_dataset"].snapshot_digest,
         cell_evidence_sha256=ctx["cell_source_sha256"], scope_disposition="included",
         run_id="offline-run", workspace_root=ctx["workspace_root"],
         source_containment_root=tmp_path,
@@ -555,3 +587,61 @@ def test_build_offline_transformation_overlay_request_executes_a_real_semantic_r
         assert derived.rows_by_question_id[qid]["predicted_option"] == "A"
         # offline_transformation retains the underlying response's own origin.
         assert derived.prediction_origins[qid] == "external_historical_inference"
+
+
+def test_build_offline_transformation_overlay_request_rejects_correct_count_wrong_id_swap(tmp_path):
+    """Fix A regression, offline_transformation side: correct row count (3)
+    with one ID swapped for an unauthorized one must fail closed against the
+    caller-supplied authorized set (in the real pipeline,
+    semantic_rematch_manifest.csv), not whatever IDs the overlay CSV itself
+    declares."""
+    ctx = _historical_run(tmp_path)
+    swapped_ids = [ctx["arc_ids"][0], ctx["arc_ids"][1], ctx["arc_ids"][3]]
+    authorized_ids = [ctx["arc_ids"][0], ctx["arc_ids"][1], ctx["arc_ids"][2]]
+
+    free_text_by_question = {qid: "a1" for qid in swapped_ids}
+    choices_by_question = {
+        qid: {"A": "a1", "B": "b1", "C": "c1", "D": "d1"} for qid in swapped_ids
+    }
+    parsed = build_semantic_rematch_overlay_rows(
+        free_text_responses=free_text_by_question, choices_by_question=choices_by_question
+    )
+    overlay_rows = [
+        _result_row(qid, "A", ["a1", "b1", "c1", "d1"], parsed[qid]) for qid in swapped_ids
+    ]
+    import csv
+
+    overlay_path = tmp_path / "semantic_overlay_swapped.csv"
+    fieldnames = ["question_id", "correct_option", "choice_a", "choice_b", "choice_c", "choice_d", "parsed_choice"]
+    with overlay_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(overlay_rows)
+    data = overlay_path.read_bytes()
+    overlay_source = SourceArtifactSpec(
+        source_id="semantic-overlay-swapped", path=overlay_path, logical_path="semantic_overlay_swapped.csv",
+        expected_sha256=sha256(data).hexdigest(), format="csv",
+        format_version=OFFLINE_TRANSFORMATION_PATCH_FORMAT_VERSION, classification="derived",
+        dialect=CsvDialectSpec(), columns={"question_id": "question_id", "prediction": "parsed_choice"},
+        expected_columns=tuple(fieldnames), ignored_columns={}, null_values=("",), numeric_columns=(),
+        option_mapping=OptionMappingSpec(
+            mode="ordered_columns", ordered_columns=("choice_a", "choice_b", "choice_c", "choice_d"),
+            structured_column=None, structured_label_key=None, structured_text_key=None,
+        ),
+        extra_field_policy="preserve_unmapped", preserve_namespace="final_paper_analysis",
+        source_run_id=None, source_repository="two-stage-prompting",
+        source_commit="b8e784f3eb5d2a727a97eb675140b383a34584fa", notes={},
+    )
+    question_reasons = {qid: "option-hidden offline semantic rematch" for qid in swapped_ids}
+
+    with pytest.raises(OrchestrationError, match="unexpected question ID.*missing question ID"):
+        build_offline_transformation_overlay_request(
+            freeze_root=ctx["freeze_root"], cell_id=ctx["cell_id"], condition_digest=ctx["condition_digest"],
+            base_run_dir=ctx["base_run_dir"], base_realization_id=ctx["base"].realization_id,
+            expected_dataset=ctx["expected_dataset"], overlay_source=overlay_source,
+            question_reasons=question_reasons, authorized_question_ids=authorized_ids,
+            dataset_snapshot_digest=ctx["expected_dataset"].snapshot_digest,
+            cell_evidence_sha256=ctx["cell_source_sha256"], scope_disposition="included",
+            run_id="offline-run", workspace_root=ctx["workspace_root"],
+            source_containment_root=tmp_path,
+        )

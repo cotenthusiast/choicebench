@@ -23,6 +23,7 @@ from typing import Any, Literal, Mapping
 
 from dataclasses import asdict
 import json
+import math
 
 import pandas as pd
 
@@ -675,7 +676,24 @@ def verify_import_run(
             frame = pd.read_csv(result_path, dtype={"question_id": "string"})
             for _, row in frame.iterrows():
                 qid = str(row["question_id"])
-                rows_by_question_id[qid] = row.to_dict()
+                # A "published_unscored" realization's result CSV can carry a
+                # genuinely blank/unparseable prediction (e.g. an unrelated
+                # parse-missing row retained verbatim through an overlay).
+                # Series.to_dict() re-coerces a blank cell to a float NaN even
+                # after DataFrame-level NA cleanup (confirmed empirically:
+                # frame.astype(object).where(frame.notna(), None) leaves a
+                # real None at the DataFrame level, but per-row Series dtype
+                # inference during iterrows() collapses it back to NaN). The
+                # manifest writer's canonicalize() rejects NaN outright
+                # ("cannot contain NaN or infinity"), so normalize per-value
+                # here instead. A "completed" realization's rows never
+                # contain NaN (evaluable requires a valid prediction in every
+                # row), so this is a no-op on the existing path.
+                row_dict = {
+                    key: (None if isinstance(value, float) and math.isnan(value) else value)
+                    for key, value in row.to_dict().items()
+                }
+                rows_by_question_id[qid] = row_dict
                 prediction_origins[qid] = str(row["prediction_origin"])
 
         evidence_digests = {

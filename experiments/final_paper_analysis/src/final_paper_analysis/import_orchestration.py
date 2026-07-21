@@ -210,6 +210,7 @@ def build_repair_overlay_request(
     expected_dataset: ExpectedDataset,
     patch_source: SourceArtifactSpec,
     patch_question_reasons: Mapping[str, str],
+    authorized_question_ids: Sequence[str],
     dataset_snapshot_digest: str,
     cell_evidence_sha256: str,
     prediction_origins: Mapping[str, str],
@@ -225,7 +226,12 @@ def build_repair_overlay_request(
     ``classification='repaired'``. ``prediction_origins`` maps each of the 3
     replaced question IDs to a PredictionOrigin (native_inference or
     external_repair_inference -- the only two values ``derive_overlay``
-    accepts for an inference_repair overlay).
+    accepts for an inference_repair overlay). ``authorized_question_ids``
+    must be the cell's exact 3-ID authorized set from
+    ``repair_overlay_manifest.csv``/``.json`` in the analysis handoff -- the
+    caller must load it from that manifest, never from the patch file itself
+    (a patch's own declared IDs are exactly what this check exists to
+    distrust: a correct row COUNT with a swapped/wrong ID must still fail).
 
     ``source_containment_root`` must be a single directory both the
     authorization source (under ``freeze_root``) and ``patch_source``
@@ -240,6 +246,10 @@ def build_repair_overlay_request(
     require_exact_row_count(
         list(patch_question_reasons), expected=_REPAIR_PATCH_ROW_COUNT,
         where=f"repair patch for {cell_id!r}",
+    )
+    require_exact_question_id_set(
+        list(patch_question_reasons), authorized_question_ids,
+        where=f"repair patch for {cell_id!r} vs. repair_overlay_manifest authorization",
     )
     if patch_source.format_version != INFERENCE_REPAIR_PATCH_FORMAT_VERSION:
         raise OrchestrationError(
@@ -334,6 +344,7 @@ def build_offline_transformation_overlay_request(
     expected_dataset: ExpectedDataset,
     overlay_source: SourceArtifactSpec,
     question_reasons: Mapping[str, str],
+    authorized_question_ids: Sequence[str],
     dataset_snapshot_digest: str,
     cell_evidence_sha256: str,
     scope_disposition: str,
@@ -348,12 +359,19 @@ def build_offline_transformation_overlay_request(
     ``build_semantic_rematch_overlay_rows``). offline_transformation
     overlays retain each underlying response's own prediction origin
     (overlays.py::derive_overlay), so no per-question origin is declared
-    here."""
+    here. ``authorized_question_ids`` must be the cell's exact 3-ID
+    authorized set from ``semantic_rematch_manifest.csv``/``.json`` in the
+    analysis handoff -- never derived from the overlay CSV's own rows (a
+    correct row COUNT with a swapped/wrong ID must still fail closed)."""
     reject_excluded_scope_disposition(scope_disposition, cell_id=cell_id)
     reject_diagnostic_paths([overlay_source.path, overlay_source.logical_path])
     require_exact_row_count(
         list(question_reasons), expected=_OFFLINE_TRANSFORMATION_ROW_COUNT,
         where=f"offline transformation overlay for {cell_id!r}",
+    )
+    require_exact_question_id_set(
+        list(question_reasons), authorized_question_ids,
+        where=f"offline transformation overlay for {cell_id!r} vs. semantic_rematch_manifest authorization",
     )
     if overlay_source.format_version != OFFLINE_TRANSFORMATION_PATCH_FORMAT_VERSION:
         raise OrchestrationError(
