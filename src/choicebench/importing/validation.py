@@ -261,6 +261,15 @@ class RealizationValidation:
     qualifications: tuple[Mapping[str, Any], ...]
     limitations: tuple[Mapping[str, Any], ...]
     defect_question_ids: tuple[str, ...]
+    # The full canonical row set (every expected question ID present exactly
+    # once), populated whenever the realization is *structurally complete* and
+    # in scope -- independent of whether its current content is evaluable. A
+    # malformed-but-structurally-complete cell (all IDs present, but some rows
+    # carry an unparseable prediction) is NOT evaluable yet still has a full,
+    # publishable, overlay-able row set. Empty for a genuinely incomplete
+    # (missing/duplicate/unexpected IDs) or out-of-scope realization.
+    published_rows: tuple[Mapping[str, Any], ...] = ()
+    structurally_complete: bool = False
 
 
 def compute_evidence_status(
@@ -325,11 +334,24 @@ def normalize_realization_rows(
 
     evaluable = computed in _EVALUABLE_STATUSES and condition.scope_disposition == "included"
 
+    # Structural completeness (a data-identity property) is independent of
+    # evaluability (a scoring property): every expected question ID is present
+    # exactly once. Duplicates are dropped from rows_by_question_id (so a
+    # duplicated ID leaves its slot empty) and unexpected IDs add a member the
+    # expected set lacks -- either makes the present set differ from expected.
+    structurally_complete = set(validated.rows_by_question_id) == set(
+        validated.expected_question_ids
+    )
+    # A structurally-complete, in-scope realization has a full canonical row
+    # set that can be published and later overlaid even when not evaluable.
+    publishable = structurally_complete and condition.scope_disposition == "included"
+
     prediction_column = None if mapping is None else mapping.get("prediction")
-    evaluable_rows: list[dict[str, Any]] = []
-    if evaluable:
+
+    def _normalized_rows() -> list[dict[str, Any]]:
         per_question_origin = condition.result_origin.per_question_prediction_origins
         default_origin = condition.result_origin.default_prediction_origin
+        rows: list[dict[str, Any]] = []
         for qid in validated.expected_question_ids:
             if qid not in validated.rows_by_question_id:
                 continue
@@ -337,21 +359,31 @@ def normalize_realization_rows(
             origin = per_question_origin.get(qid, default_origin)
             if origin is None:
                 raise ImportValidationError(
-                    f"No declared prediction_origin for evaluable question {qid!r}."
+                    f"No declared prediction_origin for question {qid!r}."
                 )
             predicted_option = None
             if prediction_column is not None:
                 raw_prediction = validated.rows_by_question_id[qid].values.get(prediction_column)
                 predicted_option = None if raw_prediction is None else str(raw_prediction).strip().upper()
-            row: dict[str, Any] = {
-                "question_id": qid,
-                "question_text": expected_row.get("question_text"),
-                "correct_option": expected_row.get("correct_option"),
-                "choices_json": expected_row.get("choices_json"),
-                "prediction_origin": origin,
-                "predicted_option": predicted_option,
-            }
-            evaluable_rows.append(row)
+            rows.append(
+                {
+                    "question_id": qid,
+                    "question_text": expected_row.get("question_text"),
+                    "correct_option": expected_row.get("correct_option"),
+                    "choices_json": expected_row.get("choices_json"),
+                    "prediction_origin": origin,
+                    "predicted_option": predicted_option,
+                }
+            )
+        return rows
+
+    published_rows = _normalized_rows() if publishable else []
+    # An evaluable realization is always structurally complete and in scope, so
+    # its published row set is exactly its evaluable row set. Keeping
+    # evaluable_rows empty for a non-evaluable (e.g. malformed) realization
+    # preserves the existing scoring contract; published_rows carries the full
+    # set separately for the publish/overlay path.
+    evaluable_rows: list[dict[str, Any]] = list(published_rows) if evaluable else []
 
     validation_payload = {
         "schema_version": "choicebench.realization-validation-content.v1",
@@ -371,6 +403,8 @@ def normalize_realization_rows(
         qualifications=tuple(condition.qualifications),
         limitations=tuple(condition.limitations),
         defect_question_ids=defect_question_ids,
+        published_rows=tuple(published_rows),
+        structurally_complete=structurally_complete,
     )
 
 
