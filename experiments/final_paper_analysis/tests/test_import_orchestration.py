@@ -145,6 +145,20 @@ def test_build_fourth_cell_condition_uses_external_import_and_documented_predict
     assert condition.scope_disposition == "included"
 
 
+def _choices_json_row(question_id, correct_option, choices, parsed_choice):
+    """Real-shaped fourth-cell row: a single structured choices_json column
+    (source_index positional, no explicit letter label) instead of separate
+    choice_a/b/c/d columns -- matches the actual bundle files exactly, not a
+    simplified fixture."""
+    choices_json = json.dumps(
+        [{"text": text, "source_index": i} for i, text in enumerate(choices)]
+    )
+    return {
+        "question_id": question_id, "correct_option": correct_option,
+        "choices_json": choices_json, "parsed_choice": parsed_choice,
+    }
+
+
 def test_fourth_cell_import_executes_end_to_end_against_the_real_engine(tmp_path):
     from final_paper_analysis.import_orchestration import (
         build_fourth_cell_import_request,
@@ -153,12 +167,17 @@ def test_fourth_cell_import_executes_end_to_end_against_the_real_engine(tmp_path
 
     ctx = _historical_run(tmp_path)
     all_ids = ctx["arc_ids"]
-    fourth_cell_rows = _arc_result_rows(all_correct=True)
+    fourth_cell_rows = [
+        _choices_json_row(row["question_id"], row["correct_option"],
+                           [row["choice_a"], row["choice_b"], row["choice_c"], row["choice_d"]],
+                           row["correct_option"])
+        for row in _arc_result_rows(all_correct=True)
+    ]
 
     import csv
 
     csv_path = tmp_path / "fourth_cell.csv"
-    fieldnames = ["question_id", "correct_option", "choice_a", "choice_b", "choice_c", "choice_d", "parsed_choice"]
+    fieldnames = ["question_id", "correct_option", "choices_json", "parsed_choice"]
     with csv_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
@@ -193,6 +212,56 @@ def test_fourth_cell_import_executes_end_to_end_against_the_real_engine(tmp_path
     for qid in all_ids:
         assert realization.rows_by_question_id[qid]["predicted_option"] == correct_by_qid[qid]
         assert realization.prediction_origins[qid] == FOURTH_CELL_PREDICTION_ORIGIN
+
+
+def test_fourth_cell_source_rejects_choices_json_missing_source_index(tmp_path):
+    """Regression: a structured choice object with neither a string label nor
+    a valid positional source_index must still fail closed, not silently
+    treat it as option-less."""
+    ctx = _historical_run(tmp_path)
+    all_ids = ctx["arc_ids"]
+    rows = [
+        {
+            "question_id": qid, "correct_option": "A",
+            "choices_json": json.dumps([{"text": "x"}, {"text": "y"}]),  # no source_index/label
+            "parsed_choice": "A",
+        }
+        for qid in all_ids
+    ]
+    import csv
+
+    from final_paper_analysis.import_orchestration import (
+        build_fourth_cell_import_request,
+        build_fourth_cell_source,
+    )
+
+    csv_path = tmp_path / "fourth_cell_bad.csv"
+    fieldnames = ["question_id", "correct_option", "choices_json", "parsed_choice"]
+    with csv_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    expected_sha256 = sha256(csv_path.read_bytes()).hexdigest()
+
+    condition_key = "fourth_cell__gpt-4-1-mini__arc_challenge__bad"
+    condition = build_fourth_cell_condition(
+        condition_key=condition_key, dataset_id="arc_challenge",
+        model_key="gpt-4-1-mini", expected_question_ids=all_ids,
+    )
+    source = build_fourth_cell_source(
+        condition_key=condition_key, csv_path=csv_path, expected_sha256=expected_sha256,
+        expected_columns=fieldnames, generation_commit="b9454aa",
+        collection_backfill_commit="02e5437c3e91f9a13ccf3c8bb357106e6a16e210",
+    )
+    request = build_fourth_cell_import_request(
+        condition=condition, source=source, dataset_id="arc_challenge",
+        expected_dataset=ctx["expected_dataset"], model_key="gpt-4-1-mini", backend="api",
+        run_id="fourth-cell-run-bad", workspace_root=tmp_path / "fourth_cell_workspace_bad",
+        source_containment_root=tmp_path,
+    )
+    report = execute_import(request, dry_run=False)
+    assert report.import_state == "failed"
+    assert any("structured choices" in f.get("sanitized_message", "") for f in report.failures)
 
 
 # --- Historical import: thin wrapper works end-to-end -----------------------

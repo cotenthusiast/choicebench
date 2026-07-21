@@ -524,7 +524,16 @@ def build_fourth_cell_source(
     Records both commits the handoff kept distinct (methodology lock #7):
     the experiment-generation commit and the collection-backfill HEAD --
     ``source_commit`` takes the generation commit, and both are also
-    recorded in ``notes`` so neither is lost."""
+    recorded in ``notes`` so neither is lost.
+
+    The real fourth-cell CSVs carry a single structured ``choices_json``
+    column (``[{"text": ..., "source_index": 0}, ...]``), not separate
+    ``choice_a``/``choice_b``/``choice_c``/``choice_d`` columns -- confirmed
+    against the real bundle files, not assumed. ``structured_label_key``
+    points at ``source_index`` (an integer position, not a pre-computed
+    letter); ``csv_adapter._validate_structured_choices`` letterizes it
+    (0 -> A, 1 -> B, ...) -- see that function's docstring/comment for the
+    positional-label extension this relies on."""
     reject_diagnostic_paths([csv_path])
     return SourceArtifactSpec(
         source_id=condition_key,
@@ -541,9 +550,11 @@ def build_fourth_cell_source(
         null_values=("",),
         numeric_columns=(),
         option_mapping=OptionMappingSpec(
-            mode="ordered_columns",
-            ordered_columns=("choice_a", "choice_b", "choice_c", "choice_d"),
-            structured_column=None, structured_label_key=None, structured_text_key=None,
+            mode="structured_json",
+            ordered_columns=(),
+            structured_column="choices_json",
+            structured_label_key="source_index",
+            structured_text_key="text",
         ),
         extra_field_policy="preserve_unmapped",
         preserve_namespace="final_paper_analysis",
