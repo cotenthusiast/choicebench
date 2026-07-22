@@ -1,0 +1,13 @@
+model,benchmark,method,n_questions,n_flipped,flip_rate
+Qwen/Qwen2.5-7B-Instruct,arc_challenge,baseline,1000,176,0.176
+Qwen/Qwen2.5-7B-Instruct,arc_challenge,cyclic,1000,176,0.176
+Qwen/Qwen2.5-7B-Instruct,arc_challenge,twostage_semantic_match,1000,1,0.001
+Qwen/Qwen2.5-7B-Instruct,mmlu,baseline,1000,413,0.413
+Qwen/Qwen2.5-7B-Instruct,mmlu,cyclic,1000,413,0.413
+Qwen/Qwen2.5-7B-Instruct,mmlu,twostage_semantic_match,1000,2,0.002
+gpt-4.1-mini,arc_challenge,baseline,1000,60,0.06
+gpt-4.1-mini,arc_challenge,cyclic,1000,60,0.06
+gpt-4.1-mini,arc_challenge,twostage_semantic_match,1000,2,0.002
+gpt-4.1-mini,mmlu,baseline,1000,216,0.216
+gpt-4.1-mini,mmlu,cyclic,1000,216,0.216
+gpt-4.1-mini,mmlu,twostage_semantic_match,1000,3,0.003

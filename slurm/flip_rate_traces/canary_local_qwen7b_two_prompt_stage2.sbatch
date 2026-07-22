@@ -8,9 +8,9 @@
 
 set -euo pipefail
 
-REPO="/mnt/scratch2/users/40482774/repos/choicebench-flip-rate-traces-task1a"
+REPO="/mnt/scratch2/users/40482774/repos/choicebench-flip-rate-traces"
 MODELGEN_REPO="/mnt/scratch2/users/40482774/repos/model-generalization"
-PINNED_SHA="5ca0095"
+PINNED_SHA="572018cae72b35c8db1af2440d9e5eb998978b82"
 
 cd "${REPO}"
 git fetch origin
