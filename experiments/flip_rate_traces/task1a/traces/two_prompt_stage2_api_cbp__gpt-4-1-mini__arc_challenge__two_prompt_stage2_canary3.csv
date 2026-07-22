@@ -1,0 +1,181 @@
+schema_version,run_id,cell_id,question_id,benchmark,split_name,subject,model_name,provider,n_options,permutation_index,n_permutations,canonical_options_json,displayed_options_json,displayed_to_semantic_json,correct_option,prompt,prompt_sha256,temperature,max_tokens,seed,prompt_version,raw_text,finish_reason,displayed_parsed_choice,semantic_parsed_choice,parse_status,parse_reason,normalized_text,is_correct,score_status,transport_status,error_type,error_message,error_stage,error_retryable,latency_seconds,timestamp_utc,cache_hit,majority_semantic_choice,majority_is_tie,majority_tie_break_used,majority_is_correct,is_diagnostic_canary
+flip_rate_traces.trace.v1,task1a_two_prompt_stage2_canary,cbp__gpt-4-1-mini__arc_challenge__two_prompt_stage2_traced_v1,e3335d974df9d047,arc_challenge,robustness,arc_challenge,gpt-4.1-mini,openai,4,0,4,"{""A"": ""the control"", ""B"": ""the hypothesis statement"", ""C"": ""the dependent (responding) variable"", ""D"": ""the independent (manipulated) variable""}","{""A"": ""the control"", ""B"": ""the hypothesis statement"", ""C"": ""the dependent (responding) variable"", ""D"": ""the independent (manipulated) variable""}","{""A"": ""A"", ""B"": ""B"", ""C"": ""C"", ""D"": ""D""}",D,"You are given a question, a reference answer, and four options.
+
+Question: A physicist wants to determine the speed a car must reach to jump over a ramp. The physicist conducts three trials. In trials two and three, the speed of the car is increased by 20 miles per hour. What is the physicist investigating when he changes the speed?
+
+Reference answer: The physicist is investigating the effect of speed on the car's ability to jump over the ramp.
+
+Options:
+A. the control
+B. the hypothesis statement
+C. the dependent (responding) variable
+D. the independent (manipulated) variable
+
+Select the option that best matches the reference answer in the context of the question.
+If the reference answer is imperfect or incomplete, choose the closest option.
+Respond with only the letter.",,0.0,500,42,v1,D,,D,D,parse_ok,Answer successfully parsed,D,True,score_correct,success,,,,,1.3775312472498626,2026-07-22T18:30:11.713160+00:00,,D,False,False,True,True
+flip_rate_traces.trace.v1,task1a_two_prompt_stage2_canary,cbp__gpt-4-1-mini__arc_challenge__two_prompt_stage2_traced_v1,e3335d974df9d047,arc_challenge,robustness,arc_challenge,gpt-4.1-mini,openai,4,1,4,"{""A"": ""the control"", ""B"": ""the hypothesis statement"", ""C"": ""the dependent (responding) variable"", ""D"": ""the independent (manipulated) variable""}","{""A"": ""the hypothesis statement"", ""B"": ""the dependent (responding) variable"", ""C"": ""the independent (manipulated) variable"", ""D"": ""the control""}","{""A"": ""B"", ""B"": ""C"", ""C"": ""D"", ""D"": ""A""}",D,"You are given a question, a reference answer, and four options.
+
+Question: A physicist wants to determine the speed a car must reach to jump over a ramp. The physicist conducts three trials. In trials two and three, the speed of the car is increased by 20 miles per hour. What is the physicist investigating when he changes the speed?
+
+Reference answer: The physicist is investigating the effect of speed on the car's ability to jump over the ramp.
+
+Options:
+A. the hypothesis statement
+B. the dependent (responding) variable
+C. the independent (manipulated) variable
+D. the control
+
+Select the option that best matches the reference answer in the context of the question.
+If the reference answer is imperfect or incomplete, choose the closest option.
+Respond with only the letter.",,0.0,500,42,v1,C,,C,D,parse_ok,Answer successfully parsed,C,True,score_correct,success,,,,,1.3775312472498626,2026-07-22T18:30:11.713429+00:00,,D,False,False,True,True
+flip_rate_traces.trace.v1,task1a_two_prompt_stage2_canary,cbp__gpt-4-1-mini__arc_challenge__two_prompt_stage2_traced_v1,e3335d974df9d047,arc_challenge,robustness,arc_challenge,gpt-4.1-mini,openai,4,2,4,"{""A"": ""the control"", ""B"": ""the hypothesis statement"", ""C"": ""the dependent (responding) variable"", ""D"": ""the independent (manipulated) variable""}","{""A"": ""the dependent (responding) variable"", ""B"": ""the independent (manipulated) variable"", ""C"": ""the control"", ""D"": ""the hypothesis statement""}","{""A"": ""C"", ""B"": ""D"", ""C"": ""A"", ""D"": ""B""}",D,"You are given a question, a reference answer, and four options.
+
+Question: A physicist wants to determine the speed a car must reach to jump over a ramp. The physicist conducts three trials. In trials two and three, the speed of the car is increased by 20 miles per hour. What is the physicist investigating when he changes the speed?
+
+Reference answer: The physicist is investigating the effect of speed on the car's ability to jump over the ramp.
+
+Options:
+A. the dependent (responding) variable
+B. the independent (manipulated) variable
+C. the control
+D. the hypothesis statement
+
+Select the option that best matches the reference answer in the context of the question.
+If the reference answer is imperfect or incomplete, choose the closest option.
+Respond with only the letter.",,0.0,500,42,v1,B,,B,D,parse_ok,Answer successfully parsed,B,True,score_correct,success,,,,,1.3775312472498626,2026-07-22T18:30:11.713516+00:00,,D,False,False,True,True
+flip_rate_traces.trace.v1,task1a_two_prompt_stage2_canary,cbp__gpt-4-1-mini__arc_challenge__two_prompt_stage2_traced_v1,e3335d974df9d047,arc_challenge,robustness,arc_challenge,gpt-4.1-mini,openai,4,3,4,"{""A"": ""the control"", ""B"": ""the hypothesis statement"", ""C"": ""the dependent (responding) variable"", ""D"": ""the independent (manipulated) variable""}","{""A"": ""the independent (manipulated) variable"", ""B"": ""the control"", ""C"": ""the hypothesis statement"", ""D"": ""the dependent (responding) variable""}","{""A"": ""D"", ""B"": ""A"", ""C"": ""B"", ""D"": ""C""}",D,"You are given a question, a reference answer, and four options.
+
+Question: A physicist wants to determine the speed a car must reach to jump over a ramp. The physicist conducts three trials. In trials two and three, the speed of the car is increased by 20 miles per hour. What is the physicist investigating when he changes the speed?
+
+Reference answer: The physicist is investigating the effect of speed on the car's ability to jump over the ramp.
+
+Options:
+A. the independent (manipulated) variable
+B. the control
+C. the hypothesis statement
+D. the dependent (responding) variable
+
+Select the option that best matches the reference answer in the context of the question.
+If the reference answer is imperfect or incomplete, choose the closest option.
+Respond with only the letter.",,0.0,500,42,v1,A,,A,D,parse_ok,Answer successfully parsed,A,True,score_correct,success,,,,,1.3775312472498626,2026-07-22T18:30:11.713583+00:00,,D,False,False,True,True
+flip_rate_traces.trace.v1,task1a_two_prompt_stage2_canary,cbp__gpt-4-1-mini__arc_challenge__two_prompt_stage2_traced_v1,a81ac5013f717b61,arc_challenge,robustness,arc_challenge,gpt-4.1-mini,openai,4,0,4,"{""A"": ""They have each lost kinetic energy."", ""B"": ""They have each gained the same amount of potential energy."", ""C"": ""They have each lost the same amount of potential energy."", ""D"": ""They have each gained one-half of their maximum kinetic energy.""}","{""A"": ""They have each lost kinetic energy."", ""B"": ""They have each gained the same amount of potential energy."", ""C"": ""They have each lost the same amount of potential energy."", ""D"": ""They have each gained one-half of their maximum kinetic energy.""}","{""A"": ""A"", ""B"": ""B"", ""C"": ""C"", ""D"": ""D""}",D,"You are given a question, a reference answer, and four options.
+
+Question: An astronaut drops a 1.0 kg object and a 5.0 kg object on the Moon. Both objects fall a total distance of 2.0 m vertically. Which of the following best describes the objects after they have fallen a distance of 1.0 m?
+
+Reference answer: Both objects have the same speed after falling 1.0 m.
+
+Options:
+A. They have each lost kinetic energy.
+B. They have each gained the same amount of potential energy.
+C. They have each lost the same amount of potential energy.
+D. They have each gained one-half of their maximum kinetic energy.
+
+Select the option that best matches the reference answer in the context of the question.
+If the reference answer is imperfect or incomplete, choose the closest option.
+Respond with only the letter.",,0.0,500,42,v1,C,,C,C,parse_ok,Answer successfully parsed,C,False,score_incorrect,success,,,,,0.729154289500002,2026-07-22T18:30:14.630717+00:00,,C,True,True,False,True
+flip_rate_traces.trace.v1,task1a_two_prompt_stage2_canary,cbp__gpt-4-1-mini__arc_challenge__two_prompt_stage2_traced_v1,a81ac5013f717b61,arc_challenge,robustness,arc_challenge,gpt-4.1-mini,openai,4,1,4,"{""A"": ""They have each lost kinetic energy."", ""B"": ""They have each gained the same amount of potential energy."", ""C"": ""They have each lost the same amount of potential energy."", ""D"": ""They have each gained one-half of their maximum kinetic energy.""}","{""A"": ""They have each gained the same amount of potential energy."", ""B"": ""They have each lost the same amount of potential energy."", ""C"": ""They have each gained one-half of their maximum kinetic energy."", ""D"": ""They have each lost kinetic energy.""}","{""A"": ""B"", ""B"": ""C"", ""C"": ""D"", ""D"": ""A""}",D,"You are given a question, a reference answer, and four options.
+
+Question: An astronaut drops a 1.0 kg object and a 5.0 kg object on the Moon. Both objects fall a total distance of 2.0 m vertically. Which of the following best describes the objects after they have fallen a distance of 1.0 m?
+
+Reference answer: Both objects have the same speed after falling 1.0 m.
+
+Options:
+A. They have each gained the same amount of potential energy.
+B. They have each lost the same amount of potential energy.
+C. They have each gained one-half of their maximum kinetic energy.
+D. They have each lost kinetic energy.
+
+Select the option that best matches the reference answer in the context of the question.
+If the reference answer is imperfect or incomplete, choose the closest option.
+Respond with only the letter.",,0.0,500,42,v1,C,,C,D,parse_ok,Answer successfully parsed,C,True,score_correct,success,,,,,0.729154289500002,2026-07-22T18:30:14.630912+00:00,,C,True,True,False,True
+flip_rate_traces.trace.v1,task1a_two_prompt_stage2_canary,cbp__gpt-4-1-mini__arc_challenge__two_prompt_stage2_traced_v1,a81ac5013f717b61,arc_challenge,robustness,arc_challenge,gpt-4.1-mini,openai,4,2,4,"{""A"": ""They have each lost kinetic energy."", ""B"": ""They have each gained the same amount of potential energy."", ""C"": ""They have each lost the same amount of potential energy."", ""D"": ""They have each gained one-half of their maximum kinetic energy.""}","{""A"": ""They have each lost the same amount of potential energy."", ""B"": ""They have each gained one-half of their maximum kinetic energy."", ""C"": ""They have each lost kinetic energy."", ""D"": ""They have each gained the same amount of potential energy.""}","{""A"": ""C"", ""B"": ""D"", ""C"": ""A"", ""D"": ""B""}",D,"You are given a question, a reference answer, and four options.
+
+Question: An astronaut drops a 1.0 kg object and a 5.0 kg object on the Moon. Both objects fall a total distance of 2.0 m vertically. Which of the following best describes the objects after they have fallen a distance of 1.0 m?
+
+Reference answer: Both objects have the same speed after falling 1.0 m.
+
+Options:
+A. They have each lost the same amount of potential energy.
+B. They have each gained one-half of their maximum kinetic energy.
+C. They have each lost kinetic energy.
+D. They have each gained the same amount of potential energy.
+
+Select the option that best matches the reference answer in the context of the question.
+If the reference answer is imperfect or incomplete, choose the closest option.
+Respond with only the letter.",,0.0,500,42,v1,B,,B,D,parse_ok,Answer successfully parsed,B,True,score_correct,success,,,,,0.729154289500002,2026-07-22T18:30:14.631007+00:00,,C,True,True,False,True
+flip_rate_traces.trace.v1,task1a_two_prompt_stage2_canary,cbp__gpt-4-1-mini__arc_challenge__two_prompt_stage2_traced_v1,a81ac5013f717b61,arc_challenge,robustness,arc_challenge,gpt-4.1-mini,openai,4,3,4,"{""A"": ""They have each lost kinetic energy."", ""B"": ""They have each gained the same amount of potential energy."", ""C"": ""They have each lost the same amount of potential energy."", ""D"": ""They have each gained one-half of their maximum kinetic energy.""}","{""A"": ""They have each gained one-half of their maximum kinetic energy."", ""B"": ""They have each lost kinetic energy."", ""C"": ""They have each gained the same amount of potential energy."", ""D"": ""They have each lost the same amount of potential energy.""}","{""A"": ""D"", ""B"": ""A"", ""C"": ""B"", ""D"": ""C""}",D,"You are given a question, a reference answer, and four options.
+
+Question: An astronaut drops a 1.0 kg object and a 5.0 kg object on the Moon. Both objects fall a total distance of 2.0 m vertically. Which of the following best describes the objects after they have fallen a distance of 1.0 m?
+
+Reference answer: Both objects have the same speed after falling 1.0 m.
+
+Options:
+A. They have each gained one-half of their maximum kinetic energy.
+B. They have each lost kinetic energy.
+C. They have each gained the same amount of potential energy.
+D. They have each lost the same amount of potential energy.
+
+Select the option that best matches the reference answer in the context of the question.
+If the reference answer is imperfect or incomplete, choose the closest option.
+Respond with only the letter.",,0.0,500,42,v1,D,,D,C,parse_ok,Answer successfully parsed,D,False,score_incorrect,success,,,,,0.729154289500002,2026-07-22T18:30:14.631070+00:00,,C,True,True,False,True
+flip_rate_traces.trace.v1,task1a_two_prompt_stage2_canary,cbp__gpt-4-1-mini__arc_challenge__two_prompt_stage2_traced_v1,6b4ca904770412f7,arc_challenge,robustness,arc_challenge,gpt-4.1-mini,openai,4,0,4,"{""A"": ""a non-infectious, cell-cycle disease"", ""B"": ""an infectious, cell-cycle disease"", ""C"": ""a non-infectious, chronic disease"", ""D"": ""an infectious, chronic disease""}","{""A"": ""a non-infectious, cell-cycle disease"", ""B"": ""an infectious, cell-cycle disease"", ""C"": ""a non-infectious, chronic disease"", ""D"": ""an infectious, chronic disease""}","{""A"": ""A"", ""B"": ""B"", ""C"": ""C"", ""D"": ""D""}",B,"You are given a question, a reference answer, and four options.
+
+Question: Devil facial tumor disease (DFTD) is a disease that is decimating the population of Tasmanian devils. The disease passes from one animal to another through bites and is caused by parasites. The parasites cause cancerous tumors that spread throughout an infected animal's body and kill it. What is the best description of DFTD?
+
+Reference answer: DFTD is a contagious cancer transmitted through biting among Tasmanian devils.
+
+Options:
+A. a non-infectious, cell-cycle disease
+B. an infectious, cell-cycle disease
+C. a non-infectious, chronic disease
+D. an infectious, chronic disease
+
+Select the option that best matches the reference answer in the context of the question.
+If the reference answer is imperfect or incomplete, choose the closest option.
+Respond with only the letter.",,0.0,500,42,v1,B,,B,B,parse_ok,Answer successfully parsed,B,True,score_correct,success,,,,,0.4127203172499776,2026-07-22T18:30:16.282403+00:00,,B,False,False,True,True
+flip_rate_traces.trace.v1,task1a_two_prompt_stage2_canary,cbp__gpt-4-1-mini__arc_challenge__two_prompt_stage2_traced_v1,6b4ca904770412f7,arc_challenge,robustness,arc_challenge,gpt-4.1-mini,openai,4,1,4,"{""A"": ""a non-infectious, cell-cycle disease"", ""B"": ""an infectious, cell-cycle disease"", ""C"": ""a non-infectious, chronic disease"", ""D"": ""an infectious, chronic disease""}","{""A"": ""an infectious, cell-cycle disease"", ""B"": ""a non-infectious, chronic disease"", ""C"": ""an infectious, chronic disease"", ""D"": ""a non-infectious, cell-cycle disease""}","{""A"": ""B"", ""B"": ""C"", ""C"": ""D"", ""D"": ""A""}",B,"You are given a question, a reference answer, and four options.
+
+Question: Devil facial tumor disease (DFTD) is a disease that is decimating the population of Tasmanian devils. The disease passes from one animal to another through bites and is caused by parasites. The parasites cause cancerous tumors that spread throughout an infected animal's body and kill it. What is the best description of DFTD?
+
+Reference answer: DFTD is a contagious cancer transmitted through biting among Tasmanian devils.
+
+Options:
+A. an infectious, cell-cycle disease
+B. a non-infectious, chronic disease
+C. an infectious, chronic disease
+D. a non-infectious, cell-cycle disease
+
+Select the option that best matches the reference answer in the context of the question.
+If the reference answer is imperfect or incomplete, choose the closest option.
+Respond with only the letter.",,0.0,500,42,v1,C,,C,D,parse_ok,Answer successfully parsed,C,False,score_incorrect,success,,,,,0.4127203172499776,2026-07-22T18:30:16.282562+00:00,,B,False,False,True,True
+flip_rate_traces.trace.v1,task1a_two_prompt_stage2_canary,cbp__gpt-4-1-mini__arc_challenge__two_prompt_stage2_traced_v1,6b4ca904770412f7,arc_challenge,robustness,arc_challenge,gpt-4.1-mini,openai,4,2,4,"{""A"": ""a non-infectious, cell-cycle disease"", ""B"": ""an infectious, cell-cycle disease"", ""C"": ""a non-infectious, chronic disease"", ""D"": ""an infectious, chronic disease""}","{""A"": ""a non-infectious, chronic disease"", ""B"": ""an infectious, chronic disease"", ""C"": ""a non-infectious, cell-cycle disease"", ""D"": ""an infectious, cell-cycle disease""}","{""A"": ""C"", ""B"": ""D"", ""C"": ""A"", ""D"": ""B""}",B,"You are given a question, a reference answer, and four options.
+
+Question: Devil facial tumor disease (DFTD) is a disease that is decimating the population of Tasmanian devils. The disease passes from one animal to another through bites and is caused by parasites. The parasites cause cancerous tumors that spread throughout an infected animal's body and kill it. What is the best description of DFTD?
+
+Reference answer: DFTD is a contagious cancer transmitted through biting among Tasmanian devils.
+
+Options:
+A. a non-infectious, chronic disease
+B. an infectious, chronic disease
+C. a non-infectious, cell-cycle disease
+D. an infectious, cell-cycle disease
+
+Select the option that best matches the reference answer in the context of the question.
+If the reference answer is imperfect or incomplete, choose the closest option.
+Respond with only the letter.",,0.0,500,42,v1,D,,D,B,parse_ok,Answer successfully parsed,D,True,score_correct,success,,,,,0.4127203172499776,2026-07-22T18:30:16.282643+00:00,,B,False,False,True,True
+flip_rate_traces.trace.v1,task1a_two_prompt_stage2_canary,cbp__gpt-4-1-mini__arc_challenge__two_prompt_stage2_traced_v1,6b4ca904770412f7,arc_challenge,robustness,arc_challenge,gpt-4.1-mini,openai,4,3,4,"{""A"": ""a non-infectious, cell-cycle disease"", ""B"": ""an infectious, cell-cycle disease"", ""C"": ""a non-infectious, chronic disease"", ""D"": ""an infectious, chronic disease""}","{""A"": ""an infectious, chronic disease"", ""B"": ""a non-infectious, cell-cycle disease"", ""C"": ""an infectious, cell-cycle disease"", ""D"": ""a non-infectious, chronic disease""}","{""A"": ""D"", ""B"": ""A"", ""C"": ""B"", ""D"": ""C""}",B,"You are given a question, a reference answer, and four options.
+
+Question: Devil facial tumor disease (DFTD) is a disease that is decimating the population of Tasmanian devils. The disease passes from one animal to another through bites and is caused by parasites. The parasites cause cancerous tumors that spread throughout an infected animal's body and kill it. What is the best description of DFTD?
+
+Reference answer: DFTD is a contagious cancer transmitted through biting among Tasmanian devils.
+
+Options:
+A. an infectious, chronic disease
+B. a non-infectious, cell-cycle disease
+C. an infectious, cell-cycle disease
+D. a non-infectious, chronic disease
+
+Select the option that best matches the reference answer in the context of the question.
+If the reference answer is imperfect or incomplete, choose the closest option.
+Respond with only the letter.",,0.0,500,42,v1,C,,C,B,parse_ok,Answer successfully parsed,C,True,score_correct,success,,,,,0.4127203172499776,2026-07-22T18:30:16.282696+00:00,,B,False,False,True,True

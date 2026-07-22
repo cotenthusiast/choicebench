@@ -1,0 +1,181 @@
+schema_version,run_id,cell_id,question_id,benchmark,split_name,subject,model_name,provider,n_options,permutation_index,n_permutations,canonical_options_json,displayed_options_json,displayed_to_semantic_json,correct_option,prompt,prompt_sha256,temperature,max_tokens,seed,prompt_version,raw_text,finish_reason,displayed_parsed_choice,semantic_parsed_choice,parse_status,parse_reason,normalized_text,is_correct,score_status,transport_status,error_type,error_message,error_stage,error_retryable,latency_seconds,timestamp_utc,cache_hit,majority_semantic_choice,majority_is_tie,majority_tie_break_used,majority_is_correct,is_diagnostic_canary
+flip_rate_traces.trace.v1,task1a_two_prompt_stage2_canary,cbp__gpt-4-1-mini__mmlu__two_prompt_stage2_traced_v1,900de174669b32fe,mmlu,robustness,abstract_algebra,gpt-4.1-mini,openai,4,0,4,"{""A"": ""symmetric only"", ""B"": ""anti-symmetric only"", ""C"": ""both symmetric and anti-symmetric"", ""D"": ""an equivalence relation""}","{""A"": ""symmetric only"", ""B"": ""anti-symmetric only"", ""C"": ""both symmetric and anti-symmetric"", ""D"": ""an equivalence relation""}","{""A"": ""A"", ""B"": ""B"", ""C"": ""C"", ""D"": ""D""}",C,"You are given a question, a reference answer, and four options.
+
+Question: If A = {1, 2, 3} then relation S = {(1, 1), (2, 2)} is
+
+Reference answer: S is a partial identity relation on A.
+
+Options:
+A. symmetric only
+B. anti-symmetric only
+C. both symmetric and anti-symmetric
+D. an equivalence relation
+
+Select the option that best matches the reference answer in the context of the question.
+If the reference answer is imperfect or incomplete, choose the closest option.
+Respond with only the letter.",,0.0,500,42,v1,C,,C,C,parse_ok,Answer successfully parsed,C,True,score_correct,success,,,,,1.0112510550000025,2026-07-22T18:30:20.393497+00:00,,C,False,False,True,True
+flip_rate_traces.trace.v1,task1a_two_prompt_stage2_canary,cbp__gpt-4-1-mini__mmlu__two_prompt_stage2_traced_v1,900de174669b32fe,mmlu,robustness,abstract_algebra,gpt-4.1-mini,openai,4,1,4,"{""A"": ""symmetric only"", ""B"": ""anti-symmetric only"", ""C"": ""both symmetric and anti-symmetric"", ""D"": ""an equivalence relation""}","{""A"": ""anti-symmetric only"", ""B"": ""both symmetric and anti-symmetric"", ""C"": ""an equivalence relation"", ""D"": ""symmetric only""}","{""A"": ""B"", ""B"": ""C"", ""C"": ""D"", ""D"": ""A""}",C,"You are given a question, a reference answer, and four options.
+
+Question: If A = {1, 2, 3} then relation S = {(1, 1), (2, 2)} is
+
+Reference answer: S is a partial identity relation on A.
+
+Options:
+A. anti-symmetric only
+B. both symmetric and anti-symmetric
+C. an equivalence relation
+D. symmetric only
+
+Select the option that best matches the reference answer in the context of the question.
+If the reference answer is imperfect or incomplete, choose the closest option.
+Respond with only the letter.",,0.0,500,42,v1,B,,B,C,parse_ok,Answer successfully parsed,B,True,score_correct,success,,,,,1.0112510550000025,2026-07-22T18:30:20.393646+00:00,,C,False,False,True,True
+flip_rate_traces.trace.v1,task1a_two_prompt_stage2_canary,cbp__gpt-4-1-mini__mmlu__two_prompt_stage2_traced_v1,900de174669b32fe,mmlu,robustness,abstract_algebra,gpt-4.1-mini,openai,4,2,4,"{""A"": ""symmetric only"", ""B"": ""anti-symmetric only"", ""C"": ""both symmetric and anti-symmetric"", ""D"": ""an equivalence relation""}","{""A"": ""both symmetric and anti-symmetric"", ""B"": ""an equivalence relation"", ""C"": ""symmetric only"", ""D"": ""anti-symmetric only""}","{""A"": ""C"", ""B"": ""D"", ""C"": ""A"", ""D"": ""B""}",C,"You are given a question, a reference answer, and four options.
+
+Question: If A = {1, 2, 3} then relation S = {(1, 1), (2, 2)} is
+
+Reference answer: S is a partial identity relation on A.
+
+Options:
+A. both symmetric and anti-symmetric
+B. an equivalence relation
+C. symmetric only
+D. anti-symmetric only
+
+Select the option that best matches the reference answer in the context of the question.
+If the reference answer is imperfect or incomplete, choose the closest option.
+Respond with only the letter.",,0.0,500,42,v1,A,,A,C,parse_ok,Answer successfully parsed,A,True,score_correct,success,,,,,1.0112510550000025,2026-07-22T18:30:20.393703+00:00,,C,False,False,True,True
+flip_rate_traces.trace.v1,task1a_two_prompt_stage2_canary,cbp__gpt-4-1-mini__mmlu__two_prompt_stage2_traced_v1,900de174669b32fe,mmlu,robustness,abstract_algebra,gpt-4.1-mini,openai,4,3,4,"{""A"": ""symmetric only"", ""B"": ""anti-symmetric only"", ""C"": ""both symmetric and anti-symmetric"", ""D"": ""an equivalence relation""}","{""A"": ""an equivalence relation"", ""B"": ""symmetric only"", ""C"": ""anti-symmetric only"", ""D"": ""both symmetric and anti-symmetric""}","{""A"": ""D"", ""B"": ""A"", ""C"": ""B"", ""D"": ""C""}",C,"You are given a question, a reference answer, and four options.
+
+Question: If A = {1, 2, 3} then relation S = {(1, 1), (2, 2)} is
+
+Reference answer: S is a partial identity relation on A.
+
+Options:
+A. an equivalence relation
+B. symmetric only
+C. anti-symmetric only
+D. both symmetric and anti-symmetric
+
+Select the option that best matches the reference answer in the context of the question.
+If the reference answer is imperfect or incomplete, choose the closest option.
+Respond with only the letter.",,0.0,500,42,v1,D,,D,C,parse_ok,Answer successfully parsed,D,True,score_correct,success,,,,,1.0112510550000025,2026-07-22T18:30:20.393748+00:00,,C,False,False,True,True
+flip_rate_traces.trace.v1,task1a_two_prompt_stage2_canary,cbp__gpt-4-1-mini__mmlu__two_prompt_stage2_traced_v1,f64d891a72add1d8,mmlu,robustness,abstract_algebra,gpt-4.1-mini,openai,4,0,4,"{""A"": ""multiplication is not a binary operation"", ""B"": ""multiplication is not associative"", ""C"": ""identity element does not exist"", ""D"": ""zero has no inverse""}","{""A"": ""multiplication is not a binary operation"", ""B"": ""multiplication is not associative"", ""C"": ""identity element does not exist"", ""D"": ""zero has no inverse""}","{""A"": ""A"", ""B"": ""B"", ""C"": ""C"", ""D"": ""D""}",D,"You are given a question, a reference answer, and four options.
+
+Question: The set of all real numbers under the usual multiplication operation is not a group since
+
+Reference answer: The set of all real numbers under multiplication is not a group because zero does not have a multiplicative inverse.
+
+Options:
+A. multiplication is not a binary operation
+B. multiplication is not associative
+C. identity element does not exist
+D. zero has no inverse
+
+Select the option that best matches the reference answer in the context of the question.
+If the reference answer is imperfect or incomplete, choose the closest option.
+Respond with only the letter.",,0.0,500,42,v1,D,,D,D,parse_ok,Answer successfully parsed,D,True,score_correct,success,,,,,0.31232401224997375,2026-07-22T18:30:21.643318+00:00,,D,False,False,True,True
+flip_rate_traces.trace.v1,task1a_two_prompt_stage2_canary,cbp__gpt-4-1-mini__mmlu__two_prompt_stage2_traced_v1,f64d891a72add1d8,mmlu,robustness,abstract_algebra,gpt-4.1-mini,openai,4,1,4,"{""A"": ""multiplication is not a binary operation"", ""B"": ""multiplication is not associative"", ""C"": ""identity element does not exist"", ""D"": ""zero has no inverse""}","{""A"": ""multiplication is not associative"", ""B"": ""identity element does not exist"", ""C"": ""zero has no inverse"", ""D"": ""multiplication is not a binary operation""}","{""A"": ""B"", ""B"": ""C"", ""C"": ""D"", ""D"": ""A""}",D,"You are given a question, a reference answer, and four options.
+
+Question: The set of all real numbers under the usual multiplication operation is not a group since
+
+Reference answer: The set of all real numbers under multiplication is not a group because zero does not have a multiplicative inverse.
+
+Options:
+A. multiplication is not associative
+B. identity element does not exist
+C. zero has no inverse
+D. multiplication is not a binary operation
+
+Select the option that best matches the reference answer in the context of the question.
+If the reference answer is imperfect or incomplete, choose the closest option.
+Respond with only the letter.",,0.0,500,42,v1,C,,C,D,parse_ok,Answer successfully parsed,C,True,score_correct,success,,,,,0.31232401224997375,2026-07-22T18:30:21.643409+00:00,,D,False,False,True,True
+flip_rate_traces.trace.v1,task1a_two_prompt_stage2_canary,cbp__gpt-4-1-mini__mmlu__two_prompt_stage2_traced_v1,f64d891a72add1d8,mmlu,robustness,abstract_algebra,gpt-4.1-mini,openai,4,2,4,"{""A"": ""multiplication is not a binary operation"", ""B"": ""multiplication is not associative"", ""C"": ""identity element does not exist"", ""D"": ""zero has no inverse""}","{""A"": ""identity element does not exist"", ""B"": ""zero has no inverse"", ""C"": ""multiplication is not a binary operation"", ""D"": ""multiplication is not associative""}","{""A"": ""C"", ""B"": ""D"", ""C"": ""A"", ""D"": ""B""}",D,"You are given a question, a reference answer, and four options.
+
+Question: The set of all real numbers under the usual multiplication operation is not a group since
+
+Reference answer: The set of all real numbers under multiplication is not a group because zero does not have a multiplicative inverse.
+
+Options:
+A. identity element does not exist
+B. zero has no inverse
+C. multiplication is not a binary operation
+D. multiplication is not associative
+
+Select the option that best matches the reference answer in the context of the question.
+If the reference answer is imperfect or incomplete, choose the closest option.
+Respond with only the letter.",,0.0,500,42,v1,B,,B,D,parse_ok,Answer successfully parsed,B,True,score_correct,success,,,,,0.31232401224997375,2026-07-22T18:30:21.643455+00:00,,D,False,False,True,True
+flip_rate_traces.trace.v1,task1a_two_prompt_stage2_canary,cbp__gpt-4-1-mini__mmlu__two_prompt_stage2_traced_v1,f64d891a72add1d8,mmlu,robustness,abstract_algebra,gpt-4.1-mini,openai,4,3,4,"{""A"": ""multiplication is not a binary operation"", ""B"": ""multiplication is not associative"", ""C"": ""identity element does not exist"", ""D"": ""zero has no inverse""}","{""A"": ""zero has no inverse"", ""B"": ""multiplication is not a binary operation"", ""C"": ""multiplication is not associative"", ""D"": ""identity element does not exist""}","{""A"": ""D"", ""B"": ""A"", ""C"": ""B"", ""D"": ""C""}",D,"You are given a question, a reference answer, and four options.
+
+Question: The set of all real numbers under the usual multiplication operation is not a group since
+
+Reference answer: The set of all real numbers under multiplication is not a group because zero does not have a multiplicative inverse.
+
+Options:
+A. zero has no inverse
+B. multiplication is not a binary operation
+C. multiplication is not associative
+D. identity element does not exist
+
+Select the option that best matches the reference answer in the context of the question.
+If the reference answer is imperfect or incomplete, choose the closest option.
+Respond with only the letter.",,0.0,500,42,v1,A,,A,D,parse_ok,Answer successfully parsed,A,True,score_correct,success,,,,,0.31232401224997375,2026-07-22T18:30:21.643484+00:00,,D,False,False,True,True
+flip_rate_traces.trace.v1,task1a_two_prompt_stage2_canary,cbp__gpt-4-1-mini__mmlu__two_prompt_stage2_traced_v1,028c0d434f03fd92,mmlu,robustness,abstract_algebra,gpt-4.1-mini,openai,4,0,4,"{""A"": ""2x^2 + 5"", ""B"": ""6x^2 + 4x + 6"", ""C"": ""0"", ""D"": ""x^2 + 1""}","{""A"": ""2x^2 + 5"", ""B"": ""6x^2 + 4x + 6"", ""C"": ""0"", ""D"": ""x^2 + 1""}","{""A"": ""A"", ""B"": ""B"", ""C"": ""C"", ""D"": ""D""}",A,"You are given a question, a reference answer, and four options.
+
+Question: Find the sum of the given polynomials in the given polynomial ring. f(x) = 4x - 5, g(x) = 2x^2 - 4x + 2 in Z_8[x].
+
+Reference answer: 2x^2 + 0x + 7 in \( \mathbb{Z}_8[x] \).
+
+Options:
+A. 2x^2 + 5
+B. 6x^2 + 4x + 6
+C. 0
+D. x^2 + 1
+
+Select the option that best matches the reference answer in the context of the question.
+If the reference answer is imperfect or incomplete, choose the closest option.
+Respond with only the letter.",,0.0,500,42,v1,A,,A,A,parse_ok,Answer successfully parsed,A,True,score_correct,success,,,,,0.2623760989999937,2026-07-22T18:30:22.693241+00:00,,A,False,False,True,True
+flip_rate_traces.trace.v1,task1a_two_prompt_stage2_canary,cbp__gpt-4-1-mini__mmlu__two_prompt_stage2_traced_v1,028c0d434f03fd92,mmlu,robustness,abstract_algebra,gpt-4.1-mini,openai,4,1,4,"{""A"": ""2x^2 + 5"", ""B"": ""6x^2 + 4x + 6"", ""C"": ""0"", ""D"": ""x^2 + 1""}","{""A"": ""6x^2 + 4x + 6"", ""B"": ""0"", ""C"": ""x^2 + 1"", ""D"": ""2x^2 + 5""}","{""A"": ""B"", ""B"": ""C"", ""C"": ""D"", ""D"": ""A""}",A,"You are given a question, a reference answer, and four options.
+
+Question: Find the sum of the given polynomials in the given polynomial ring. f(x) = 4x - 5, g(x) = 2x^2 - 4x + 2 in Z_8[x].
+
+Reference answer: 2x^2 + 0x + 7 in \( \mathbb{Z}_8[x] \).
+
+Options:
+A. 6x^2 + 4x + 6
+B. 0
+C. x^2 + 1
+D. 2x^2 + 5
+
+Select the option that best matches the reference answer in the context of the question.
+If the reference answer is imperfect or incomplete, choose the closest option.
+Respond with only the letter.",,0.0,500,42,v1,D,,D,A,parse_ok,Answer successfully parsed,D,True,score_correct,success,,,,,0.2623760989999937,2026-07-22T18:30:22.693318+00:00,,A,False,False,True,True
+flip_rate_traces.trace.v1,task1a_two_prompt_stage2_canary,cbp__gpt-4-1-mini__mmlu__two_prompt_stage2_traced_v1,028c0d434f03fd92,mmlu,robustness,abstract_algebra,gpt-4.1-mini,openai,4,2,4,"{""A"": ""2x^2 + 5"", ""B"": ""6x^2 + 4x + 6"", ""C"": ""0"", ""D"": ""x^2 + 1""}","{""A"": ""0"", ""B"": ""x^2 + 1"", ""C"": ""2x^2 + 5"", ""D"": ""6x^2 + 4x + 6""}","{""A"": ""C"", ""B"": ""D"", ""C"": ""A"", ""D"": ""B""}",A,"You are given a question, a reference answer, and four options.
+
+Question: Find the sum of the given polynomials in the given polynomial ring. f(x) = 4x - 5, g(x) = 2x^2 - 4x + 2 in Z_8[x].
+
+Reference answer: 2x^2 + 0x + 7 in \( \mathbb{Z}_8[x] \).
+
+Options:
+A. 0
+B. x^2 + 1
+C. 2x^2 + 5
+D. 6x^2 + 4x + 6
+
+Select the option that best matches the reference answer in the context of the question.
+If the reference answer is imperfect or incomplete, choose the closest option.
+Respond with only the letter.",,0.0,500,42,v1,C,,C,A,parse_ok,Answer successfully parsed,C,True,score_correct,success,,,,,0.2623760989999937,2026-07-22T18:30:22.693344+00:00,,A,False,False,True,True
+flip_rate_traces.trace.v1,task1a_two_prompt_stage2_canary,cbp__gpt-4-1-mini__mmlu__two_prompt_stage2_traced_v1,028c0d434f03fd92,mmlu,robustness,abstract_algebra,gpt-4.1-mini,openai,4,3,4,"{""A"": ""2x^2 + 5"", ""B"": ""6x^2 + 4x + 6"", ""C"": ""0"", ""D"": ""x^2 + 1""}","{""A"": ""x^2 + 1"", ""B"": ""2x^2 + 5"", ""C"": ""6x^2 + 4x + 6"", ""D"": ""0""}","{""A"": ""D"", ""B"": ""A"", ""C"": ""B"", ""D"": ""C""}",A,"You are given a question, a reference answer, and four options.
+
+Question: Find the sum of the given polynomials in the given polynomial ring. f(x) = 4x - 5, g(x) = 2x^2 - 4x + 2 in Z_8[x].
+
+Reference answer: 2x^2 + 0x + 7 in \( \mathbb{Z}_8[x] \).
+
+Options:
+A. x^2 + 1
+B. 2x^2 + 5
+C. 6x^2 + 4x + 6
+D. 0
+
+Select the option that best matches the reference answer in the context of the question.
+If the reference answer is imperfect or incomplete, choose the closest option.
+Respond with only the letter.",,0.0,500,42,v1,B,,B,A,parse_ok,Answer successfully parsed,B,True,score_correct,success,,,,,0.2623760989999937,2026-07-22T18:30:22.693365+00:00,,A,False,False,True,True
