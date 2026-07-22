@@ -48,10 +48,14 @@ OUT_DIR = Path(__file__).resolve().parent / "traces"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 PROMPTS_DIR = Path(MODELGEN_REPO) / "prompts"
 
+FREEZE_ROOT = os.environ.get(
+    "FLIP_RATE_TRACES_FREEZE_ROOT",
+    "/home/cotenthusiast/Projects/model-generalization/paper_data_freeze",
+)
 CELL_ID = "cbp__qwen-qwen2-5-7b-instruct__{bench}__cyclic_generation_majority"
 STAGE1_CSV = str(
-    Path(MODELGEN_REPO)
-    / "paper_data_freeze/canonical/cbp__qwen-qwen2-5-7b-instruct__{bench}__two_stage_v1"
+    Path(FREEZE_ROOT)
+    / "canonical/cbp__qwen-qwen2-5-7b-instruct__{bench}__two_stage_v1"
     / "20260529_145812_two_prompt_Qwen_Qwen2.5-7B-Instruct_{bench}.csv"
 )
 MODEL_NAME = "Qwen/Qwen2.5-7B-Instruct"

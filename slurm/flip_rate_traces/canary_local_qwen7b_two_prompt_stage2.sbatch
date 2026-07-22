@@ -14,8 +14,9 @@ PINNED_SHA="572018cae72b35c8db1af2440d9e5eb998978b82"
 
 cd "${REPO}"
 git fetch origin
-git checkout --detach "${PINNED_SHA}"
+git reset --hard "${PINNED_SHA}"
 
+export FLIP_RATE_TRACES_FREEZE_ROOT="/mnt/scratch2/users/40482774/paper_data_freeze_subset"
 export HF_HOME="/mnt/scratch2/users/40482774/hf"
 export HF_HUB_CACHE="${HF_HOME}/hub"
 export CHOICEBENCH_FLIP_RATE_REPO="${REPO}"
