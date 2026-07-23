@@ -31,8 +31,8 @@ CELLS = [
     ("semantic_match_cbp__qwen-qwen2-5-7b-instruct__arc_challenge__*.csv", "twostage_semantic_match", "Qwen/Qwen2.5-7B-Instruct", "arc_challenge"),
     ("semantic_match_cbp__qwen-qwen2-5-7b-instruct__mmlu__*.csv", "twostage_semantic_match", "Qwen/Qwen2.5-7B-Instruct", "mmlu"),
 
-    ("two_prompt_stage2_api_cbp__gpt-4-1-mini__arc_challenge__two_prompt_stage2_traced_v1.csv", "two_prompt", "gpt-4.1-mini", "arc_challenge"),
-    ("two_prompt_stage2_api_cbp__gpt-4-1-mini__mmlu__two_prompt_stage2_traced_v1.csv", "two_prompt", "gpt-4.1-mini", "mmlu"),
+    ("two_prompt_stage2_api_cbp__gpt-4-1-mini__arc_challenge__two_prompt_stage2.csv", "two_prompt", "gpt-4.1-mini", "arc_challenge"),
+    ("two_prompt_stage2_api_cbp__gpt-4-1-mini__mmlu__two_prompt_stage2.csv", "two_prompt", "gpt-4.1-mini", "mmlu"),
     ("two_prompt_stage2_local_qwen7b_arc_challenge.csv", "two_prompt", "Qwen/Qwen2.5-7B-Instruct", "arc_challenge"),
     ("two_prompt_stage2_local_qwen7b_mmlu.csv", "two_prompt", "Qwen/Qwen2.5-7B-Instruct", "mmlu"),
 
