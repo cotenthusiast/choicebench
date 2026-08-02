@@ -108,3 +108,29 @@ def test_built_wheel_and_sdist_run_outside_repository(tmp_path):
     _run_checked([str(pip), "uninstall", "-y", "choicebench"])
     _run_checked([str(pip), "install", "--no-deps", str(sdist)])
     _run_workflow(venv, tmp_path / "sdist workspace é", "sdist")
+
+
+def test_sdist_builds_from_repo_root_and_registers_entry_points(tmp_path):
+    """A stray untracked build artifact (e.g. a leftover build/ directory
+    from a prior local `python -m build`) left in the repo root can shadow
+    or otherwise confuse packaging tools for anyone building from a repo
+    checkout instead of an external directory, producing a malformed
+    package that loses its console-script entry points. Guard that building
+    the sdist with cwd=repo root still produces a correctly-named artifact
+    whose entry points resolve after a fresh install."""
+    root = Path(__file__).resolve().parents[1]
+    dist = tmp_path / "dist"
+    build_python = shutil.which("python3") or sys.executable
+    _run_checked(
+        [build_python, "-m", "build", "--sdist", "--outdir", str(dist), str(root)],
+        cwd=root,
+    )
+    sdists = list(dist.glob("choicebench-*.tar.gz"))
+    assert len(sdists) == 1
+    assert not sdists[0].name.startswith("UNKNOWN"), sdists[0].name
+
+    venv = tmp_path / "sdist-entrypoint-venv"
+    subprocess.run([sys.executable, "-m", "venv", str(venv)], check=True)
+    _run_checked([str(venv / "bin" / "pip"), "install", "--no-deps", str(sdists[0])])
+    for command in ("choicebench-run", "choicebench-prepare", "choicebench-evaluate", "choicebench-prepare-toy"):
+        assert (venv / "bin" / command).exists(), f"entry point {command} missing after sdist install"
