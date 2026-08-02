@@ -94,13 +94,16 @@ def test_built_wheel_and_sdist_run_outside_repository(tmp_path):
         cwd=tmp_path,
     )
 
-    # Functional CLI smoke reuses the test environment's already-installed
-    # dependencies. The release verification separately performs a true clean
-    # dependency install from the built wheel.
+    # A fully isolated venv with the wheel's declared dependencies installed
+    # alongside it. --system-site-packages previously stood in for this, but
+    # under a truly clean venv/container it inherits an empty (or unrelated)
+    # site-packages rather than this test's own dependencies, so the CLI
+    # commands below would crash on missing imports (e.g. pandas) outside
+    # this one machine's incidentally-populated user site-packages.
     venv = tmp_path / "workflow-venv"
-    subprocess.run([sys.executable, "-m", "venv", "--system-site-packages", str(venv)], check=True)
+    subprocess.run([sys.executable, "-m", "venv", str(venv)], check=True)
     pip = venv / "bin" / "pip"
-    _run_checked([str(pip), "install", "--no-deps", str(wheel)])
+    _run_checked([str(pip), "install", str(wheel)])
     for command in ("choicebench-prepare-toy", "choicebench-run", "choicebench-evaluate", "choicebench-prepare"):
         _run_checked([str(venv / "bin" / command), "--help"])
     _run_workflow(venv, tmp_path / "wheel workspace é", "wheel")
