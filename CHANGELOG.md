@@ -2,7 +2,7 @@
 
 Notable changes to ChoiceBench. Newest first.
 
-## v0.2.0 - 2026-07-12
+## v0.2.0 - 2026-07-18
 
 - Added protocol-v2 immutable run manifests, deterministic experiment and
   condition identities, verified resume compatibility, and manifest-driven
