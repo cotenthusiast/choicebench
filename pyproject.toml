@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "choicebench"
-version = "0.2.0"
+version = "0.1.3"
 description = "A lightweight framework for MCQ evaluation-method research"
 readme = "README.md"
 authors = [{name = "Karl Hanna"}]

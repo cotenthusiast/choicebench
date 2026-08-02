@@ -2,6 +2,26 @@
 
 Notable changes to ChoiceBench. Newest first.
 
+## v0.1.3 - 2026-08-03
+
+New trusted baseline release, superseding v0.2.0. v0.2.0 was heavily
+AI-assisted and never fully validated; this release fixes the issues found
+in a post-hoc audit and restores confidence in the v0.1.x line's release
+process, without reverting any of v0.2.0's functional changes:
+
+- Aggregate run/evaluation summaries now distinguish a condition whose rows
+  are dominated by backend transport failures ("infra_failure") from a
+  genuinely completed condition, instead of silently reporting it as
+  "completed" with a misleadingly low accuracy.
+- Added a regression test guarding sdist entry-point registration when
+  built from the repo root.
+- Fixed `test_built_wheel_and_sdist_run_outside_repository` to stop relying
+  on `--system-site-packages` inheriting dependencies from ambient
+  context; it now installs a fully self-contained venv, matching a truly
+  clean environment.
+- Refreshed the editable install so `importlib.metadata.version("choicebench")`
+  correctly reports the installed version.
+
 ## v0.2.0 - 2026-07-18
 
 - Added protocol-v2 immutable run manifests, deterministic experiment and
