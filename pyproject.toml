@@ -35,6 +35,7 @@ dev = [
     "httpx",
     "build",
     "twine",
+    "sentence-transformers",
 ]
 # vLLM support: vLLM is NOT a Python dependency of ChoiceBench. Run it as a
 # separate server (e.g. `vllm serve <model> --port 8000`) and point ChoiceBench
