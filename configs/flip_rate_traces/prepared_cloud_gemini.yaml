@@ -1,0 +1,165 @@
+schema_version: flip_rate_traces.prepared.v1
+
+model:
+  name: gemini-2.5-flash
+  provider: gemini
+  backend: api
+  concurrency: 1
+  min_delay_seconds: 1.5
+  max_retries: 5
+  timeout_seconds: 30
+
+defaults:
+  temperature: 0.0
+  max_tokens: 500
+  seed: 42
+  top_p: null
+  stop: null
+  request_logprobs: false
+  prompt_version: v1
+  batching: per_question_all_permutations
+
+paths:
+  output_root: ../../runs/flip_rate_traces
+  checkpoint_root: ../../checkpoints/flip_rate_traces
+  cache_root: ../../.cache/flip_rate_traces_prepared_v1
+  legacy_cache_root: "${LEGACY_TWOPROMPT_CACHE_ROOT}"
+
+prompts:
+  option_matching: |-
+    You are given a question, a reference answer, and four options.
+
+    Question: {question}
+
+    Reference answer: {free_text}
+
+    Options:
+    A. {option_a}
+    B. {option_b}
+    C. {option_c}
+    D. {option_d}
+
+    Select the option that best matches the reference answer in the context of the question.
+    If the reference answer is imperfect or incomplete, choose the closest option.
+    Respond with only the letter.
+  cot_stage1: |-
+    Answer the following question based on your knowledge.
+
+    Question: {question}
+
+    Work through the problem step by step and make the reasoning explicit. Then conclude with a concise final answer that can be matched to a multiple-choice option.
+
+jobs:
+  - run_id: flip_rate_remaining_v1_gemini25flash_mmlu_baseline
+    cell_id: cbp__gemini-2-5-flash__mmlu__cyclic_generation_majority_traced_v1
+    benchmark: mmlu
+    split_name: robustness
+    condition: baseline
+    stage2_max_tokens: 500
+    checkpoint_every_questions: 10
+    question_source:
+      path: "${FLIP_RATE_TRACES_FREEZE_ROOT}/canonical/cbp__gpt-4-1-mini__mmlu__cyclic_generation_majority/20260601_183346_cyclic_gpt-4.1-mini_mmlu.csv"
+      sha256: dba83af2b8b25db4b689bac61a43e3068f776c028a3aa8e2c608b16180113708
+    reuse:
+      legacy_cache: true
+      csv_permutation0:
+        path: "${FLIP_RATE_TRACES_FREEZE_ROOT}/canonical/cbp__gemini-2-5-flash__mmlu__cyclic_generation_majority/20260601_183346_cyclic_gemini-2.5-flash_mmlu.csv"
+        sha256: 7e10c898b0fc9b8a4ed02b812de98d763b1befef4ed7b21fbc9d2387cac2339a
+    cache:
+      enabled: true
+      namespace: flip_rate_remaining_v1_exact_historical_prompt
+
+  - run_id: flip_rate_remaining_v1_gemini25flash_arc_challenge_baseline
+    cell_id: cbp__gemini-2-5-flash__arc_challenge__cyclic_generation_majority_traced_v1
+    benchmark: arc_challenge
+    split_name: robustness
+    condition: baseline
+    stage2_max_tokens: 500
+    checkpoint_every_questions: 10
+    question_source:
+      path: "${FLIP_RATE_TRACES_FREEZE_ROOT}/canonical/cbp__gpt-4-1-mini__arc_challenge__cyclic_generation_majority/20260601_183346_cyclic_gpt-4.1-mini_arc_challenge.csv"
+      sha256: d7a1d3244294d8a4486581ba377d62187fe7626cf8e000ef0428b69525200ef9
+    reuse:
+      legacy_cache: true
+      csv_permutation0:
+        path: "${FLIP_RATE_TRACES_FREEZE_ROOT}/canonical/cbp__gemini-2-5-flash__arc_challenge__cyclic_generation_majority/20260601_183346_cyclic_gemini-2.5-flash_arc_challenge.csv"
+        sha256: 7e6d02242b4ba8a818d9bcc5346cd162f924d4fd39626548048d91464526dcba
+    cache:
+      enabled: true
+      namespace: flip_rate_remaining_v1_exact_historical_prompt
+
+  - run_id: flip_rate_remaining_v1_gemini25flash_mmlu_two_prompt
+    cell_id: cbp__gemini-2-5-flash__mmlu__two_prompt_stage2_traced_v1
+    benchmark: mmlu
+    split_name: robustness
+    condition: two_prompt
+    stage2_max_tokens: 500
+    checkpoint_every_questions: 0
+    question_source:
+      path: "${FLIP_RATE_TRACES_FREEZE_ROOT}/canonical/cbp__gpt-4-1-mini__mmlu__cyclic_generation_majority/20260601_183346_cyclic_gpt-4.1-mini_mmlu.csv"
+      sha256: dba83af2b8b25db4b689bac61a43e3068f776c028a3aa8e2c608b16180113708
+    stage1:
+      mode: reuse
+      path: "${FLIP_RATE_TRACES_FREEZE_ROOT}/canonical/cbp__gemini-2-5-flash__mmlu__two_stage_v1/20260601_183346_two_prompt_gemini-2.5-flash_mmlu.csv"
+      sha256: df76fbf68f248a372fd6c024c1db5ea3664a73b55c35b22f6f0bdcacc9f06b80
+      response_column: free_text_response
+      max_tokens: 500
+    reuse:
+      legacy_cache: true
+      csv_permutation0:
+        path: "${FLIP_RATE_TRACES_FREEZE_ROOT}/canonical/cbp__gemini-2-5-flash__mmlu__two_stage_v1/20260601_183346_two_prompt_gemini-2.5-flash_mmlu.csv"
+        sha256: df76fbf68f248a372fd6c024c1db5ea3664a73b55c35b22f6f0bdcacc9f06b80
+    cache:
+      enabled: false
+
+  - run_id: flip_rate_remaining_v1_gemini25flash_arc_challenge_two_prompt
+    cell_id: cbp__gemini-2-5-flash__arc_challenge__two_prompt_stage2_traced_v1
+    benchmark: arc_challenge
+    split_name: robustness
+    condition: two_prompt
+    stage2_max_tokens: 500
+    checkpoint_every_questions: 0
+    question_source:
+      path: "${FLIP_RATE_TRACES_FREEZE_ROOT}/canonical/cbp__gpt-4-1-mini__arc_challenge__cyclic_generation_majority/20260601_183346_cyclic_gpt-4.1-mini_arc_challenge.csv"
+      sha256: d7a1d3244294d8a4486581ba377d62187fe7626cf8e000ef0428b69525200ef9
+    stage1:
+      mode: reuse
+      path: ../../experiments/visible_llm_matcher/repairs/group1_historical_arc/staged_repairs/cbp__gemini-2-5-flash__arc_challenge__two_stage_v1/cbp__gemini-2-5-flash__arc_challenge__two_stage_v1_repaired_1000.csv
+      sha256: 80795f3f772c3d4a109247e2e3bde7e9436cd839e4a6eccc015a18f29f2990f4
+      response_column: free_text_response
+      max_tokens: 500
+    reuse:
+      legacy_cache: true
+      csv_permutation0:
+        path: ../../experiments/visible_llm_matcher/repairs/group1_historical_arc/staged_repairs/cbp__gemini-2-5-flash__arc_challenge__two_stage_v1/cbp__gemini-2-5-flash__arc_challenge__two_stage_v1_repaired_1000.csv
+        sha256: 80795f3f772c3d4a109247e2e3bde7e9436cd839e4a6eccc015a18f29f2990f4
+    cache:
+      enabled: false
+
+  - run_id: flip_rate_remaining_v1_gemini25flash_mmlu_two_prompt_cot250
+    cell_id: cbp__gemini-2-5-flash__mmlu__two_prompt_cot_stage2_traced_v1
+    benchmark: mmlu
+    split_name: robustness
+    condition: two_prompt_cot
+    stage2_max_tokens: 500
+    checkpoint_every_questions: 50
+    subset:
+      path: mmlu_cot_seed42_5_per_subject_ids.json
+      sha256: 209bf30e3a51192404cb58ac529236d8c8189d546a489f6dca6002d0f58a21c7
+      ids_newline_sha256: 6cbe8be30c8ed44760c49e94072291874778fe0706caede3dff9c56bb0c1deae
+      expected_count: 250
+      expected_subject_count: 50
+      expected_per_subject: 5
+      selection_seed: 42
+      derivation: seed42_stratified_5_from_each_frozen_20_then_canonical_order
+    question_source:
+      path: "${FLIP_RATE_TRACES_FREEZE_ROOT}/canonical/cbp__gpt-4-1-mini__mmlu__cyclic_generation_majority/20260601_183346_cyclic_gpt-4.1-mini_mmlu.csv"
+      sha256: dba83af2b8b25db4b689bac61a43e3068f776c028a3aa8e2c608b16180113708
+    stage1:
+      mode: generate
+      max_tokens: 4000
+    reuse:
+      legacy_cache: false
+    cache:
+      enabled: true
+      namespace: flip_rate_remaining_v1_gemini25flash_mmlu_cot250

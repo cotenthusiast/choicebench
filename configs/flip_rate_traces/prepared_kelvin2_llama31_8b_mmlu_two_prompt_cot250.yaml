@@ -1,0 +1,82 @@
+schema_version: flip_rate_traces.prepared.v1
+
+model:
+  name: meta-llama/Llama-3.1-8B-Instruct
+  provider: huggingface
+  backend: local
+  concurrency: 1
+  min_delay_seconds: 0.0
+  max_retries: 0
+  timeout_seconds: null
+  device: cuda
+  revision: null
+  add_bos_token: true
+  torch_dtype: float16
+  prompt_application: raw_no_chat_template
+
+defaults:
+  temperature: 0.0
+  max_tokens: 500
+  seed: 42
+  top_p: null
+  stop: null
+  request_logprobs: false
+  do_sample: false
+  prompt_version: v1
+  batching: sequential_permutation
+
+paths:
+  output_root: ../../runs/flip_rate_traces
+  checkpoint_root: ../../checkpoints/flip_rate_traces
+  cache_root: ../../.cache/flip_rate_traces_prepared_v1
+  legacy_cache_root: unused
+
+prompts:
+  option_matching: |-
+    You are given a question, a reference answer, and the options.
+
+    Question: {question}
+
+    Reference answer: {free_text}
+
+    Options:
+    {options}
+
+    Select the option that best matches the reference answer in the context of the question.
+    If the reference answer is imperfect or incomplete, choose the closest option.
+    Respond with only the letter.
+  cot_stage1: |-
+    Answer the following question based on your knowledge.
+
+    Question: {question}
+
+    Work through the problem step by step and make the reasoning explicit. Then conclude with a concise final answer that can be matched to a multiple-choice option.
+
+jobs:
+  - run_id: flip_rate_remaining_v1_local_llama31_8b_mmlu_two_prompt_cot250
+    cell_id: cbp__meta-llama-llama-3-1-8b-instruct__mmlu__two_prompt_cot_stage2_traced_v1
+    benchmark: mmlu
+    split_name: robustness
+    condition: two_prompt_cot
+    stage2_max_tokens: 500
+    checkpoint_every_questions: 50
+    subset:
+      path: mmlu_cot_seed42_5_per_subject_ids.json
+      sha256: 209bf30e3a51192404cb58ac529236d8c8189d546a489f6dca6002d0f58a21c7
+      ids_newline_sha256: 6cbe8be30c8ed44760c49e94072291874778fe0706caede3dff9c56bb0c1deae
+      expected_count: 250
+      expected_subject_count: 50
+      expected_per_subject: 5
+      selection_seed: 42
+      derivation: seed42_stratified_5_from_each_frozen_20_then_canonical_order
+    question_source:
+      path: "${FLIP_RATE_TRACES_FREEZE_ROOT}/canonical/cbp__qwen-qwen2-5-7b-instruct__mmlu__cyclic_generation_majority/20260529_145812_cyclic_Qwen_Qwen2.5-7B-Instruct_mmlu.csv"
+      sha256: 570016a9c291240c960a4cd2023fa89b662e81e02e8d0fd3804dc1329b9b0843
+    stage1:
+      mode: generate
+      max_tokens: 1500
+    reuse:
+      legacy_cache: false
+    cache:
+      enabled: true
+      namespace: flip_rate_remaining_v1_local_llama31_8b_mmlu_cot250

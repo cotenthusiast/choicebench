@@ -1,0 +1,66 @@
+schema_version: flip_rate_traces.prepared.v1
+
+model:
+  name: meta-llama/Llama-3.1-8B-Instruct
+  provider: huggingface
+  backend: local
+  concurrency: 1
+  min_delay_seconds: 0.0
+  max_retries: 0
+  timeout_seconds: null
+  device: cuda
+  revision: null
+  add_bos_token: true
+  torch_dtype: float16
+  prompt_application: raw_no_chat_template
+
+defaults:
+  temperature: 0.0
+  max_tokens: 500
+  seed: 42
+  top_p: null
+  stop: null
+  request_logprobs: false
+  do_sample: false
+  prompt_version: v1
+  batching: sequential_permutation
+
+paths:
+  output_root: ../../runs/flip_rate_traces
+  checkpoint_root: ../../checkpoints/flip_rate_traces
+  cache_root: ../../.cache/flip_rate_traces_prepared_v1
+  legacy_cache_root: unused
+
+prompts:
+  option_matching: |-
+    You are given a question, a reference answer, and the options.
+
+    Question: {question}
+
+    Reference answer: {free_text}
+
+    Options:
+    {options}
+
+    Select the option that best matches the reference answer in the context of the question.
+    If the reference answer is imperfect or incomplete, choose the closest option.
+    Respond with only the letter.
+
+jobs:
+  - run_id: flip_rate_remaining_v1_local_llama31_8b_arc_challenge_baseline
+    cell_id: cbp__meta-llama-llama-3-1-8b-instruct__arc_challenge__cyclic_generation_majority_traced_v1
+    benchmark: arc_challenge
+    split_name: robustness
+    condition: baseline
+    stage2_max_tokens: 500
+    checkpoint_every_questions: 10
+    question_source:
+      path: "${FLIP_RATE_TRACES_FREEZE_ROOT}/canonical/cbp__qwen-qwen2-5-7b-instruct__arc_challenge__cyclic_generation_majority/20260529_145812_cyclic_Qwen_Qwen2.5-7B-Instruct_arc_challenge.csv"
+      sha256: ad7de543bf8bda698c9442f07619e591c4eca7708623f182561ebf82ce08d883
+    reuse:
+      legacy_cache: false
+      csv_permutation0:
+        path: "${FLIP_RATE_TRACES_FREEZE_ROOT}/canonical/cbp__meta-llama-llama-3-1-8b-instruct__arc_challenge__cyclic_generation_majority/20260529_180748_cyclic_meta-llama_Llama-3.1-8B-Instruct_arc_challenge.csv"
+        sha256: 5b00dc11378c6e7293f055782136b97b9a97d09a097568d9400c4aac538d9772
+    cache:
+      enabled: false

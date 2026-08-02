@@ -91,8 +91,13 @@ class TraceRetainingCyclicRunner:
         per_perm_latency: list[float],
         per_perm_cache_hit: list[bool | None],
         is_diagnostic_canary: bool,
+        canonical_options_override: dict[str, str] | None = None,
     ) -> list[dict]:
-        canonical_options = build_option_map(_question_row(q))
+        canonical_options = (
+            canonical_options_override
+            if canonical_options_override is not None
+            else build_option_map(_question_row(q))
+        )
         n = len(permutations)
 
         displayed_parsed: list[str | None] = []
