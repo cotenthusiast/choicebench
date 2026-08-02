@@ -22,7 +22,14 @@ process, without reverting any of v0.2.0's functional changes:
 - Refreshed the editable install so `importlib.metadata.version("choicebench")`
   correctly reports the installed version.
 
-## v0.2.0 - 2026-07-18
+## v0.2.0 - 2026-07-18 (retired)
+
+**Retired 2026-08-03, marked untrusted.** An internal audit found this
+release had never been properly validated against real usage. v0.1.3
+supersedes it as the corrected, cold-tested baseline; see that entry above
+for what was fixed. The functional changes below still shipped and are not
+reverted by v0.1.3 -- only this release's trustworthiness as a starting
+point is retracted. Do not build on v0.2.0 directly; start from v0.1.3.
 
 - Added protocol-v2 immutable run manifests, deterministic experiment and
   condition identities, verified resume compatibility, and manifest-driven
