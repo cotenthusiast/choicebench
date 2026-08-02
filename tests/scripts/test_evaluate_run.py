@@ -199,7 +199,7 @@ def test_partial_run_with_failed_condition_is_accounted(tmp_path, monkeypatch):
     report = mod.build_evaluation_report("mixed", _result_df("cond_ok", 1, 2), manifest, False)
 
     assert report["run_status"] == "partial"
-    assert report["condition_counts"] == {"completed": 1, "gated": 0, "failed": 1}
+    assert report["condition_counts"] == {"completed": 1, "gated": 0, "failed": 1, "infra_failure": 0}
     assert report["conditions"]["cond_bad"]["status"] == "failed"
     assert report["conditions"]["cond_bad"]["metrics"] == {}
     assert report["conditions"]["cond_bad"]["error"] == "backend exploded"
@@ -219,9 +219,43 @@ def test_all_failed_run_produces_accounting_report(tmp_path, monkeypatch):
     report = mod.build_evaluation_report("mixed", pd.DataFrame(), manifest, False)
 
     assert report["run_status"] == "partial"
-    assert report["condition_counts"] == {"completed": 0, "gated": 0, "failed": 2}
+    assert report["condition_counts"] == {"completed": 0, "gated": 0, "failed": 2, "infra_failure": 0}
     assert all(item["status"] == "failed" and item["metrics"] == {}
                for item in report["conditions"].values())
+
+
+def _transport_failure_df(condition_id: str, total: int) -> pd.DataFrame:
+    rows = []
+    for index in range(total):
+        row = _row("direct_mcq", "transport_error", None, None, transport_status="failure")
+        row.update({
+            "condition_id": condition_id, "model_name": "dummy",
+            "benchmark_name": "toy", "benchmark_split": "test",
+            "question_id": f"q{index}",
+        })
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def test_all_transport_failure_condition_is_flagged_infra_failure(tmp_path, monkeypatch):
+    """A condition whose result CSV exists (run-state status: completed) but
+    whose rows are entirely backend transport failures must not be reported
+    as an indistinguishable 'accuracy: 0.0, status: completed' — that reads
+    identically to a genuinely bad model producing all-wrong answers."""
+    mod = _load_evaluate_run()
+    run_dir, manifest = _mixed_run(tmp_path, mod, {
+        "cond_ok": {"status": "completed", "result_sha256": "aa" * 32},
+    })
+    monkeypatch.setattr(mod, "RUNS_DIR", tmp_path)
+    report = mod.build_evaluation_report("mixed", _transport_failure_df("cond_ok", 4), manifest, False)
+
+    condition = report["conditions"]["cond_ok"]
+    assert condition["status"] == "infra_failure"
+    assert condition["transport_failure_count"] == 4
+    assert condition["transport_failure_fraction"] == 1.0
+    assert condition["metrics"]["accuracy"] == 0.0
+    assert report["condition_counts"] == {"completed": 0, "gated": 0, "failed": 0, "infra_failure": 1}
+    assert report["run_status"] == "partial"
 
 
 def test_unfinished_condition_refuses_evaluation(tmp_path, monkeypatch):

@@ -16,6 +16,7 @@ import sys
 
 import pandas as pd
 
+from choicebench.clients.types import FAILURE_STATUS
 from choicebench.config.paths import REPORTS_DIR, RUNS_DIR, ensure_dirs, validate_run_id
 from choicebench.infra.artifacts import atomic_write_json
 from choicebench.identity import canonicalize, integrity_digest, short_id
@@ -37,6 +38,14 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 logger = logging.getLogger(__name__)
+
+# A "completed" condition (its result CSV exists) can still be entirely
+# transport failures — the backend call itself never succeeded for most or
+# all rows. Left unflagged, this reads identically to a genuinely bad model
+# (e.g. "accuracy: 0.0, status: completed"). Once transport failures reach
+# this fraction of a condition's rows, report it distinctly as
+# "infra_failure" instead of silently folding it into "completed".
+INFRA_FAILURE_FRACTION_THRESHOLD = 0.5
 
 
 def _json_safe(value):
@@ -239,11 +248,20 @@ def build_evaluation_report(run_id: str, run_df: pd.DataFrame, manifest: dict, r
         group = run_df[run_df["condition_id"] == condition_id]
         if group.empty:
             raise RuntimeError(f"Completed condition {condition_id} has no validated result rows.")
+        transport_failures = int((group["transport_status"] == FAILURE_STATUS).sum())
+        transport_failure_fraction = transport_failures / len(group)
+        condition_status = (
+            "infra_failure"
+            if transport_failure_fraction >= INFRA_FAILURE_FRACTION_THRESHOLD
+            else "completed"
+        )
         first = group.iloc[0]
         results[condition_id] = {
-            "status": "completed", "method_name": first["method_name"],
+            "status": condition_status, "method_name": first["method_name"],
             "model_name": first["model_name"], "benchmark_name": first["benchmark_name"],
             "benchmark_split": first["benchmark_split"], "metrics": {},
+            "transport_failure_count": transport_failures,
+            "transport_failure_fraction": transport_failure_fraction,
         }
         for name in sorted(metrics):
             results[condition_id]["metrics"].update(metrics[name].compute(group))
@@ -251,6 +269,7 @@ def build_evaluation_report(run_id: str, run_df: pd.DataFrame, manifest: dict, r
         "completed": sum(1 for item in results.values() if item["status"] == "completed"),
         "gated": sum(1 for item in results.values() if item["status"] == "gated"),
         "failed": sum(1 for item in results.values() if item["status"] == "failed"),
+        "infra_failure": sum(1 for item in results.values() if item["status"] == "infra_failure"),
     }
     report = _json_safe({
         "schema_version": "choicebench.evaluation.v1", "evaluation_id": evaluation_id,
@@ -260,10 +279,15 @@ def build_evaluation_report(run_id: str, run_df: pd.DataFrame, manifest: dict, r
             "manifest_payload_digest": manifest["payload_digest"],
             "protocol_version": manifest["payload"]["protocol_version"],
         },
-        # "complete" means every declared condition either completed or was
-        # gated by design; any failed condition marks the report as a partial
-        # accounting of an unfinished experiment.
-        "run_status": "complete" if condition_counts["failed"] == 0 else "partial",
+        # "complete" means every declared condition either completed cleanly
+        # or was gated by design; any failed or infra_failure condition marks
+        # the report as a partial accounting of an unfinished/untrustworthy
+        # experiment.
+        "run_status": (
+            "complete"
+            if condition_counts["failed"] == 0 and condition_counts["infra_failure"] == 0
+            else "partial"
+        ),
         "condition_counts": condition_counts,
         "reparse": reparse, "metrics": metric_records,
         "postprocessing": postprocessing, "conditions": results,
@@ -362,9 +386,12 @@ def main() -> None:
     if report["run_status"] != "complete":
         counts = report["condition_counts"]
         logger.warning(
-            "Run %s is a PARTIAL accounting: %d condition(s) failed "
-            "(%d completed, %d gated). Metrics cover completed conditions only.",
-            args.run_id, counts["failed"], counts["completed"], counts["gated"],
+            "Run %s is a PARTIAL accounting: %d condition(s) failed, %d condition(s) hit "
+            "INFRA_FAILURE (transport failures on >= %d%% of rows — not a model-quality "
+            "result) (%d completed, %d gated). Metrics for infra_failure conditions "
+            "reflect the transport outage, not model behavior.",
+            args.run_id, counts["failed"], counts["infra_failure"],
+            int(INFRA_FAILURE_FRACTION_THRESHOLD * 100), counts["completed"], counts["gated"],
         )
     logger.info("─────────────────────────────────────────────────")
 
