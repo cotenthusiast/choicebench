@@ -20,6 +20,23 @@ class ProvenanceResolutionError(RuntimeError):
     pass
 
 
+_packages_distributions_cache: dict[str, list[str]] | None = None
+
+
+def _cached_packages_distributions() -> dict[str, list[str]]:
+    """packages_distributions() rescans every installed distribution's
+    metadata (a full parse of each package's METADATA file) on every call,
+    with no caching of its own. The set of installed distributions cannot
+    change within a process's lifetime, so cache it process-wide -- this
+    matters because implementation_identity() is called once per lineage
+    component (i.e. potentially once per row), and the uncached scan alone
+    made a real multi-hundred-row import run take tens of minutes."""
+    global _packages_distributions_cache
+    if _packages_distributions_cache is None:
+        _packages_distributions_cache = packages_distributions()
+    return _packages_distributions_cache
+
+
 def directory_digest(root: Path) -> tuple[str, list[dict[str, Any]]]:
     """Hash every regular file in a local model directory by logical path/content."""
     root = Path(root).expanduser().resolve(strict=True)
@@ -120,7 +137,7 @@ def implementation_identity(target: Any) -> dict[str, Any]:
         record["source_file"] = Path(source_path).name
         record["source_digest"] = file_digest(Path(source_path))
     top_level = module_name.split(".", 1)[0] if module_name else None
-    distributions = packages_distributions().get(top_level, []) if top_level else []
+    distributions = _cached_packages_distributions().get(top_level, []) if top_level else []
     if distributions:
         distribution = sorted(distributions)[0]
         try:

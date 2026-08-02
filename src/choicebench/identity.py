@@ -167,6 +167,8 @@ def canonicalize(value: Any, *, redact_secrets: bool = True) -> Any:
         return sorted(items, key=lambda item: json.dumps(item, sort_keys=True, separators=(",", ":"), ensure_ascii=True))
     if isinstance(value, Path):
         return value.as_posix()
+    if isinstance(value, (bytes, bytearray)):
+        return bytes(value).hex()
     if isinstance(value, str):
         text = unicodedata.normalize("NFC", value)
         return redact_text(text) if redact_secrets else text
