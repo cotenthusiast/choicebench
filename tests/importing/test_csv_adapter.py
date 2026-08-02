@@ -455,6 +455,56 @@ def test_structured_json_choices_reject_malformed_payloads(tmp_path: Path, paylo
         )
 
 
+def test_structured_json_choices_accept_positional_source_index_labels(tmp_path: Path):
+    """Regression: real fourth-cell CSVs use {"text": ..., "source_index": N}
+    -- an integer positional index, no explicit string label -- unlike the
+    explicit {"label": "A", "text": ...} shape tested above. This must be
+    letterized (0 -> A, 1 -> B, ...), not rejected."""
+    data = (
+        b'id,choices\nq1,"[{""text"":""slower"",""source_index"":0},'
+        b'{""text"":""faster"",""source_index"":1},'
+        b'{""text"":""at the same speed"",""source_index"":2}]"\n'
+    )
+    mapping = OptionMappingSpec("structured_json", (), "choices", "source_index", "text")
+    table = _parse(
+        tmp_path,
+        data,
+        expected_columns=("id", "choices"),
+        columns={"question_id": "id"},
+        option_mapping=mapping,
+    )
+    assert table.rows[0].values["choices"].startswith('[{"text":"slower"')
+
+
+def test_structured_json_choices_reject_source_index_out_of_letter_range(tmp_path: Path):
+    data = b'id,choices\nq1,"[{""text"":""x"",""source_index"":99}]"\n'
+    mapping = OptionMappingSpec("structured_json", (), "choices", "source_index", "text")
+    with pytest.raises(CsvAdapterError, match="structured choices"):
+        _parse(
+            tmp_path,
+            data,
+            expected_columns=("id", "choices"),
+            columns={"question_id": "id"},
+            option_mapping=mapping,
+        )
+
+
+def test_structured_json_choices_reject_duplicate_source_index(tmp_path: Path):
+    data = (
+        b'id,choices\nq1,"[{""text"":""x"",""source_index"":0},'
+        b'{""text"":""y"",""source_index"":0}]"\n'
+    )
+    mapping = OptionMappingSpec("structured_json", (), "choices", "source_index", "text")
+    with pytest.raises(CsvAdapterError, match="duplicate labels"):
+        _parse(
+            tmp_path,
+            data,
+            expected_columns=("id", "choices"),
+            columns={"question_id": "id"},
+            option_mapping=mapping,
+        )
+
+
 def test_row_with_more_fields_than_header_is_rejected(tmp_path: Path):
     data = b"id,value\nq1,x,unexpected\n"
     with pytest.raises(CsvAdapterError, match="field count"):

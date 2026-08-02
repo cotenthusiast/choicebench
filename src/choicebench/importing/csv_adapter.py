@@ -292,6 +292,9 @@ def _validate_numeric(
         )
 
 
+_POSITIONAL_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+
 def _validate_structured_choices(
     value: str | None, declaration: SourceArtifactSpec, *, record_index: int
 ) -> None:
@@ -320,12 +323,30 @@ def _validate_structured_choices(
             raise CsvAdapterError(
                 f"CSV structured choices contain a non-object in logical record {record_index}."
             )
-        label = choice.get(mapping.structured_label_key)
+        raw_label = choice.get(mapping.structured_label_key)
         text = choice.get(mapping.structured_text_key)
-        if not isinstance(label, str) or not label or not isinstance(text, str):
+        # A structured-choice source may declare an explicit string letter
+        # label (e.g. {"label": "A", "text": ...}), or a positional integer
+        # index instead (e.g. {"source_index": 0, "text": ...} -- the same
+        # convention choicebench's own dataset-side choices_json already
+        # uses, see dataset_reference.py). The latter is letterized here
+        # (0 -> "A", 1 -> "B", ...) rather than requiring every producer to
+        # pre-compute letters that don't otherwise exist in their data.
+        if isinstance(raw_label, bool):
+            label = None
+        elif isinstance(raw_label, int):
+            label = (
+                _POSITIONAL_LETTERS[raw_label]
+                if 0 <= raw_label < len(_POSITIONAL_LETTERS) else None
+            )
+        elif isinstance(raw_label, str) and raw_label:
+            label = raw_label
+        else:
+            label = None
+        if label is None or not isinstance(text, str):
             raise CsvAdapterError(
-                "CSV structured choices lack string label/text fields in logical "
-                f"record {record_index}."
+                "CSV structured choices lack a string label or a valid positional "
+                f"integer label, or a string text field, in logical record {record_index}."
             )
         if label in labels:
             raise CsvAdapterError(
