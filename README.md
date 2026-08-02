@@ -5,6 +5,8 @@ ChoiceBench is a lightweight framework for MCQ evaluation-method research on LLM
 [![Tests](https://github.com/cotenthusiast/choicebench/actions/workflows/test.yml/badge.svg)](https://github.com/cotenthusiast/choicebench/actions/workflows/test.yml)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 
+Some non-trunk branches in this repository produce results reported in a paper currently under peer review — see [PAPER.md](PAPER.md) for which branches and their status.
+
 MCQ evaluation is a well-studied LLM benchmark task, but the scaffolding is always the same: load a benchmark, call a model repeatedly, parse its response, score against the gold answer, save results, and compute metrics. This framework handles all of that so you can focus on the experimental condition — what varies between your runs. In five minutes you can run the toy experiment end-to-end. In an afternoon you can add a new debiasing method or metric and run it against MMLU.
 
 ---
