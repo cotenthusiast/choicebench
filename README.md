@@ -1,5 +1,7 @@
 # choicebench
 
+This branch computes results reported in choicebench's associated paper — see [PAPER.md](https://github.com/cotenthusiast/choicebench/blob/choicebench/PAPER.md) on `choicebench` (trunk) for details.
+
 ChoiceBench is a lightweight framework for MCQ evaluation-method research on LLMs, with built-in support for answer-order bias analysis and mitigation methods.
 
 [![Tests](https://github.com/cotenthusiast/choicebench/actions/workflows/test.yml/badge.svg)](https://github.com/cotenthusiast/choicebench/actions/workflows/test.yml)
