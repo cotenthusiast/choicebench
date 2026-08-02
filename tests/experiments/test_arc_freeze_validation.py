@@ -1,5 +1,6 @@
 # tests/experiments/test_arc_freeze_validation.py
 
+import os
 from pathlib import Path
 
 import pandas as pd
@@ -14,32 +15,41 @@ from experiments.visible_llm_matcher.arc_freeze_validation import (
     validate_against_freeze,
 )
 
-_FREEZE_ROOT = Path(
-    "/home/cotenthusiast/Projects/model-generalization/paper_data_freeze/raw/local_model_generalization"
-)
+# Same override convention as FLIP_RATE_TRACES_FREEZE_ROOT in
+# experiments/flip_rate_traces/data_source.py: default to this repo's own
+# laptop layout, but let Kelvin2/CI point at wherever these sibling repos
+# actually live instead of hardcoding one machine's paths.
+_MODEL_GENERALIZATION_REPO = Path(os.environ.get(
+    "MODEL_GENERALIZATION_REPO", "/home/cotenthusiast/Projects/model-generalization",
+))
+_TWO_STAGE_PROMPTING_REPO = Path(os.environ.get(
+    "TWO_STAGE_PROMPTING_REPO", "/home/cotenthusiast/Projects/two-stage-prompting",
+))
+
+_FREEZE_ROOT = _MODEL_GENERALIZATION_REPO / "paper_data_freeze" / "raw" / "local_model_generalization"
 _REAL_SOURCES = {
-    "gpt-4.1-mini (API)": Path(
-        "/home/cotenthusiast/Projects/two-stage-prompting/paper_results/eval_ready/paper_api_main/"
+    "gpt-4.1-mini (API)": (
+        _TWO_STAGE_PROMPTING_REPO / "paper_results" / "eval_ready" / "paper_api_main" /
         "20260603_154649_text_extraction_gpt-4.1-mini_arc_challenge.csv"
     ),
-    "gemini-2.5-flash (API)": Path(
-        "/home/cotenthusiast/Projects/two-stage-prompting/paper_results/eval_ready/paper_api_main/"
+    "gemini-2.5-flash (API)": (
+        _TWO_STAGE_PROMPTING_REPO / "paper_results" / "eval_ready" / "paper_api_main" /
         "20260603_154649_text_extraction_gemini-2.5-flash_arc_challenge.csv"
     ),
-    "llama-3.1-8b-instant (API)": Path(
-        "/home/cotenthusiast/Projects/two-stage-prompting/paper_results/eval_ready/paper_api_main/"
+    "llama-3.1-8b-instant (API)": (
+        _TWO_STAGE_PROMPTING_REPO / "paper_results" / "eval_ready" / "paper_api_main" /
         "20260603_154649_text_extraction_llama-3.1-8b-instant_arc_challenge.csv"
     ),
-    "Qwen-Turbo (API)": Path(
-        "/home/cotenthusiast/Projects/two-stage-prompting/paper_results/eval_ready/paper_api_main/"
+    "Qwen-Turbo (API)": (
+        _TWO_STAGE_PROMPTING_REPO / "paper_results" / "eval_ready" / "paper_api_main" /
         "20260603_154649_text_extraction_Qwen_Qwen2.5-7B-Instruct-Turbo_arc_challenge.csv"
     ),
-    "Qwen2.5-7B-Instruct (local, MG)": Path(
-        "/home/cotenthusiast/Projects/model-generalization/runs/20260617_162624/"
+    "Qwen2.5-7B-Instruct (local, MG)": (
+        _MODEL_GENERALIZATION_REPO / "runs" / "20260617_162624" /
         "20260617_162624_text_extraction_Qwen_Qwen2.5-7B-Instruct_arc_challenge.csv"
     ),
-    "Llama-3.1-8B-Instruct (local, MG)": Path(
-        "/home/cotenthusiast/Projects/model-generalization/runs/20260617_162624/"
+    "Llama-3.1-8B-Instruct (local, MG)": (
+        _MODEL_GENERALIZATION_REPO / "runs" / "20260617_162624" /
         "20260617_162624_text_extraction_meta-llama_Llama-3.1-8B-Instruct_arc_challenge.csv"
     ),
 }

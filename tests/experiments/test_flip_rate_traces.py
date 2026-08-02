@@ -12,6 +12,8 @@
 import csv
 import hashlib
 import json
+import os
+from pathlib import Path
 
 import pytest
 
@@ -28,17 +30,40 @@ from experiments.flip_rate_traces.historical_protocol import (
     historical_majority_vote,
     unpermute_choice,
 )
-from experiments.flip_rate_traces.data_source import load_frozen_questions
+from experiments.flip_rate_traces.data_source import FREEZE_ROOT, load_frozen_questions
+
+# Same override convention as FREEZE_ROOT in data_source.py: default to this
+# repo's own laptop layout, but let Kelvin2/CI point at wherever these
+# sibling repos actually live instead of hardcoding one machine's paths.
+TWO_STAGE_PROMPTING_REPO = Path(os.environ.get(
+    "TWO_STAGE_PROMPTING_REPO", "/home/cotenthusiast/Projects/two-stage-prompting",
+))
+MODEL_GENERALIZATION_REPO = Path(os.environ.get(
+    "MODEL_GENERALIZATION_REPO", "/home/cotenthusiast/Projects/model-generalization",
+))
 
 API_HISTORICAL_ARC = (
-    "/home/cotenthusiast/Projects/model-generalization/paper_data_freeze/canonical/"
-    "cbp__gpt-4-1-mini__arc_challenge__cyclic_generation_majority/"
+    FREEZE_ROOT / "canonical" /
+    "cbp__gpt-4-1-mini__arc_challenge__cyclic_generation_majority" /
     "20260601_183346_cyclic_gpt-4.1-mini_arc_challenge.csv"
 )
 LOCAL_HISTORICAL_ARC = (
-    "/home/cotenthusiast/Projects/model-generalization/paper_data_freeze/canonical/"
-    "cbp__qwen-qwen2-5-7b-instruct__arc_challenge__cyclic_generation_majority/"
+    FREEZE_ROOT / "canonical" /
+    "cbp__qwen-qwen2-5-7b-instruct__arc_challenge__cyclic_generation_majority" /
     "20260529_145812_cyclic_Qwen_Qwen2.5-7B-Instruct_arc_challenge.csv"
+)
+
+requires_freeze = pytest.mark.skipif(
+    not (API_HISTORICAL_ARC.is_file() and LOCAL_HISTORICAL_ARC.is_file()),
+    reason="Frozen paper_data_freeze canonical CSVs not present at FLIP_RATE_TRACES_FREEZE_ROOT.",
+)
+requires_two_stage_prompting = pytest.mark.skipif(
+    not (TWO_STAGE_PROMPTING_REPO / "prompts" / "v1" / "direct_mcq.txt").is_file(),
+    reason="two-stage-prompting sibling repo not present (set TWO_STAGE_PROMPTING_REPO).",
+)
+requires_model_generalization_repo = pytest.mark.skipif(
+    not (MODEL_GENERALIZATION_REPO / ".git").exists(),
+    reason="model-generalization sibling repo not present (set MODEL_GENERALIZATION_REPO).",
 )
 
 
@@ -55,6 +80,7 @@ def _row(rows, qid):
 
 # --- Requirement 1/3: ordinary API prompt byte-identical, no trailing newline ---
 
+@requires_freeze
 def test_api_ordinary_prompt_byte_identical_to_historical():
     rows = _load(API_HISTORICAL_ARC)
     ordinary = [r for r in rows if r["question_id"] not in KNOWN_3OPTION_ARC_QUESTION_IDS][0]
@@ -66,6 +92,7 @@ def test_api_ordinary_prompt_byte_identical_to_historical():
 
 # --- Requirement 2/3: ordinary local prompt byte-identical, no trailing newline ---
 
+@requires_freeze
 def test_local_ordinary_prompt_byte_identical_to_historical():
     rows = _load(LOCAL_HISTORICAL_ARC)
     ordinary = [r for r in rows if r["question_id"] not in KNOWN_3OPTION_ARC_QUESTION_IDS][0]
@@ -77,6 +104,7 @@ def test_local_ordinary_prompt_byte_identical_to_historical():
 
 # --- Requirement 3 (broader sweep): no trailing newline across many real questions ---
 
+@requires_freeze
 @pytest.mark.parametrize("side", ["api", "local"])
 def test_no_trailing_newline_across_sample(side):
     path = API_HISTORICAL_ARC if side == "api" else LOCAL_HISTORICAL_ARC
@@ -92,6 +120,7 @@ def test_no_trailing_newline_across_sample(side):
 #     prompt only by removing the D line (API); local historical was already
 #     correct so the repaired prompt must equal it exactly ---
 
+@requires_freeze
 @pytest.mark.parametrize("qid", sorted(KNOWN_3OPTION_ARC_QUESTION_IDS))
 def test_api_repaired_prompt_differs_only_by_d_line_removal(qid):
     rows = _load(API_HISTORICAL_ARC)
@@ -108,6 +137,7 @@ def test_api_repaired_prompt_differs_only_by_d_line_removal(qid):
     assert "nan" not in rendered.lower()
 
 
+@requires_freeze
 @pytest.mark.parametrize("qid", sorted(KNOWN_3OPTION_ARC_QUESTION_IDS))
 def test_local_repaired_prompt_matches_historical_exactly(qid):
     rows = _load(LOCAL_HISTORICAL_ARC)
@@ -160,6 +190,7 @@ def test_generation_settings_match_historical():
     assert HISTORICAL_SEED == 42
 
 
+@requires_freeze
 def test_frozen_dataset_identity_and_size():
     for cell_id in [
         "cbp__gpt-4-1-mini__arc_challenge__cyclic_generation_majority",
@@ -174,6 +205,7 @@ def test_frozen_dataset_identity_and_size():
 
 # --- Requirement 6: PROTOCOL_DIFF.md prompt hashes are real and reproducible ---
 
+@requires_freeze
 def test_protocol_diff_doc_prompt_hashes_are_reproducible():
     rows = _load(API_HISTORICAL_ARC)
     ordinary = [r for r in rows if r["question_id"] not in KNOWN_3OPTION_ARC_QUESTION_IDS][0]
@@ -185,17 +217,17 @@ def test_protocol_diff_doc_prompt_hashes_are_reproducible():
     )
 
 
+@requires_two_stage_prompting
 def test_api_template_bytes_match_source_repo_exactly():
-    with open(
-        "/home/cotenthusiast/Projects/two-stage-prompting/prompts/v1/direct_mcq.txt", "rb"
-    ) as f:
+    with open(TWO_STAGE_PROMPTING_REPO / "prompts" / "v1" / "direct_mcq.txt", "rb") as f:
         assert f.read() == API_TEMPLATE.encode("utf-8")
 
 
+@requires_model_generalization_repo
 def test_local_template_bytes_match_source_repo_exactly():
     import subprocess
     content = subprocess.run(
-        ["git", "-C", "/home/cotenthusiast/Projects/model-generalization",
+        ["git", "-C", str(MODEL_GENERALIZATION_REPO),
          "show", "f306e6e^:prompts/v1/direct_mcq.txt"],
         capture_output=True, check=True,
     ).stdout
