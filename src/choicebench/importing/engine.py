@@ -63,6 +63,7 @@ from choicebench.importing.transaction import ImportTransaction
 from choicebench.importing.validation import (
     ImportValidationError,
     RealizationValidation,
+    _expected_choice_letters,
     normalize_realization_rows,
     prepare_realization_validation_artifact,
     validate_realization_validation_artifact,
@@ -262,8 +263,15 @@ def _build_realization_for_condition(
         )
     all_source_digests = tuple(sorted(set(all_source_digests)))
 
+    # Build the realization's row-level lineage/result-origin from the full
+    # published canonical row set when the cell is structurally complete (this
+    # is populated for evaluable AND for malformed-but-structurally-complete
+    # in-scope cells); for an evaluable cell published_rows == evaluable_rows,
+    # so this is a no-op there. A genuinely incomplete/out-of-scope cell has
+    # neither set and produces an empty (evidence-only) result origin.
+    rows_for_result = result.published_rows if result.published_rows else result.evaluable_rows
     lineage_components = []
-    for row in result.evaluable_rows:
+    for row in rows_for_result:
         qid = row["question_id"]
         raw_row = dict(validated.rows_by_question_id[qid].values)
         component = make_lineage_component(
@@ -550,7 +558,18 @@ def _write_staged_run(staged_run: Path, request: ImportRequest, plan: ImportPlan
     for realization_id, realization in plan.manifest["payload"]["realizations"].items():
         result = plan.realizations[realization_id]
         realization_state = state["realizations"][realization_id]
-        realization_state["status"] = "completed" if result.evaluable else "evidence_only"
+        # A structurally-complete, in-scope cell publishes its full canonical
+        # result CSV even when not evaluable ("published_unscored"): the rows
+        # are retained verbatim (some predictions may be unparseable) so an
+        # authorized overlay can later replace specific rows. A genuinely
+        # incomplete/out-of-scope cell stays evidence-only with no result CSV.
+        publishes_result = bool(result.published_rows)
+        if result.evaluable:
+            realization_state["status"] = "completed"
+        elif publishes_result:
+            realization_state["status"] = "published_unscored"
+        else:
+            realization_state["status"] = "evidence_only"
 
         prepared_validation = prepare_realization_validation_artifact(
             result, realization=realization, evidence_records=plan.evidence_records
@@ -558,7 +577,8 @@ def _write_staged_run(staged_run: Path, request: ImportRequest, plan: ImportPlan
         write_realization_validation_artifact(staged_run, prepared_validation)
         realization_state["validation_sha256"] = prepared_validation.file_sha256
 
-        if result.evaluable:
+        if publishes_result:
+            rows_for_result = result.published_rows if result.published_rows else result.evaluable_rows
             condition_id = realization["condition_id"]
             condition_record = plan.manifest["payload"]["semantic_conditions"][condition_id]
             benchmark = condition_record["identity"]["benchmark"]
@@ -584,7 +604,7 @@ def _write_staged_run(staged_run: Path, request: ImportRequest, plan: ImportPlan
                     **row,
                     "prediction_lineage_id": lineage_ids_by_qid[row["question_id"]],
                 }
-                for row in result.evaluable_rows
+                for row in rows_for_result
             ]
             prepared_result = prepare_manifest_result(
                 result_rows, manifest=plan.manifest, realization_id=realization_id
@@ -637,7 +657,10 @@ def verify_import_run(
         result_sha256 = None
         rows_by_question_id: dict[str, Any] = {}
         prediction_origins: dict[str, str] = {}
-        if status == "completed":
+        # Both a scored ("completed") and an unscored-but-structurally-complete
+        # ("published_unscored") realization publish a full result CSV; read
+        # the retained row set from either so an overlay can retain rows.
+        if status in ("completed", "published_unscored"):
             result_path = run_dir / f"results/{realization_id}.csv"
             metadata = validate_result_artifact(result_path, manifest=manifest, realization=realization)
             if (
@@ -679,20 +702,44 @@ def verify_import_run(
 
 # --- Overlay merge-into-new-run orchestration -------------------------------
 #
-# Scope boundary: requires an evaluable base realization (one with a
-# published result CSV to retain rows from). A non-evaluable base
-# (partial/malformed/recoverable/failed) has no per-row content stored
-# anywhere to retain -- verified directly against the real Stage 1 freeze
-# during development: its "recoverable" cells' rows are all individually
-# well-formed (parse_status=parse_ok, valid parsed_choice), so this
-# engine's own generic row validation genuinely computes "complete" for
-# them, and correctly refuses a declared "recoverable" status as a
-# declaration mismatch rather than silently trusting freeze-specific domain
-# knowledge (the freeze's own "option-hidden" qualification note) it cannot
-# independently verify. Extending non-evaluable bases to carry retained
-# per-row content would require validation.py to store full row content
-# for every realization (not just evaluable_rows) -- a real extension, not
-# attempted here.
+# Scope boundary: requires an *overlayable* base realization -- one that
+# published a full canonical result CSV whose row-identity is exactly the
+# expected complete question set (every ID present exactly once), with its
+# source hash verified by verify_import_run. Overlayability is a data-identity
+# property, distinct from evaluability (scoreability): a
+# malformed-but-structurally-complete base (all IDs present, but some rows
+# carry an unparseable prediction) is NOT evaluable yet IS overlayable -- it
+# has a full published row set ("published_unscored" status) from which the
+# non-authorized rows are retained verbatim while the authorized rows are
+# replaced. Only a genuinely broken base -- one with missing/duplicate/
+# unexpected rows or no published result at all (evidence-only) -- is refused,
+# with the same fail-closed behavior as before. The derived realization's
+# evidence_status is recomputed from the actual merged row content (it is NOT
+# forced to the overlay's declared status); the base's own freeze-declared
+# historical status remains represented separately (see below).
+
+def _recompute_overlay_evidence_status(
+    rows_by_qid: Mapping[str, Mapping[str, Any]], *, expected: ExpectedDataset, base_qualified: bool
+) -> str:
+    """Recompute the derived realization's evidence_status from the ACTUAL
+    merged row content, never forcing it to the overlay's declared status. Any
+    row whose predicted_option is empty or is not one of that question's option
+    letters keeps the derived cell 'malformed' (e.g. a repair that fixed its 3
+    authorized rows but left other unrelated parse-missing rows in place); a
+    fully-parseable merged set is 'complete', or 'qualified' when the base
+    itself was qualified. The merged set is always structurally complete here
+    (the overlayable gate guaranteed the base's full row-identity), so
+    'partial'/'failed' cannot arise."""
+    frame = expected.frame
+    for qid, row in rows_by_qid.items():
+        matches = frame[frame["question_id"].astype(str) == str(qid)]
+        letters = _expected_choice_letters(matches.iloc[0].to_dict()) if not matches.empty else []
+        pred = row.get("predicted_option")
+        pred = None if pred is None else str(pred).strip().upper()
+        if not pred or pred == "NAN" or pred not in letters:
+            return "malformed"
+    return "qualified" if base_qualified else "complete"
+
 
 @dataclass(frozen=True)
 class OverlayImportRequest:
@@ -725,10 +772,24 @@ def _merge_overlay_realization(
     base = verified.realizations.get(request.base_realization_id)
     if base is None:
         raise ImportEngineError(f"Unknown base realization {request.base_realization_id!r}.")
-    if base.result_sha256 is None:
+    # Overlayable gate: the base must have a published canonical row set whose
+    # question-ID identity is exactly the expected complete set. This is
+    # independent of the base's evidence_status -- a malformed base that is
+    # structurally complete IS overlayable; a base with no published result, or
+    # with missing/duplicate/unexpected rows, is refused fail-closed.
+    expected_ids = tuple(request.expected_dataset.selected_question_ids)
+    base_row_ids = list(base.rows_by_question_id)
+    if (
+        base.result_sha256 is None
+        or set(base_row_ids) != set(expected_ids)
+        or len(base_row_ids) != len(expected_ids)
+    ):
         raise ImportEngineError(
-            f"Realization {request.base_realization_id!r} has no published result to "
-            "retain rows from; only an evaluable base realization can be overlaid."
+            f"Realization {request.base_realization_id!r} is not overlayable: it lacks a "
+            "structurally complete published canonical row set (every expected question ID "
+            "present exactly once). A malformed-but-structurally-complete base is "
+            "overlayable, but an evidence-only base or one with missing/duplicate/unexpected "
+            "rows cannot be overlaid."
         )
 
     base_manifest = verified.manifest
@@ -809,6 +870,33 @@ def _merge_overlay_realization(
     derivation_origin = derived.lineage_components[0]["identity"]["operation_type"]
     result_origin = make_result_origin(derivation_origin=derivation_origin, row_assignments=row_assignments)
 
+    # Assemble the merged result rows now -- non-authorized base rows retained
+    # verbatim (numeric-tolerant, value-identical), authorized rows replaced --
+    # so the derived realization's evidence_status is recomputed from the
+    # ACTUAL merged content below instead of being forced to the overlay's
+    # declared status.
+    _ROW_KEYS = {
+        "question_id", "question_text", "correct_option", "choices_json",
+        "prediction_origin", "predicted_option",
+    }
+    retained_rows_by_qid = {
+        assignment["question_id"]: {
+            key: value
+            for key, value in base.rows_by_question_id[assignment["question_id"]].items()
+            if key in _ROW_KEYS
+        }
+        for assignment in retained_assignments
+    }
+    derived_rows_by_qid = {row["question_id"]: dict(row) for row in derived.preownership_rows}
+    rows_by_qid = {**retained_rows_by_qid, **derived_rows_by_qid}
+    result_rows = [
+        rows_by_qid[qid] for qid in request.expected_dataset.selected_question_ids if qid in rows_by_qid
+    ]
+    base_qualified = base_realization_identity["evidence"]["evidence_status"] == "qualified"
+    recomputed_evidence_status = _recompute_overlay_evidence_status(
+        rows_by_qid, expected=request.expected_dataset, base_qualified=base_qualified
+    )
+
     replacement_digest = integrity_digest(
         canonicalize({
             "replacement_question_ids": list(derived.replacement_question_ids),
@@ -863,7 +951,7 @@ def _merge_overlay_realization(
         "validation": base_realization_identity["validation"],
         "evidence": {
             **base_realization_identity["evidence"],
-            "evidence_status": request.overlay.expected_evidence_status,
+            "evidence_status": recomputed_evidence_status,
         },
         "lineage_components": all_lineage_components,
         "result_origin": result_origin,
@@ -886,24 +974,6 @@ def _merge_overlay_realization(
         semantic_condition=semantic_condition,
         lineage_runtime_callables={lid: _external_import_adapter for lid in retained_lineage_ids},
     )
-
-    _ROW_KEYS = {
-        "question_id", "question_text", "correct_option", "choices_json",
-        "prediction_origin", "predicted_option",
-    }
-    retained_rows_by_qid = {
-        assignment["question_id"]: {
-            key: value
-            for key, value in base.rows_by_question_id[assignment["question_id"]].items()
-            if key in _ROW_KEYS
-        }
-        for assignment in retained_assignments
-    }
-    derived_rows_by_qid = {row["question_id"]: dict(row) for row in derived.preownership_rows}
-    rows_by_qid = {**retained_rows_by_qid, **derived_rows_by_qid}
-    result_rows = [
-        rows_by_qid[qid] for qid in request.expected_dataset.selected_question_ids if qid in rows_by_qid
-    ]
 
     overlay_evidence_record = evidence_record(
         opened_overlay_source, references=sorted(derived.replacement_question_ids)
@@ -979,6 +1049,7 @@ def execute_overlay_import(request: OverlayImportRequest, *, dry_run: bool = Fal
             overlay_source=request.overlay_source,
             overlay_evidence_record=overlay_evidence_record,
             workspace_root=request.source_containment_root or request.workspace_root,
+            declared_evidence_status=request.overlay.expected_evidence_status,
         )
 
     with ImportTransaction(runs_dir=runs_dir, run_id=request.run_id) as txn:
@@ -1006,6 +1077,7 @@ def _write_overlay_staged_run(
     overlay_source: SourceArtifactSpec,
     overlay_evidence_record: Mapping[str, Any],
     workspace_root: Path,
+    declared_evidence_status: str,
 ) -> None:
     staged_run.mkdir(parents=True, exist_ok=True)
 
@@ -1019,7 +1091,16 @@ def _write_overlay_staged_run(
 
     realization_id = realization["realization_id"]
     state = initial_run_state_v3(manifest)
-    state["realizations"][realization_id]["status"] = "completed"
+    evidence = realization["identity"]["realization"]["evidence"]
+    recomputed_status = evidence["evidence_status"]
+    evaluable = recomputed_status in ("complete", "qualified") and evidence["scope_disposition"] == "included"
+    # A derived overlay run always publishes a full canonical result CSV; its
+    # run status reflects the RECOMPUTED evidence_status ("completed" when the
+    # merged content is evaluable, else "published_unscored"). The overlay's
+    # declared/intended historical status is preserved separately here so it is
+    # never conflated with the observed evidence_status.
+    state["realizations"][realization_id]["status"] = "completed" if evaluable else "published_unscored"
+    state["realizations"][realization_id]["declared_evidence_status"] = declared_evidence_status
 
     condition_id = realization["condition_id"]
     condition_record = manifest["payload"]["semantic_conditions"][condition_id]
@@ -1050,16 +1131,17 @@ def _write_overlay_staged_run(
     state["realizations"][realization_id]["result_artifact_digest"] = published_metadata["result_artifact_digest"]
     state["realizations"][realization_id]["result_sha256"] = published_metadata["file_sha256"]
 
-    evidence_status = realization["identity"]["realization"]["evidence"]["evidence_status"]
     merged_validation = RealizationValidation(
-        evaluable_rows=tuple(result_rows),
+        evaluable_rows=tuple(result_rows) if evaluable else (),
         findings=(),
         validation_digest=integrity_digest({"evaluable_rows": canonicalize(result_rows)}),
-        computed_evidence_status=evidence_status,
-        evaluable=True,
+        computed_evidence_status=recomputed_status,
+        evaluable=evaluable,
         qualifications=(),
         limitations=(),
         defect_question_ids=(),
+        published_rows=tuple(result_rows),
+        structurally_complete=True,
     )
     prepared_validation = prepare_realization_validation_artifact(
         merged_validation, realization=realization, evidence_records=()
