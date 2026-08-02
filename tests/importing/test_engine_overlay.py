@@ -30,7 +30,10 @@ from choicebench.importing.schema import (
     ResultOriginSpec,
     SourceArtifactSpec,
 )
-from tests.importing.test_engine import _spec
+import yaml
+
+from choicebench.importing.schema import load_import_spec
+from tests.importing.test_engine import _raw_spec, _spec
 
 _AUTH_CSV = b"authorization,payload\n1,2\n"
 _OVERLAY_CSV = "qid,predicted_letter\nq1,B\n"
@@ -553,4 +556,150 @@ def test_execute_overlay_import_refuses_a_forged_authorization_source(tmp_path):
     report = execute_overlay_import(request, dry_run=False)
     assert report.import_state == "failed"
     assert report.wrote_artifacts is False
+
+
+# --- Overlayable-vs-evaluable regression tests -------------------------------
+#
+# Regression coverage for the fix distinguishing "overlayable" (a base with a
+# full published row set of exactly the expected question-ID identity) from
+# "evaluable" (that content currently scores cleanly). A malformed-but-
+# structurally-complete base -- e.g. one unrelated row with an unparseable
+# prediction, having nothing to do with the overlay's 3 authorized IDs -- must
+# still accept an authorized overlay; a structurally incomplete base (missing
+# question IDs) must still be refused.
+
+_MALFORMED_BUT_COMPLETE_RESULTS_CSV = (
+    "qid,question,choice_a,choice_b,answer,gold,score\n"
+    "q1,One?,x,y,a,a,0.9\n"
+    "q2,Two?,m,n,b,b,0.7\n"
+    "q3,Three?,p,q,,a,0.5\n"  # blank answer -> parse-missing, unrelated to the q1 overlay target
+)
+
+
+def _spec_with_declared_evidence_status(tmp_path: Path, *, evidence_status: str, **kwargs):
+    """Like test_engine.py's `_spec`, but overrides the condition's declared
+    `evidence_status` -- needed because strict=True requires the declared
+    status to match the COMPUTED one (`build_import_plan` fails closed on a
+    mismatch), and the default fixture always declares 'complete'."""
+    raw = _raw_spec(tmp_path, **kwargs)
+    raw["conditions"][0]["evidence_status"] = evidence_status
+    spec_path = tmp_path / "import.yaml"
+    spec_path.write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
+    return load_import_spec(spec_path)
+
+
+def _malformed_but_complete_base_run(tmp_path: Path):
+    spec = _spec_with_declared_evidence_status(
+        tmp_path, evidence_status="malformed",
+        results_csv=_MALFORMED_BUT_COMPLETE_RESULTS_CSV, question_ids=("q1", "q2", "q3"),
+    )
+    request = ImportRequest(spec=spec, run_id="base-run", workspace_root=tmp_path, strict=True)
+    report = execute_import(request, dry_run=False)
+    assert report.import_state == "imported", report.failures
+    base_run_dir = tmp_path / "runs" / "base-run"
+    verified = verify_import_run(base_run_dir)
+    (base,) = verified.realizations.values()
+    return base_run_dir, base, verified
+
+
+def test_malformed_but_structurally_complete_base_is_not_evaluable_but_is_overlayable(tmp_path):
+    base_run_dir, base, verified = _malformed_but_complete_base_run(tmp_path)
+    # structurally complete: all 3 expected IDs present exactly once, source
+    # hash verified (verify_import_run already re-verified this to build `base`).
+    assert set(base.rows_by_question_id) == {"q1", "q2", "q3"}
+    assert base.result_sha256 is not None
+    realization_id = base.realization_id
+    evidence = verified.manifest["payload"]["realizations"][realization_id]["identity"]["realization"]["evidence"]
+    # not evaluable: q3's blank answer makes this base malformed, not scoreable.
+    assert evidence["evidence_status"] == "malformed"
+
+
+def test_execute_overlay_import_accepts_a_malformed_but_structurally_complete_base(tmp_path):
+    base_run_dir, base, _ = _malformed_but_complete_base_run(tmp_path)
+    auth_source = _authorization_source(tmp_path)
+    authorization = _authorization(base=base, authorization_type="inference_repair", executable=True)
+    overlay_source = _overlay_source(tmp_path)  # replaces q1 -> "B"
+    overlay = _overlay_spec(base=base, authorization=authorization)
+    expected_dataset = _base_expected_dataset(
+        tmp_path, results_csv=_MALFORMED_BUT_COMPLETE_RESULTS_CSV, question_ids=("q1", "q2", "q3"),
+    )
+    request = OverlayImportRequest(
+        base_run_dir=base_run_dir,
+        base_realization_id=base.realization_id,
+        authorization=authorization,
+        authorization_source=auth_source,
+        overlay=overlay,
+        overlay_source=overlay_source,
+        overlay_mapping={"question_id": "qid", "prediction": "predicted_letter"},
+        condition_digests={"cond_key": base.condition_digest},
+        expected_dataset=expected_dataset,
+        run_id="overlay-run",
+        workspace_root=tmp_path,
+    )
+
+    # previously this raised "has no published result to retain rows from;
+    # only an evaluable base realization can be overlaid" -- now it succeeds,
+    # because the base is overlayable (structurally complete) even though it
+    # is not evaluable (malformed).
+    report = execute_overlay_import(request, dry_run=False)
+    assert report.import_state == "imported", report.failures
+
+    overlay_run_dir = tmp_path / "runs" / "overlay-run"
+    verified = verify_import_run(overlay_run_dir)
+    (derived,) = verified.realizations.values()
+
+    # authorized row replaced.
+    assert derived.rows_by_question_id["q1"]["predicted_option"] == "B"
+    # unrelated rows retained byte/value-identical -- q2's original prediction
+    # unchanged, and q3's unparseable (blank) prediction is NOT repaired,
+    # filtered, or reinterpreted by the overlay.
+    assert derived.rows_by_question_id["q2"]["predicted_option"] == base.rows_by_question_id["q2"]["predicted_option"]
+    q3_predicted = derived.rows_by_question_id["q3"]["predicted_option"]
+    assert q3_predicted is None or str(q3_predicted).strip() == "" or str(q3_predicted).lower() == "nan"
+
+    # evidence_status is RECOMPUTED from the actual merged content, not
+    # forced to the overlay's declared "complete" -- q3 is still unparseable,
+    # so the derived realization is still malformed.
+    realization_id = derived.realization_id
+    evidence = verified.manifest["payload"]["realizations"][realization_id]["identity"]["realization"]["evidence"]
+    assert evidence["evidence_status"] == "malformed"
+    # the overlay's own declared/intended historical status is preserved
+    # separately, never conflated with the recomputed observed status.
+    state = json_load_run_state(overlay_run_dir)
+    assert state["realizations"][realization_id]["declared_evidence_status"] == "complete"
+    assert state["realizations"][realization_id]["status"] == "published_unscored"
+
+    # idempotent on repeat, same as the evaluable-base overlay path.
+    second = execute_overlay_import(request, dry_run=False)
+    assert second.idempotent_noop is True
+    assert second.wrote_artifacts is False
+
+
+def json_load_run_state(run_dir: Path) -> dict:
+    return json.loads((run_dir / "run_state.json").read_text())
+
+
+def test_execute_overlay_import_rejects_a_structurally_incomplete_base(tmp_path):
+    # only 2 of the 3 expected question IDs actually appear in the results
+    # file -- a genuinely broken base, distinct from "malformed but complete".
+    incomplete_csv = (
+        "qid,question,choice_a,choice_b,answer,gold,score\n"
+        "q1,One?,x,y,a,a,0.9\n"
+        "q2,Two?,m,n,b,b,0.7\n"
+    )
+    spec = _spec_with_declared_evidence_status(
+        tmp_path, evidence_status="malformed", results_csv=incomplete_csv,
+        question_ids=("q1", "q2", "q3"),
+    )
+    request = ImportRequest(spec=spec, run_id="base-run", workspace_root=tmp_path, strict=True)
+    # the generic engine already refuses an incomplete base at base-import
+    # time under strict=True (missing expected rows -> declared-vs-computed
+    # evidence-status mismatch, or an outright validation failure) -- meaning
+    # such a base can never even reach the overlay path in the first place,
+    # which is itself the "structurally incomplete base is rejected"
+    # guarantee the overlayable gate depends on.
+    report = execute_import(request, dry_run=False)
+    assert report.import_state == "failed"
+    assert report.wrote_artifacts is False
+    assert not (tmp_path / "runs" / "base-run").exists()
     assert not (tmp_path / "runs" / "overlay-run").exists()
