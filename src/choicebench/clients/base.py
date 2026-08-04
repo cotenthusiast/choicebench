@@ -34,9 +34,9 @@ _BACKOFF_CAP = 300.0
 class BaseClient(ABC):
     """Abstract base client for provider-backed model calls.
 
-    Handles request validation, bounded concurrency, per-call minimum delay,
-    and exponential-backoff retry on transient errors. Concrete subclasses
-    implement only the provider-specific raw call.
+    Handles request validation, bounded concurrency, and exponential-backoff
+    retry on transient errors. Concrete subclasses implement only the
+    provider-specific raw call.
     """
 
     def __init__(
@@ -46,7 +46,6 @@ class BaseClient(ABC):
         timeout: int = TIMEOUT,
         concurrency_limit: int = 10,
         max_retries: int = MAX_RETRIES,
-        min_delay_seconds: float = 0.0,
     ) -> None:
         """Initialize shared client configuration.
 
@@ -56,9 +55,6 @@ class BaseClient(ABC):
             timeout:             Per-request timeout in seconds.
             concurrency_limit:   Max in-flight requests at once.
             max_retries:         Retry attempts on transient errors.
-            min_delay_seconds:   Minimum gap between consecutive calls to
-                                 this model. Proactively spaces requests to
-                                 stay under per-minute rate limits.
         """
         if isinstance(timeout, bool) or not isinstance(timeout, Real) or not math.isfinite(float(timeout)) or timeout <= 0:
             raise ValueError("timeout must be a finite positive number.")
@@ -66,33 +62,13 @@ class BaseClient(ABC):
             raise ValueError("concurrency_limit must be a positive integer.")
         if isinstance(max_retries, bool) or not isinstance(max_retries, int) or max_retries < 0:
             raise ValueError("max_retries must be a non-negative integer.")
-        if isinstance(min_delay_seconds, bool) or not isinstance(min_delay_seconds, Real) or not math.isfinite(float(min_delay_seconds)) or min_delay_seconds < 0:
-            raise ValueError("min_delay_seconds must be a finite non-negative number.")
         self.provider = provider
         self.model_name = model_name
         self.timeout = timeout
         self.concurrency_limit = concurrency_limit
         self.max_retries = max_retries
-        self.min_delay_seconds = min_delay_seconds
 
         self.semaphore = asyncio.Semaphore(concurrency_limit)
-        self._delay_lock = asyncio.Lock()
-        self._last_call_time: float = 0.0
-
-    async def _enforce_min_delay(self) -> None:
-        """Sleep if necessary to maintain the configured minimum call gap.
-
-        Uses a lock so that concurrent coroutines are serialized through
-        the spacing check, ensuring at most 1/min_delay_seconds calls/sec.
-        """
-        if self.min_delay_seconds <= 0.0:
-            return
-        async with self._delay_lock:
-            now = asyncio.get_event_loop().time()
-            wait = self.min_delay_seconds - (now - self._last_call_time)
-            if wait > 0:
-                await asyncio.sleep(wait)
-            self._last_call_time = asyncio.get_event_loop().time()
 
     async def generate(self, request: ModelRequest) -> ModelResponse:
         """Execute one standardized model request with retry and backoff.
@@ -137,7 +113,6 @@ class BaseClient(ABC):
                 await asyncio.sleep(delay)
 
             try:
-                await self._enforce_min_delay()
                 async with self.semaphore:
                     response = await self._generate_provider_response(request)
 

@@ -27,7 +27,6 @@ class GeminiClient(BaseClient):
         timeout: int = TIMEOUT,
         concurrency_limit: int = 10,
         max_retries: int = MAX_RETRIES,
-        min_delay_seconds: float = 0.0,
         api_key: str | None = None,
     ) -> None:
         super().__init__(
@@ -36,7 +35,6 @@ class GeminiClient(BaseClient):
             timeout=timeout,
             concurrency_limit=concurrency_limit,
             max_retries=max_retries,
-            min_delay_seconds=min_delay_seconds,
         )
         from choicebench.config.providers import GEMINI_API_KEY
         self.client = genai.Client(api_key=api_key or GEMINI_API_KEY)

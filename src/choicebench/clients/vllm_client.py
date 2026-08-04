@@ -47,7 +47,6 @@ class VLLMClient(BaseClient):
         timeout: int = TIMEOUT,
         concurrency_limit: int = 10,
         max_retries: int = MAX_RETRIES,
-        min_delay_seconds: float = 0.0,
     ) -> None:
         super().__init__(
             provider="vllm",
@@ -55,7 +54,6 @@ class VLLMClient(BaseClient):
             timeout=timeout,
             concurrency_limit=concurrency_limit,
             max_retries=max_retries,
-            min_delay_seconds=min_delay_seconds,
         )
         self._api_key = os.getenv("VLLM_API_KEY", _DEFAULT_API_KEY)
         self._base_url = base_url
