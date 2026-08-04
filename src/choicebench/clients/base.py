@@ -31,6 +31,16 @@ _BACKOFF_BASE = 5.0
 _BACKOFF_CAP = 300.0
 
 
+async def gather_generate(requests: list[ModelRequest], generate_fn) -> list[ModelResponse]:
+    """Run generate_fn concurrently over every request, preserving order.
+
+    Shared by BaseClient.generate_batch and CachingClientWrapper.generate_batch
+    (the latter isn't a BaseClient subclass, so it can't inherit the method
+    directly).
+    """
+    return list(await asyncio.gather(*[generate_fn(r) for r in requests]))
+
+
 def map_api_status_error(exc) -> Exception:
     """Map an OpenAI/Groq-shaped APIStatusError to our exception taxonomy.
 
@@ -190,8 +200,7 @@ class BaseClient(ABC):
         Returns:
             List of standardized model responses, one per input request.
         """
-        coroutines = [self.generate(request) for request in requests]
-        return list(await asyncio.gather(*coroutines))
+        return await gather_generate(requests, self.generate)
 
     @abstractmethod
     async def _generate_provider_response(
