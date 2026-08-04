@@ -173,6 +173,34 @@ class HuggingFaceBackend(BaseBackend):
         generated_ids = outputs[0][prompt_len:]
         return self._tokenizer.decode(generated_ids, skip_special_tokens=True)
 
+    def _encode_single_token_options(self, options: list[str]) -> dict[str, int]:
+        """Encode each option label, raising ValueError if any isn't single-token.
+
+        Design decision: single-token constraint is intentional.
+        score_options() scores option labels (A, B, C, D), not option text.
+        Multi-token options would require summing log-probs over variable-length
+        sequences, making scores incomparable across options of different lengths.
+        If you need to score full option text, implement a separate method in your
+        method class — do not extend score_options() to handle it.
+        """
+        option_token_ids: dict[str, int] = {}
+        for opt in options:
+            ids = self._tokenizer.encode(opt, add_special_tokens=False)
+            if len(ids) != 1:
+                raise ValueError(
+                    f"score_options() cannot score option label {opt!r}: it encodes "
+                    f"to {len(ids)} tokens in {self._model_path}'s tokenizer, but "
+                    f"scoring requires each option label to be exactly one token "
+                    f"(so per-letter log-probs are comparable). Most tokenizers emit "
+                    f"a single token for a bare 'A'–'D' only after a leading space; "
+                    f"check whether this tokenizer needs the space-prefixed form "
+                    f"(e.g. ' {opt}' instead of {opt!r}). This is a hard constraint of "
+                    f"label scoring, not a transient error — pride / cyclic_logprob "
+                    f"cannot run on this model until option labels are single-token."
+                )
+            option_token_ids[opt] = ids[0]
+        return option_token_ids
+
     def score_options(self, prompt: str, options: list[str], **kwargs) -> list[float]:
         """
         Return log-probabilities for each option label token.
@@ -201,28 +229,7 @@ class HuggingFaceBackend(BaseBackend):
         if not options:
             raise ValueError("options must not be empty.")
 
-        # Design decision: single-token constraint is intentional.
-        # score_options() scores option labels (A, B, C, D), not option text.
-        # Multi-token options would require summing log-probs over variable-length
-        # sequences, making scores incomparable across options of different lengths.
-        # If you need to score full option text, implement a separate method in your
-        # method class — do not extend score_options() to handle it.
-        option_token_ids: dict[str, int] = {}
-        for opt in options:
-            ids = self._tokenizer.encode(opt, add_special_tokens=False)
-            if len(ids) != 1:
-                raise ValueError(
-                    f"score_options() cannot score option label {opt!r}: it encodes "
-                    f"to {len(ids)} tokens in {self._model_path}'s tokenizer, but "
-                    f"scoring requires each option label to be exactly one token "
-                    f"(so per-letter log-probs are comparable). Most tokenizers emit "
-                    f"a single token for a bare 'A'–'D' only after a leading space; "
-                    f"check whether this tokenizer needs the space-prefixed form "
-                    f"(e.g. ' {opt}' instead of {opt!r}). This is a hard constraint of "
-                    f"label scoring, not a transient error — pride / cyclic_logprob "
-                    f"cannot run on this model until option labels are single-token."
-                )
-            option_token_ids[opt] = ids[0]
+        option_token_ids = self._encode_single_token_options(options)
 
         inputs = self._tokenizer(
             prompt, return_tensors="pt", add_special_tokens=self._add_bos_token
