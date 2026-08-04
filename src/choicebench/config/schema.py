@@ -497,8 +497,8 @@ def model_supports_logprobs(model: ModelConfig) -> bool:
     return bool(probe.supports_logprobs)
 
 
-def _validate_cross_field(config: ExperimentConfig) -> None:
-    """Rules that span more than one section — can't be checked per-field."""
+def _validate_logprob_compatibility(config: ExperimentConfig) -> None:
+    """Every (method, model) pair requiring logprobs must have a capable backend."""
     for m in config.methods:
         for model in config.models:
             if m.requires_logprobs and not model_supports_logprobs(model):
@@ -511,6 +511,10 @@ def _validate_cross_field(config: ExperimentConfig) -> None:
                     f"(including vLLM) are generate-only. "
                     f"Either drop this method or switch backends."
                 )
+
+
+def _validate_no_duplicate_benchmarks(config: ExperimentConfig) -> None:
+    """No two benchmark entries may resolve to the same output CSV key."""
     seen_benchmark_keys: set[str] = set()
     for bench in config.benchmarks:
         # Key on the *resolved written label* (what actually lands in the CSV
@@ -525,6 +529,12 @@ def _validate_cross_field(config: ExperimentConfig) -> None:
                 f"Set output_name on one of them to disambiguate."
             )
         seen_benchmark_keys.add(key)
+
+
+def _validate_cross_field(config: ExperimentConfig) -> None:
+    """Rules that span more than one section — can't be checked per-field."""
+    _validate_logprob_compatibility(config)
+    _validate_no_duplicate_benchmarks(config)
 
 
 def canonical_benchmark_key(bench: BenchmarkConfig) -> tuple:
