@@ -45,22 +45,10 @@ class AnthropicClient(BaseClient):
             max_retries=0,
         )
 
-    async def _generate_provider_response(
-        self,
-        request: ModelRequest,
-    ) -> ModelResponse:
-        create_kwargs: dict[str, object] = {
-            "model": request.model_name,
-            "messages": [{"role": "user", "content": request.payload}],
-            # max_tokens is required by the Anthropic API; fall back to MAX_TOKENS
-            # if the request doesn't specify one.
-            "max_tokens": request.max_tokens if request.max_tokens is not None else MAX_TOKENS,
-        }
-        if request.temperature is not None:
-            create_kwargs["temperature"] = request.temperature
-
+    async def _call_anthropic(self, create_kwargs: dict[str, object]):
+        """Make the Anthropic SDK call, remapping SDK exceptions to our taxonomy."""
         try:
-            response = await self.client.messages.create(**create_kwargs)
+            return await self.client.messages.create(**create_kwargs)
         except anthropic.APITimeoutError as exc:
             raise ProviderTimeoutError(str(exc)) from exc
         except anthropic.APIConnectionError as exc:
@@ -76,6 +64,9 @@ class AnthropicClient(BaseClient):
 
             raise ProviderCallError(message) from exc
 
+    @staticmethod
+    def _extract_response(response) -> tuple[str, str | None, UsageInfo | None]:
+        """Parse an Anthropic Messages response into (raw_text, finish_reason, usage)."""
         content = getattr(response, "content", None)
         raw_text = None
         if content:
@@ -97,6 +88,25 @@ class AnthropicClient(BaseClient):
                 completion_tokens=completion_tokens or 0,
                 total_tokens=(prompt_tokens or 0) + (completion_tokens or 0),
             )
+
+        return raw_text, finish_reason, usage
+
+    async def _generate_provider_response(
+        self,
+        request: ModelRequest,
+    ) -> ModelResponse:
+        create_kwargs: dict[str, object] = {
+            "model": request.model_name,
+            "messages": [{"role": "user", "content": request.payload}],
+            # max_tokens is required by the Anthropic API; fall back to MAX_TOKENS
+            # if the request doesn't specify one.
+            "max_tokens": request.max_tokens if request.max_tokens is not None else MAX_TOKENS,
+        }
+        if request.temperature is not None:
+            create_kwargs["temperature"] = request.temperature
+
+        response = await self._call_anthropic(create_kwargs)
+        raw_text, finish_reason, usage = self._extract_response(response)
 
         return ModelResponse(
             provider=request.provider,
