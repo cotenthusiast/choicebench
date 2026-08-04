@@ -20,7 +20,10 @@ import collections
 from typing import Any, Sequence
 
 from choicebench.parsing.types import ParseResult, PARSE_OK, PARSE_MISSING
-from choicebench.pipeline.prompt_builder import build_direct_mcq_prompt
+from choicebench.pipeline.prompt_builder import (
+    build_permuted_prompt,
+    generate_permutations,
+)
 from choicebench.methods.base import ExperimentRunner
 
 
@@ -187,24 +190,12 @@ class PermutationRunner(ExperimentRunner):
     def _generate_permutations(
             options: dict[str, str],
     ) -> list[dict[str, str]]:
-        """Generate cyclic permutations of the canonical option ordering.
+        """Thin delegate to pipeline.prompt_builder.generate_permutations().
 
-        Each permutation maps canonical letters (A, B, C, D) to cyclically
-        shifted answer texts. The number of permutations equals the number
-        of options.
-
-        Args:
-            options: Canonical letter-to-text mapping.
-
-        Returns:
-            List of permuted option mappings.
+        Kept as a staticmethod here since CyclicLogprobRunner and PriDeRunner
+        call it as PermutationRunner._generate_permutations(...).
         """
-        keys = list(options.keys())
-        values = list(options.values())
-        return [
-            dict(zip(keys, values[i:] + values[:i]))
-            for i in range(len(options))
-        ]
+        return generate_permutations(options)
 
     @staticmethod
     def _build_permuted_prompt(
@@ -212,22 +203,8 @@ class PermutationRunner(ExperimentRunner):
             permuted_options: dict[str, str],
             template: str,
     ) -> str:
-        """Build a direct MCQ prompt using a permuted option ordering.
-
-        Args:
-            question_row: Normalized question record.
-            permuted_options: Permuted letter-to-text mapping.
-            template: Raw direct_mcq template string.
-
-        Returns:
-            Fully formatted prompt string with permuted options.
-        """
-        return build_direct_mcq_prompt(
-            template=template,
-            question=question_row["question_text"],
-            options=permuted_options,
-            subject=question_row["subject"],
-        )
+        """Thin delegate to pipeline.prompt_builder.build_permuted_prompt()."""
+        return build_permuted_prompt(question_row, permuted_options, template)
 
     @staticmethod
     def _unpermute_choice(
