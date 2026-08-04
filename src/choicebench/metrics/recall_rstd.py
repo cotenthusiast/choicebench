@@ -3,23 +3,7 @@
 import numpy as np
 import pandas as pd
 
-from choicebench.metrics.base import BaseMetric
-
-
-def _label_set(results_df: pd.DataFrame) -> list[str]:
-    """Option labels present in a results frame (union of gold and predicted).
-
-    Mirrors mad.py's helper of the same name: the label space is derived from
-    the data rather than a fixed A-D set, so 5+ option benchmarks are scored
-    over their full label space.
-    """
-    labels: set[str] = set()
-    for col in ("correct_option", "parsed_choice"):
-        if col in results_df.columns:
-            for v in results_df[col].dropna():
-                if isinstance(v, str) and v:
-                    labels.add(v)
-    return sorted(labels)
+from choicebench.metrics.base import BaseMetric, _label_set
 
 
 class RecallRStd(BaseMetric):
