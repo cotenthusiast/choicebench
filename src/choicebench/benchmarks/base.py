@@ -14,8 +14,6 @@ def make_normalized_row(
     question_text: str,
     choices: Sequence[str],
     correct_index: int,
-    *,
-    source_indices: Sequence[int] | None = None,
 ) -> dict[str, Any]:
     """Assemble one normalized row in the variable-choice schema.
 
@@ -33,8 +31,6 @@ def make_normalized_row(
         question_text: The question stem.
         choices: Ordered option texts (canonical render order).
         correct_index: 0-based index into ``choices`` of the correct option.
-        source_indices: Original source positions per choice; defaults to
-            0..len(choices)-1 when the source order is already canonical.
 
     Returns:
         A dict with the normalized schema columns.
@@ -47,8 +43,7 @@ def make_normalized_row(
             f"correct_index={correct_index} is out of range for {n} choices."
         )
     labels = letters_for(n)
-    if source_indices is None:
-        source_indices = list(range(n))
+    source_indices = list(range(n))
 
     choice_records = [
         {"label": labels[i], "text": str(choices[i]), "source_index": int(source_indices[i])}
