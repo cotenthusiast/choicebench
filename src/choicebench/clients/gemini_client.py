@@ -39,12 +39,10 @@ class GeminiClient(BaseClient):
         from choicebench.config.providers import GEMINI_API_KEY
         self.client = genai.Client(api_key=api_key or GEMINI_API_KEY)
 
-    async def _generate_provider_response(
-        self,
-        request: ModelRequest,
-    ) -> ModelResponse:
+    async def _call_gemini(self, request: ModelRequest):
+        """Make the Gemini SDK call, remapping SDK exceptions to our taxonomy."""
         try:
-            response = await self.client.aio.models.generate_content(
+            return await self.client.aio.models.generate_content(
                 model=request.model_name,
                 contents=request.payload,
                 config=types.GenerateContentConfig(
@@ -66,6 +64,9 @@ class GeminiClient(BaseClient):
 
             raise ProviderCallError(message) from exc
 
+    @staticmethod
+    def _extract_response(response) -> tuple[str, str | None, UsageInfo | None]:
+        """Parse a Gemini generate_content response into (raw_text, finish_reason, usage)."""
         raw_text = getattr(response, "text", None)
         if raw_text is None or raw_text.strip() == "":
             raise ProviderResponseError("client response is empty")
@@ -109,6 +110,15 @@ class GeminiClient(BaseClient):
                     else (prompt_tokens or 0) + (completion_tokens or 0)
                 ),
             )
+
+        return raw_text, finish_reason, usage
+
+    async def _generate_provider_response(
+        self,
+        request: ModelRequest,
+    ) -> ModelResponse:
+        response = await self._call_gemini(request)
+        raw_text, finish_reason, usage = self._extract_response(response)
 
         return ModelResponse(
             provider=request.provider,
