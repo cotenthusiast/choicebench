@@ -344,6 +344,49 @@ def benchmark_write_label(config: BenchmarkConfig) -> str:
     return config.name
 
 
+def _reject_reserved_params(params: dict, where: str) -> None:
+    """Refuse orchestrator-owned runtime field(s) inside a method's params.
+
+    Orchestrator-collision prevention: these keys are injected by the runner
+    at execution time and must not be set by the user's config.
+    """
+    reserved = sorted(set(params) & {
+        "calibration_identity", "calibration_questions", "calibration_runs_dir",
+        "condition_id", "gate_summary", "modal_k", "preflight_questions",
+    })
+    if reserved:
+        raise ConfigError(
+            f"{where}.params contains orchestrator-owned runtime field(s) {reserved}; remove them."
+        )
+
+
+def _reject_credential_params(params: dict, where: str) -> None:
+    """Refuse credential-named field(s) inside a method's params.
+
+    Security refusal, distinct from _reject_reserved_params: ChoiceBench
+    reads credentials from environment variables, never scientific config.
+    """
+    credentials = sorted(_credential_keys_in(params))
+    if credentials:
+        raise ConfigError(
+            f"{where}.params contains credential-named field(s) {credentials}. "
+            "ChoiceBench reads credentials from environment variables and refuses "
+            "them in scientific configuration; rename the parameter if it is "
+            "ordinary method configuration."
+        )
+
+
+def _validate_method_specific_params(name: str, params: dict, where: str) -> None:
+    """Method-name-specific business rules for individual method plugins' params."""
+    if name == "pride":
+        if "calibration_n" in params:
+            _strict_int(params["calibration_n"], f"{where}.params.calibration_n", minimum=0)
+        if "calibration_seed" in params:
+            _strict_int(params["calibration_seed"], f"{where}.params.calibration_seed", minimum=0)
+    if name == "two_stage" and "fallback_on_parse_failure" in params:
+        _strict_bool(params["fallback_on_parse_failure"], f"{where}.params.fallback_on_parse_failure")
+
+
 def _build_methods(raw: list | None) -> list[MethodConfig]:
     if not raw:
         raise ConfigError("methods must be a non-empty list of {name, ...} entries.")
@@ -358,22 +401,8 @@ def _build_methods(raw: list | None) -> list[MethodConfig]:
             params = {}
         if not isinstance(params, dict):
             raise ConfigError(f"{where}.params must be a YAML mapping; got {params!r}.")
-        reserved = sorted(set(params) & {
-            "calibration_identity", "calibration_questions", "calibration_runs_dir",
-            "condition_id", "gate_summary", "modal_k", "preflight_questions",
-        })
-        if reserved:
-            raise ConfigError(
-                f"{where}.params contains orchestrator-owned runtime field(s) {reserved}; remove them."
-            )
-        credentials = sorted(_credential_keys_in(params))
-        if credentials:
-            raise ConfigError(
-                f"{where}.params contains credential-named field(s) {credentials}. "
-                "ChoiceBench reads credentials from environment variables and refuses "
-                "them in scientific configuration; rename the parameter if it is "
-                "ordinary method configuration."
-            )
+        _reject_reserved_params(params, where)
+        _reject_credential_params(params, where)
         preflight_raw = entry.get("preflight")
         preflight: PreflightConfig | None = None
         _reject_unknown(entry, {"name", "requires_logprobs", "params", "preflight"}, where)
@@ -388,13 +417,7 @@ def _build_methods(raw: list | None) -> list[MethodConfig]:
                 split=_nonempty(preflight_raw.get("split", "validation"), f"{where}.preflight.split"),
                 n=_strict_int(preflight_raw.get("n", 100), f"{where}.preflight.n", minimum=1),
             )
-        if name == "pride":
-            if "calibration_n" in params:
-                _strict_int(params["calibration_n"], f"{where}.params.calibration_n", minimum=0)
-            if "calibration_seed" in params:
-                _strict_int(params["calibration_seed"], f"{where}.params.calibration_seed", minimum=0)
-        if name == "two_stage" and "fallback_on_parse_failure" in params:
-            _strict_bool(params["fallback_on_parse_failure"], f"{where}.params.fallback_on_parse_failure")
+        _validate_method_specific_params(name, params, where)
         methods.append(
             MethodConfig(
                 name=name,
