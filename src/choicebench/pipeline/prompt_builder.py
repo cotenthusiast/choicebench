@@ -1,6 +1,7 @@
 # src/choicebench/pipeline/prompt_builder.py
 
 from pathlib import Path
+from typing import Any
 
 from choicebench.config.paths import PROMPTS_DIR
 from choicebench.identity import integrity_digest, short_id
@@ -129,4 +130,48 @@ def build_option_matching_prompt(
         question=question,
         free_text=free_text,
         options=_build_options_block(options),
+    )
+
+
+def generate_permutations(options: dict[str, str]) -> list[dict[str, str]]:
+    """Generate cyclic permutations of the canonical option ordering.
+
+    Each permutation maps canonical letters (A, B, C, D) to cyclically
+    shifted answer texts. The number of permutations equals the number
+    of options.
+
+    Args:
+        options: Canonical letter-to-text mapping.
+
+    Returns:
+        List of permuted option mappings.
+    """
+    keys = list(options.keys())
+    values = list(options.values())
+    return [
+        dict(zip(keys, values[i:] + values[:i]))
+        for i in range(len(options))
+    ]
+
+
+def build_permuted_prompt(
+    question_row: Any,
+    permuted_options: dict[str, str],
+    template: str,
+) -> str:
+    """Build a direct MCQ prompt using a permuted option ordering.
+
+    Args:
+        question_row: Normalized question record.
+        permuted_options: Permuted letter-to-text mapping.
+        template: Raw direct_mcq template string.
+
+    Returns:
+        Fully formatted prompt string with permuted options.
+    """
+    return build_direct_mcq_prompt(
+        template=template,
+        question=question_row["question_text"],
+        options=permuted_options,
+        subject=question_row["subject"],
     )
