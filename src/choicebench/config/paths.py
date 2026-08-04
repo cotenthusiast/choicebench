@@ -38,7 +38,7 @@ _RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 
 def validate_run_id(run_id: str) -> str:
-    if not isinstance(run_id, str) or not _RUN_ID_RE.fullmatch(run_id) or run_id in {".", ".."}:
+    if not isinstance(run_id, str) or not _RUN_ID_RE.fullmatch(run_id):
         raise ValueError(
             "run ID must be 1-128 ASCII letters, digits, dots, underscores, or hyphens, "
             "starting with a letter or digit; path separators and traversal are forbidden."
