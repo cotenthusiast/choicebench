@@ -37,12 +37,6 @@ def _credential_keys_in(value: Any) -> set[str]:
     return found
 
 _VALID_BACKENDS = {"huggingface", "api", "dummy"}
-# No API provider client implements score_options() — all of them (OpenAI,
-# Anthropic, Gemini, Groq, Together, vLLM) are generate-only. So no API
-# provider is ever logprob-capable; pride/cyclic_logprob require
-# backend=huggingface (or dummy, for tests). This is the only place
-# api-provider logprob capability is encoded.
-_LOGPROB_API_PROVIDERS: set[str] = set()
 # Non-api backend classes, consulted for their declared supports_logprobs so we
 # never maintain a second hardcoded "logprob-capable" name list (FCD-2 / PF-2).
 _NONAPI_BACKEND_CLASSES = {
@@ -461,13 +455,15 @@ def model_supports_logprobs(model: ModelConfig) -> bool:
     this one function, so the two can never drift apart (FCD-2 / PF-2). Capability
     is read from the backends' own declared ``supports_logprobs`` rather than a
     hardcoded name list:
-      - api backends are capable iff the provider is in _LOGPROB_API_PROVIDERS
-        (currently empty — no API provider is accepted for config-driven runs).
+      - api backends are never logprob-capable — no API provider client
+        implements score_options() (all of OpenAI, Anthropic, Gemini, Groq,
+        Together, vLLM are generate-only); pride/cyclic_logprob require
+        backend=huggingface (or dummy, for tests).
       - dummy / huggingface report their class capability directly; constructing
         them here is cheap (no weights are loaded until .load()).
     """
     if model.backend == "api":
-        return model.provider in _LOGPROB_API_PROVIDERS
+        return False
     cls = _NONAPI_BACKEND_CLASSES.get(model.backend)
     if cls is None:
         return False
