@@ -21,15 +21,12 @@ from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
 from typing import Any
 
 import numpy as np
 from choicebench.identity import redact_text
 
-from choicebench.backends.base import BaseBackend
 from choicebench.clients.types import FAILURE_STATUS, SUCCESS_STATUS
-from choicebench.config.providers import MAX_TOKENS, SEED, TEMPERATURE
 from choicebench.parsing.types import PARSE_OK, ParseResult
 from choicebench.methods.base import ExperimentRunner
 from choicebench.methods.library.pride_math import logprob_map_to_label_distribution
@@ -47,40 +44,15 @@ class DirectLogprobRunner(ExperimentRunner):
 
     requires_score_options: bool = True
 
-    def __init__(
-            self,
-            backend: BaseBackend,
-            method_name: str,
-            split_name: str,
-            prompt_version: str,
-            prompts_dir: Path,
-            run_id: str,
-            temperature: float = TEMPERATURE,
-            max_tokens: int = MAX_TOKENS,
-            seed: int | None = SEED,
-            perturbation_name: str | None = None,
-            model_label: str | None = None,
-    ) -> None:
-        super().__init__(
-            backend=backend,
-            method_name=method_name,
-            split_name=split_name,
-            prompt_version=prompt_version,
-            prompts_dir=prompts_dir,
-            run_id=run_id,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            seed=seed,
-            perturbation_name=perturbation_name,
-            model_label=model_label,
-        )
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
         # direct_logprob needs per-letter logprobs, so it requires a backend
         # that implements score_options(). Gate on the capability flag rather
         # than a provider name, so any logprob-capable backend works.
-        if not backend.supports_logprobs:
+        if not self.backend.supports_logprobs:
             raise ValueError(
                 f"direct_logprob requires a backend with score_options() support; "
-                f"{backend.__class__.__name__} does not "
+                f"{self.backend.__class__.__name__} does not "
                 f"(supports_logprobs=False)."
             )
 
