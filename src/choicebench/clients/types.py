@@ -95,7 +95,6 @@ class ModelRequest:
         temperature: float = TEMPERATURE,
         max_tokens: int = MAX_TOKENS,
         seed: int | None = SEED,
-        request_logprobs: bool = False,
     ) -> None:
         self.provider = provider
         self.model_name = model_name
@@ -103,7 +102,6 @@ class ModelRequest:
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.seed = seed
-        self.request_logprobs = request_logprobs
 
     def validate(self) -> None:
         """Validate that the request contains supported values and metadata."""

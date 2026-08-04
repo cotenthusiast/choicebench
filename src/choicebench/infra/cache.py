@@ -34,7 +34,6 @@ def _cache_key(request: ModelRequest) -> str:
         "temperature": request.temperature,
         "max_tokens": request.max_tokens,
         "seed": request.seed,
-        "request_logprobs": request.request_logprobs,
     }
     fingerprint = json.dumps(key_data, sort_keys=True)
     return hashlib.sha256(fingerprint.encode()).hexdigest()

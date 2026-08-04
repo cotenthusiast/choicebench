@@ -61,7 +61,6 @@ class APIBackend(BaseBackend):
             temperature=self._temperature,
             max_tokens=self._max_tokens,
             seed=self._seed,
-            request_logprobs=False,
         )
 
     def generate(self, prompt: str, **kwargs) -> str:

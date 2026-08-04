@@ -105,15 +105,6 @@ class TestCacheKey:
         )
         assert _cache_key(base_request) != _cache_key(other)
 
-    def test_logprob_request_changes_key(self, base_request):
-        other = ModelRequest(
-            provider=base_request.provider, model_name=base_request.model_name,
-            payload=base_request.payload, temperature=base_request.temperature,
-            max_tokens=base_request.max_tokens, seed=base_request.seed,
-            request_logprobs=True,
-        )
-        assert _cache_key(base_request) != _cache_key(other)
-
     def test_key_is_64_char_hex_string(self, base_request):
         key = _cache_key(base_request)
         assert isinstance(key, str)
@@ -207,7 +198,6 @@ class TestCachingClientWrapper:
                 payload="Pick A B C or D.",
                 temperature=0.0,
                 max_tokens=8,
-                request_logprobs=True,
             )
             resp_ok = ModelResponse(
                 provider=req.provider,
