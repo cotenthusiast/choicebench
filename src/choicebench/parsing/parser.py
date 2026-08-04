@@ -16,6 +16,78 @@ from choicebench.parsing.types import (
 
 DEFAULT_VALID_CHOICES: tuple[str, ...] = tuple(LEGACY_OPTION_LETTERS)
 
+_CUE_WORDS = {"answer", "choice", "option"}
+_CONCLUDING_WORDS = {"therefore", "thus"}
+
+
+def _match_final_answer_is(
+    stripped: list[str], i: int, wl: str, valid_choices: Collection[str]
+) -> str | None:
+    """"final answer is X"."""
+    if (
+        i + 3 < len(stripped)
+        and wl == "final"
+        and stripped[i + 1].lower() == "answer"
+        and stripped[i + 2].lower() == "is"
+        and stripped[i + 3].upper() in valid_choices
+    ):
+        return stripped[i + 3].upper()
+    return None
+
+
+def _match_cue_is(
+    stripped: list[str], i: int, wl: str, valid_choices: Collection[str]
+) -> str | None:
+    """"answer is X" / "choice is X" / "option is X"."""
+    if (
+        i + 2 < len(stripped)
+        and wl in _CUE_WORDS
+        and stripped[i + 1].lower() == "is"
+        and stripped[i + 2].upper() in valid_choices
+    ):
+        return stripped[i + 2].upper()
+    return None
+
+
+def _match_final_answer(
+    stripped: list[str], i: int, wl: str, valid_choices: Collection[str]
+) -> str | None:
+    """"final answer X"."""
+    if (
+        i + 2 < len(stripped)
+        and wl == "final"
+        and stripped[i + 1].lower() == "answer"
+        and stripped[i + 2].upper() in valid_choices
+    ):
+        return stripped[i + 2].upper()
+    return None
+
+
+def _match_cue(
+    stripped: list[str], i: int, wl: str, valid_choices: Collection[str]
+) -> str | None:
+    """"answer X" / "choice X" / "option X"."""
+    if (
+        i + 1 < len(stripped)
+        and wl in _CUE_WORDS
+        and stripped[i + 1].upper() in valid_choices
+    ):
+        return stripped[i + 1].upper()
+    return None
+
+
+def _match_concluding(
+    stripped: list[str], i: int, wl: str, valid_choices: Collection[str]
+) -> str | None:
+    """"therefore X" / "thus X"."""
+    if (
+        i + 1 < len(stripped)
+        and wl in _CONCLUDING_WORDS
+        and stripped[i + 1].upper() in valid_choices
+    ):
+        return stripped[i + 1].upper()
+    return None
+
 
 def normalize_output_text(raw_text: str | None) -> str:
     """
@@ -89,9 +161,6 @@ def extract_choice_letter(
             reason="Answer successfully parsed",
         )
 
-    cue_words = {"answer", "choice", "option"}
-    concluding_words = {"therefore", "thus"}
-
     # last_strong / last_weak: (word_index, letter) — updated as we scan left→right
     last_strong: tuple[int, str] | None = None
     last_weak: tuple[int, str] | None = None
@@ -99,49 +168,25 @@ def extract_choice_letter(
     for i, w in enumerate(stripped):
         wl = w.lower()
 
-        # "final answer is X"
-        if (
-            i + 3 < len(stripped)
-            and wl == "final"
-            and stripped[i + 1].lower() == "answer"
-            and stripped[i + 2].lower() == "is"
-            and stripped[i + 3].upper() in valid_choices
-        ):
-            last_strong = (i, stripped[i + 3].upper())
+        letter = _match_final_answer_is(stripped, i, wl, valid_choices)
+        if letter is not None:
+            last_strong = (i, letter)
 
-        # "answer is X" / "choice is X" / "option is X"
-        if (
-            i + 2 < len(stripped)
-            and wl in cue_words
-            and stripped[i + 1].lower() == "is"
-            and stripped[i + 2].upper() in valid_choices
-        ):
-            last_strong = (i, stripped[i + 2].upper())
+        letter = _match_cue_is(stripped, i, wl, valid_choices)
+        if letter is not None:
+            last_strong = (i, letter)
 
-        # "final answer X"
-        if (
-            i + 2 < len(stripped)
-            and wl == "final"
-            and stripped[i + 1].lower() == "answer"
-            and stripped[i + 2].upper() in valid_choices
-        ):
-            last_strong = (i, stripped[i + 2].upper())
+        letter = _match_final_answer(stripped, i, wl, valid_choices)
+        if letter is not None:
+            last_strong = (i, letter)
 
-        # "answer X" / "choice X" / "option X"
-        if (
-            i + 1 < len(stripped)
-            and wl in cue_words
-            and stripped[i + 1].upper() in valid_choices
-        ):
-            last_strong = (i, stripped[i + 1].upper())
+        letter = _match_cue(stripped, i, wl, valid_choices)
+        if letter is not None:
+            last_strong = (i, letter)
 
-        # "therefore X" / "thus X"
-        if (
-            i + 1 < len(stripped)
-            and wl in concluding_words
-            and stripped[i + 1].upper() in valid_choices
-        ):
-            last_strong = (i, stripped[i + 1].upper())
+        letter = _match_concluding(stripped, i, wl, valid_choices)
+        if letter is not None:
+            last_strong = (i, letter)
 
         # weak: any standalone valid letter
         if w.upper() in valid_choices:
