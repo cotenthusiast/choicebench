@@ -1,7 +1,6 @@
 import os
 import shutil
 import re
-from importlib import resources
 from pathlib import Path
 
 # Workspace policy: CHOICEBENCH_HOME is applied before imports;
@@ -15,7 +14,7 @@ PROCESSED_DIR = DATA_DIR / "processed"
 
 RUNS_DIR = ROOT_DIR / "runs"
 REPORTS_DIR = ROOT_DIR / "reports"
-PROMPTS_DIR = resources.files("choicebench.resources").joinpath("prompts")
+PROMPTS_DIR = Path(__file__).resolve().parents[1] / "resources" / "prompts"
 
 def ensure_dirs() -> None:
     """Create all standard project directories. Call once at program startup."""
