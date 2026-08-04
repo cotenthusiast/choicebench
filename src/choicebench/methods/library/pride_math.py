@@ -147,16 +147,22 @@ def equation8_debiased_content_probs(
     return w / sw
 
 
-def average_prior_probability_vectors(vectors: list[np.ndarray]) -> np.ndarray:
+def average_prior_probability_vectors(
+    vectors: list[np.ndarray], letters: tuple[str, ...],
+) -> np.ndarray:
     """Mean of per-sample Eq.~(7) priors, renormalized.
 
     Requires every vector to be the same length — use
     ``average_prior_probability_dicts`` when calibration questions can have
     different real-option counts (e.g. a 3-option ARC-Challenge item mixed
     in with 4-option items).
+
+    ``letters`` gives the empty-``vectors`` fallback its uniform-vector
+    length — always derive it from the real benchmark's modal option count,
+    never assume 4 (e.g. MMLU-Pro has up to 10).
     """
     if not vectors:
-        u = np.ones(len(OPTION_LETTERS), dtype=np.float64) / len(OPTION_LETTERS)
+        u = np.ones(len(letters), dtype=np.float64) / len(letters)
         return u
     stacked = np.stack(vectors, axis=0)
     m = np.mean(stacked, axis=0)

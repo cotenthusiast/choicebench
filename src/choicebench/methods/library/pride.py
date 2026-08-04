@@ -277,7 +277,7 @@ class PriDeRunner(ExperimentRunner):
                 roll_mat = self._cyclic_rollout_prob_matrix(row)
                 prior_vectors.append(equation7_prior_from_rollouts(roll_mat))
 
-            pep_global = average_prior_probability_vectors(prior_vectors)
+            pep_global = average_prior_probability_vectors(prior_vectors, self._modal_letters)
             self._calibration_state = CalibrationState(
                 peprior_probs={
                     self._modal_letters[i]: float(pep_global[i])

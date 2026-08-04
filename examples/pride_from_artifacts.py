@@ -294,7 +294,7 @@ def compute_pride_cell(
     calibration_set = set(calibration_ids)
 
     prior_vectors = [records[qid].eq7_prior for qid in calibration_ids]
-    global_prior = average_prior_probability_vectors(prior_vectors)
+    global_prior = average_prior_probability_vectors(prior_vectors, records[full_ids[0]].letters)
 
     predictions: dict[str, str] = {}
     for qid in calibration_ids:
