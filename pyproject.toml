@@ -45,18 +45,9 @@ dev = [
 Homepage = "https://github.com/cotenthusiast/choicebench"
 Repository = "https://github.com/cotenthusiast/choicebench"
 
-[project.scripts]
-choicebench-run = "choicebench.cli.run_experiment:main"
-choicebench-prepare = "choicebench.cli.prepare_data:main"
-choicebench-evaluate = "choicebench.cli.evaluate_run:main"
-choicebench-prepare-toy = "choicebench.cli.prepare_toy_data:main"
-
 [tool.setuptools]
 package-dir = {"" = "src"}
 include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["src"]
-
-[tool.setuptools.package-data]
-choicebench = ["resources/prompts/*/*.txt"]
