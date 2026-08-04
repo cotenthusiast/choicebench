@@ -322,10 +322,11 @@ class PriDeRunner(ExperimentRunner):
         vectors with average_prior_probability_vectors(), which requires every
         vector to be the same length — i.e. it assumes all calibration
         questions share one option count. Mixing, say, 3-option and 4-option
-        calibration questions in the same run would need _ensure_calibration
-        switched to average_prior_probability_dicts() (masked per-letter
-        averaging) and this method returning per-question (vector, letters)
-        pairs instead of a bare array.
+        calibration questions in the same run would need a masked per-letter
+        averaging helper (not currently implemented — see git history for
+        the prior average_prior_probability_dicts(), removed as dead code)
+        and this method returning per-question (vector, letters) pairs
+        instead of a bare array.
         """
         canon = self._build_options(question_row)
         letters = list(canon.keys())

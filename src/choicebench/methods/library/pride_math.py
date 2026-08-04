@@ -152,10 +152,7 @@ def average_prior_probability_vectors(
 ) -> np.ndarray:
     """Mean of per-sample Eq.~(7) priors, renormalized.
 
-    Requires every vector to be the same length — use
-    ``average_prior_probability_dicts`` when calibration questions can have
-    different real-option counts (e.g. a 3-option ARC-Challenge item mixed
-    in with 4-option items).
+    Requires every vector to be the same length.
 
     ``letters`` gives the empty-``vectors`` fallback its uniform-vector
     length — always derive it from the real benchmark's modal option count,
@@ -169,46 +166,6 @@ def average_prior_probability_vectors(
     m = np.clip(m, 1e-12, None)
     m = m / m.sum()
     return m
-
-
-def average_prior_probability_dicts(
-        dicts: list[Mapping[str, float]],
-        letters: tuple[str, ...] = OPTION_LETTERS,
-) -> dict[str, float]:
-    """Mean of per-question Eq.~(7) priors, masked per letter.
-
-    Each per-question dict only contains the letters that were real options
-    for that question — e.g. 3 entries (A, B, C) for a 3-option ARC-Challenge
-    item with no D. A letter's global average is taken only over the
-    questions that actually had that letter as a real option, so a question
-    missing D still contributes to A/B/C's average but is excluded from D's
-    rather than diluting it with a phantom or floor-filled value.
-
-    Use this instead of ``average_prior_probability_vectors`` when
-    calibration questions can have different real-option counts. If every
-    question in your calibration set has the same option count, the two are
-    equivalent and ``average_prior_probability_vectors`` is simpler.
-
-    Raises:
-        ValueError: if letters has fewer than 2 entries.
-    """
-    if len(letters) < 2:
-        raise ValueError(
-            f"average_prior_probability_dicts requires at least 2 option "
-            f"letters; got {len(letters)} ({letters!r})."
-        )
-    if not dicts:
-        uni = 1.0 / len(letters)
-        return {L: uni for L in letters}
-    out: dict[str, float] = {}
-    for L in letters:
-        vals = [float(d[L]) for d in dicts if L in d]
-        out[L] = sum(vals) / len(vals) if vals else 0.0
-    total = sum(out.values())
-    if total > 0:
-        return {L: v / total for L, v in out.items()}
-    uni = 1.0 / len(letters)
-    return {L: uni for L in letters}
 
 
 def dict_probs_to_ordered(
