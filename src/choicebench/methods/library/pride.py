@@ -29,9 +29,12 @@ import numpy as np
 from choicebench.clients.types import FAILURE_STATUS, SUCCESS_STATUS
 from choicebench.constants import letters_for
 from choicebench.parsing.types import PARSE_OK, ParseResult
-from choicebench.pipeline.prompt_builder import build_direct_mcq_prompt
+from choicebench.pipeline.prompt_builder import (
+    build_direct_mcq_prompt,
+    build_permuted_prompt,
+    generate_permutations,
+)
 from choicebench.methods.base import ExperimentRunner
-from choicebench.methods.library.permutation import PermutationRunner
 from choicebench.methods.library.pride_math import (
     CalibrationState,
     apply_debiased_choice_from_defaults,
@@ -330,13 +333,9 @@ class PriDeRunner(ExperimentRunner):
         """
         canon = self._build_options(question_row)
         letters = list(canon.keys())
-        permutations = PermutationRunner._generate_permutations(canon)
+        permutations = generate_permutations(canon)
         prompts = [
-            PermutationRunner._build_permuted_prompt(
-                question_row,
-                perm,
-                self._prompts["direct_mcq"],
-            )
+            build_permuted_prompt(question_row, perm, self._prompts["direct_mcq"])
             for perm in permutations
         ]
 
