@@ -3,8 +3,11 @@
 import pandas as pd
 import pytest
 
-from choicebench.benchmarks.mmlu_pro import normalize_row, build_normalized_dataframe
+from choicebench.benchmarks.mmlu_pro import normalize_row
+from choicebench.benchmarks.registry import BENCHMARK_REGISTRY
 from choicebench.pipeline.options import build_option_map
+
+build_normalized_dataframe = BENCHMARK_REGISTRY["mmlu_pro"].normalizer
 
 _SCHEMA_COLS = {
     "question_id",

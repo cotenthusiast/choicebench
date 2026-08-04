@@ -1,14 +1,17 @@
 # src/choicebench/benchmarks/truthful_qa.py
 
-import pandas as pd
-
-from choicebench.benchmarks.base import build_normalized_dataframe as _build_normalized_dataframe
 from choicebench.benchmarks.base import make_normalized_row
 from choicebench.benchmarks.registry import benchmark
 
 _SUBJECT = "truthful_qa"
 
 
+@benchmark(
+    name="truthful_qa",
+    hf_path="truthfulqa/truthful_qa",
+    hf_subset="multiple_choice",
+    default_split="validation",
+)
 def normalize_row(row: dict[str, object]) -> dict[str, object]:
     """Convert one raw TruthfulQA row into the project's normalized schema.
 
@@ -49,25 +52,3 @@ def normalize_row(row: dict[str, object]) -> dict[str, object]:
         choices=choices,
         correct_index=correct_index,
     )
-
-
-@benchmark(
-    name="truthful_qa",
-    hf_path="truthfulqa/truthful_qa",
-    hf_subset="multiple_choice",
-    default_split="validation",
-)
-def build_normalized_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-    """Build a normalized DataFrame from a raw TruthfulQA DataFrame.
-
-    Every row is kept with its full mc1 choice set intact (no truncation, no
-    skipping).
-
-    Args:
-        df: Raw TruthfulQA DataFrame with columns: question, mc1_targets,
-            mc2_targets.
-
-    Returns:
-        DataFrame where each row follows the normalized schema.
-    """
-    return _build_normalized_dataframe(df, normalize_row)

@@ -3,9 +3,6 @@
 import ast
 from collections.abc import Iterable
 
-import pandas as pd
-
-from choicebench.benchmarks.base import build_normalized_dataframe as _build_normalized_dataframe
 from choicebench.benchmarks.base import make_normalized_row
 from choicebench.benchmarks.registry import benchmark
 
@@ -33,6 +30,12 @@ def _parse_choices(choices: object) -> list[str]:
     return [str(choice) for choice in choices_list]
 
 
+@benchmark(
+    name="mmlu",
+    hf_path="cais/mmlu",
+    hf_subset="all",
+    default_split="test",
+)
 def normalize_row(row: dict[str, object]) -> dict[str, object]:
     """
     Converts one raw MMLU row into the project's normalized schema.
@@ -63,29 +66,3 @@ def normalize_row(row: dict[str, object]) -> dict[str, object]:
         choices=parsed_choices,
         correct_index=int(answer),
     )
-
-
-@benchmark(
-    name="mmlu",
-    hf_path="cais/mmlu",
-    hf_subset="all",
-    default_split="test",
-)
-def build_normalized_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Builds a normalized dataframe from a raw MMLU dataframe.
-
-    Each raw row is converted into the project's normalized schema
-    by calling normalize_row.
-
-    Args:
-        df: Raw MMLU dataframe containing the columns:
-            - subject
-            - question
-            - choices
-            - answer
-
-    Returns:
-        Pandas dataframe where each row follows the normalized schema.
-    """
-    return _build_normalized_dataframe(df, normalize_row)

@@ -1,8 +1,5 @@
 # src/choicebench/benchmarks/arc.py
 
-import pandas as pd
-
-from choicebench.benchmarks.base import build_normalized_dataframe as _build_normalized_dataframe
 from choicebench.benchmarks.base import make_normalized_row
 from choicebench.benchmarks.registry import benchmark
 
@@ -10,6 +7,12 @@ _ARC_SUBJECT = "arc_challenge"
 _NUM_TO_LETTER = {"1": "A", "2": "B", "3": "C", "4": "D", "5": "E"}
 
 
+@benchmark(
+    name="arc_challenge",
+    hf_path="allenai/ai2_arc",
+    hf_subset="ARC-Challenge",
+    default_split="test",
+)
 def normalize_row(row: dict[str, object]) -> dict[str, object]:
     """Convert one raw ARC-Challenge row into the project's normalized schema.
 
@@ -49,21 +52,3 @@ def normalize_row(row: dict[str, object]) -> dict[str, object]:
         choices=texts,
         correct_index=correct_index,
     )
-
-
-@benchmark(
-    name="arc_challenge",
-    hf_path="allenai/ai2_arc",
-    hf_subset="ARC-Challenge",
-    default_split="test",
-)
-def build_normalized_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-    """Build a normalized DataFrame from a raw ARC-Challenge DataFrame.
-
-    Args:
-        df: Raw ARC DataFrame with columns: id, question, choices, answerKey.
-
-    Returns:
-        DataFrame where each row follows the normalized schema.
-    """
-    return _build_normalized_dataframe(df, normalize_row)

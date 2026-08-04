@@ -1,12 +1,15 @@
 # src/choicebench/benchmarks/hellaswag.py
 
-import pandas as pd
-
-from choicebench.benchmarks.base import build_normalized_dataframe as _build_normalized_dataframe
 from choicebench.benchmarks.base import make_normalized_row
 from choicebench.benchmarks.registry import benchmark
 
 
+@benchmark(
+    name="hellaswag",
+    hf_path="Rowan/hellaswag",
+    hf_subset=None,
+    default_split="validation",
+)
 def normalize_row(row: dict[str, object]) -> dict[str, object]:
     """Convert one raw HellaSwag row into the project's normalized schema.
 
@@ -40,22 +43,3 @@ def normalize_row(row: dict[str, object]) -> dict[str, object]:
         choices=endings,
         correct_index=label,
     )
-
-
-@benchmark(
-    name="hellaswag",
-    hf_path="Rowan/hellaswag",
-    hf_subset=None,
-    default_split="validation",
-)
-def build_normalized_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-    """Build a normalized DataFrame from a raw HellaSwag DataFrame.
-
-    Args:
-        df: Raw HellaSwag DataFrame with columns: ind, activity_label,
-            ctx, endings, label.
-
-    Returns:
-        DataFrame where each row follows the normalized schema.
-    """
-    return _build_normalized_dataframe(df, normalize_row)

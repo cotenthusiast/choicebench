@@ -1,12 +1,15 @@
 # src/choicebench/benchmarks/mmlu_pro.py
 
-import pandas as pd
-
-from choicebench.benchmarks.base import build_normalized_dataframe as _build_normalized_dataframe
 from choicebench.benchmarks.base import make_normalized_row
 from choicebench.benchmarks.registry import benchmark
 
 
+@benchmark(
+    name="mmlu_pro",
+    hf_path="TIGER-Lab/MMLU-Pro",
+    hf_subset=None,
+    default_split="test",
+)
 def normalize_row(row: dict[str, object]) -> dict[str, object]:
     """Convert one raw MMLU-Pro row into the project's normalized schema.
 
@@ -39,25 +42,3 @@ def normalize_row(row: dict[str, object]) -> dict[str, object]:
         choices=options,
         correct_index=answer_index,
     )
-
-
-@benchmark(
-    name="mmlu_pro",
-    hf_path="TIGER-Lab/MMLU-Pro",
-    hf_subset=None,
-    default_split="test",
-)
-def build_normalized_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-    """Build a normalized DataFrame from a raw MMLU-Pro DataFrame.
-
-    Every question is kept with its full option set intact — MMLU-Pro's up-to-10
-    options survive normalization unchanged.
-
-    Args:
-        df: Raw MMLU-Pro DataFrame with columns: question, options,
-            answer, answer_index, category, src.
-
-    Returns:
-        DataFrame where each row follows the normalized schema.
-    """
-    return _build_normalized_dataframe(df, normalize_row)

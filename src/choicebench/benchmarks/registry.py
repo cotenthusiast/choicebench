@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable
+from typing import Any, Callable
 
 import pandas as pd
+
+from choicebench.benchmarks.base import build_normalized_dataframe
 
 
 @dataclass
@@ -26,16 +28,24 @@ def benchmark(
     hf_subset: str | None = None,
     default_split: str = "test",
 ) -> Callable:
-    """Decorator that registers a build_normalized_dataframe function."""
-    def decorator(fn: Callable) -> Callable:
+    """Decorator that registers a row-level normalize_row(row) -> dict function.
+
+    Wraps it with base.build_normalized_dataframe so the registry always
+    stores a DataFrame-level normalizer, while each benchmark module only
+    needs to define and decorate its row-level function.
+    """
+    def decorator(normalize_row_fn: Callable[[dict[str, Any]], dict[str, Any]]) -> Callable:
+        def _build_normalized_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+            return build_normalized_dataframe(df, normalize_row_fn)
+
         BENCHMARK_REGISTRY[name] = BenchmarkEntry(
             name=name,
             hf_path=hf_path,
             hf_subset=hf_subset,
             default_split=default_split,
-            normalizer=fn,
+            normalizer=_build_normalized_dataframe,
         )
-        return fn
+        return normalize_row_fn
     return decorator
 
 

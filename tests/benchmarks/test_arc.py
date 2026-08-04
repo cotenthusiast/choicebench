@@ -3,8 +3,11 @@
 import pytest
 import pandas as pd
 
-from choicebench.benchmarks.arc import normalize_row, build_normalized_dataframe
+from choicebench.benchmarks.arc import normalize_row
+from choicebench.benchmarks.registry import BENCHMARK_REGISTRY
 from choicebench.pipeline.options import build_option_map
+
+build_normalized_dataframe = BENCHMARK_REGISTRY["arc_challenge"].normalizer
 
 _SCHEMA_COLS = {
     "question_id",

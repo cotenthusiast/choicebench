@@ -301,15 +301,16 @@ def test_registering_new_benchmark_adds_to_registry_and_valid_benchmarks():
     original_keys = set(BENCHMARK_REGISTRY.keys())
 
     @benchmark(name="_test_dummy_bench", hf_path="test/dummy", hf_subset=None)
-    def _dummy_normalizer(df: pd.DataFrame) -> pd.DataFrame:
-        return df
+    def _dummy_normalizer(row: dict) -> dict:
+        return dict(row)
 
     try:
         assert "_test_dummy_bench" in BENCHMARK_REGISTRY
         assert "_test_dummy_bench" in get_valid_benchmarks()
         entry = BENCHMARK_REGISTRY["_test_dummy_bench"]
         assert entry.hf_path == "test/dummy"
-        assert entry.normalizer is _dummy_normalizer
+        df = pd.DataFrame([{"a": 1}])
+        pd.testing.assert_frame_equal(entry.normalizer(df), df)
     finally:
         BENCHMARK_REGISTRY.pop("_test_dummy_bench", None)
         assert "_test_dummy_bench" not in BENCHMARK_REGISTRY
@@ -317,8 +318,8 @@ def test_registering_new_benchmark_adds_to_registry_and_valid_benchmarks():
 
 def test_get_by_hf_path_finds_newly_registered_benchmark():
     @benchmark(name="_test_find_bench", hf_path="find/me", hf_subset="sub")
-    def _find_normalizer(df: pd.DataFrame) -> pd.DataFrame:
-        return df
+    def _find_normalizer(row: dict) -> dict:
+        return dict(row)
 
     try:
         found = get_by_hf_path("find/me", "sub")

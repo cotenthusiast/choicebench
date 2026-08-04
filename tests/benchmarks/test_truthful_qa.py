@@ -2,8 +2,11 @@
 
 import pandas as pd
 
-from choicebench.benchmarks.truthful_qa import normalize_row, build_normalized_dataframe
+from choicebench.benchmarks.truthful_qa import normalize_row
+from choicebench.benchmarks.registry import BENCHMARK_REGISTRY
 from choicebench.pipeline.options import build_option_map
+
+build_normalized_dataframe = BENCHMARK_REGISTRY["truthful_qa"].normalizer
 
 _SCHEMA_COLS = {
     "question_id",
