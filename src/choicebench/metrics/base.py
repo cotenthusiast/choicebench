@@ -5,6 +5,22 @@ from abc import ABC, abstractmethod
 import pandas as pd
 
 
+def _label_set(results_df: pd.DataFrame) -> list[str]:
+    """Option labels present in a results frame (union of gold and predicted).
+
+    The label space is derived from the data rather than a fixed A-D set, so a
+    benchmark with any number of options (e.g. MMLU-Pro's up to 10, A-J) is
+    scored over its full label space instead of silently dropping E+.
+    """
+    labels: set[str] = set()
+    for col in ("correct_option", "parsed_choice"):
+        if col in results_df.columns:
+            for v in results_df[col].dropna():
+                if isinstance(v, str) and v:
+                    labels.add(v)
+    return sorted(labels)
+
+
 class BaseMetric(ABC):
     """
     Interface for all evaluation metrics.
