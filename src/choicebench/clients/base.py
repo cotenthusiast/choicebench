@@ -31,6 +31,21 @@ _BACKOFF_BASE = 5.0
 _BACKOFF_CAP = 300.0
 
 
+def map_api_status_error(exc) -> Exception:
+    """Map an OpenAI/Groq-shaped APIStatusError to our exception taxonomy.
+
+    Shared by every OpenAI-compatible Chat Completions client (groq, together,
+    vllm) — each catches its own SDK's APIStatusError class, then delegates
+    the identical status-code bucketing here.
+    """
+    message = str(exc)
+    if exc.status_code == 429:
+        return ProviderRateLimitError(message)
+    if exc.status_code in {400, 401, 403, 404, 422}:
+        return ProviderConfigurationError(message)
+    return ProviderCallError(message)
+
+
 class BaseClient(ABC):
     """Abstract base client for provider-backed model calls.
 

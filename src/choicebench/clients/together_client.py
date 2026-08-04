@@ -3,7 +3,7 @@
 import openai
 from openai import AsyncOpenAI
 
-from choicebench.clients.base import BaseClient
+from choicebench.clients.base import BaseClient, map_api_status_error
 from choicebench.config.providers import MAX_RETRIES, TIMEOUT
 from choicebench.clients.types import (
     ModelRequest,
@@ -12,9 +12,7 @@ from choicebench.clients.types import (
     SUCCESS_STATUS,
     ProviderResponseError,
     ProviderCallError,
-    ProviderRateLimitError,
     ProviderTimeoutError,
-    ProviderConfigurationError,
 )
 
 _TOGETHER_BASE_URL = "https://api.together.xyz/v1"
@@ -74,15 +72,7 @@ class TogetherAIClient(BaseClient):
         except openai.APIConnectionError as exc:
             raise ProviderCallError(str(exc)) from exc
         except openai.APIStatusError as exc:
-            message = str(exc)
-
-            if exc.status_code == 429:
-                raise ProviderRateLimitError(message) from exc
-
-            if exc.status_code in {400, 401, 403, 404, 422}:
-                raise ProviderConfigurationError(message) from exc
-
-            raise ProviderCallError(message) from exc
+            raise map_api_status_error(exc) from exc
 
         raw_text = None
         finish_reason = None
