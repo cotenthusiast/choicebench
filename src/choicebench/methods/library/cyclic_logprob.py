@@ -47,7 +47,19 @@ class CyclicLogprobRunner(ExperimentRunner):
 
     requires_score_options: bool = True
 
-    def run_one(self, question_row: Any, sample_index: int) -> dict:
+    def _gather_rollouts(
+        self, question_row: Any,
+    ) -> tuple[list[str], list[str], np.ndarray, int, str | None]:
+        """Score every cyclic permutation via score_options(), with per-call
+        fallback/failure bookkeeping.
+
+        Mirrors PriDeRunner._cyclic_rollout_prob_matrix's shape: gather
+        per-permutation logprob distributions, falling back to a uniform
+        vector on failure and counting successes.
+
+        Returns:
+            (letters, prompts, distribution_matrix, n_success, first_error)
+        """
         canon = self._build_options(question_row)
         letters = list(canon.keys())
         n = len(letters)
@@ -78,6 +90,10 @@ class CyclicLogprobRunner(ExperimentRunner):
                     scoring_error = redact_text(exc)
 
         mat = np.stack(dist_rows, axis=0).astype(np.float64)  # shape (N, N)
+        return letters, prompts, mat, n_success, scoring_error
+
+    def run_one(self, question_row: Any, sample_index: int) -> dict:
+        letters, prompts, mat, n_success, scoring_error = self._gather_rollouts(question_row)
         content_probs = equation1_cyclic_debiased_content_probs(mat)
 
         final_letter: str | None = None
