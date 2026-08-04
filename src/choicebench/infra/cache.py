@@ -55,26 +55,44 @@ class ResponseCache:
     def _path(self, key: str) -> Path:
         return self._dir / key[:2] / f"{key}.json"
 
+    def _read_record(self, path: Path) -> dict | None:
+        """Read and JSON-parse a cache file; None on missing file or parse/IO failure."""
+        if not path.exists():
+            return None
+        try:
+            with path.open() as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            return None
+
+    def _is_compatible_record(self, record: dict) -> bool:
+        """Schema-version and namespace-collision compatibility gate."""
+        if record.get("schema_version") != "choicebench.response-cache.v1":
+            return False
+        if record.get("namespace") != self._namespace:
+            return False
+        return True
+
+    def _verify_integrity(self, key: str, record: dict, path: Path) -> bool:
+        """Cryptographic integrity-digest gate; warns and returns False on mismatch."""
+        payload = record.get("payload")
+        expected = integrity_digest({"namespace": self._namespace, "cache_key": key, "payload": payload})
+        if record.get("payload_digest") != expected:
+            logger.warning("Ignoring corrupt response cache entry %s", path)
+            return False
+        return True
+
     def get(self, key: str) -> dict | None:
         """Return cached payload dict, or None on miss."""
         p = self._path(key)
-        if not p.exists():
+        record = self._read_record(p)
+        if record is None:
             return None
-        try:
-            with p.open() as f:
-                record = json.load(f)
-            if record.get("schema_version") != "choicebench.response-cache.v1":
-                return None
-            if record.get("namespace") != self._namespace:
-                return None
-            payload = record.get("payload")
-            expected = integrity_digest({"namespace": self._namespace, "cache_key": key, "payload": payload})
-            if record.get("payload_digest") != expected:
-                logger.warning("Ignoring corrupt response cache entry %s", p)
-                return None
-            return payload
-        except (json.JSONDecodeError, OSError):
+        if not self._is_compatible_record(record):
             return None
+        if not self._verify_integrity(key, record, p):
+            return None
+        return record.get("payload")
 
     def put(self, key: str, payload: dict) -> None:
         """Write payload dict to cache atomically."""
