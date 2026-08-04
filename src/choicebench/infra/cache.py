@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
 import logging
 from pathlib import Path
+from choicebench.clients.base import gather_generate
 from choicebench.identity import integrity_digest
 from choicebench.infra.atomic_io import atomic_write_json
 
@@ -133,9 +133,7 @@ class CachingClientWrapper:
     async def generate_batch(
         self, requests: list[ModelRequest]
     ) -> list[ModelResponse]:
-        return list(
-            await asyncio.gather(*[self.generate(r) for r in requests])
-        )
+        return await gather_generate(requests, self.generate)
 
     @staticmethod
     def _serialize_response(response: ModelResponse) -> dict:
