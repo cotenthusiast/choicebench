@@ -14,9 +14,7 @@ def _parse_choices(choices: object) -> list[str]:
     if hasattr(parsed_choices, "tolist"):
         parsed_choices = parsed_choices.tolist()
 
-    if isinstance(parsed_choices, list | tuple):
-        choices_list = list(parsed_choices)
-    elif isinstance(parsed_choices, Iterable) and not isinstance(parsed_choices, str | bytes | dict):
+    if isinstance(parsed_choices, Iterable) and not isinstance(parsed_choices, str | bytes | dict):
         choices_list = list(parsed_choices)
     else:
         choices_list = [parsed_choices]
