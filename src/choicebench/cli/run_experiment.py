@@ -59,7 +59,8 @@ from choicebench.datasets import (
     dataset_sample_identities, load_prepared_dataset, spec_for_benchmark,
 )
 from choicebench.identity import canonicalize, file_digest, integrity_digest, redact_text, short_id
-from choicebench.infra.artifacts import FileLock, LockHeldError, atomic_write_json, atomic_write_text
+from choicebench.infra.atomic_io import atomic_write_json, atomic_write_text
+from choicebench.infra.file_lock import FileLock, LockHeldError
 from choicebench.manifest import (
     ManifestCompatibilityError, build_manifest_payload, ensure_manifest,
     load_or_create_run_state, make_manifest, write_run_state,

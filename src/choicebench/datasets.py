@@ -13,7 +13,8 @@ from typing import Any
 import pandas as pd
 
 from choicebench.identity import canonicalize, integrity_digest, short_id
-from choicebench.infra.artifacts import FileLock, atomic_write_json, atomic_write_text
+from choicebench.infra.atomic_io import atomic_write_json, atomic_write_text
+from choicebench.infra.file_lock import FileLock
 
 DATASET_ARTIFACT_SCHEMA_VERSION = "choicebench.dataset.v2"
 NORMALIZATION_VERSION = "2"

@@ -13,7 +13,8 @@ from typing import Any
 
 from choicebench import __version__
 from choicebench.identity import CANONICALIZATION_VERSION, canonicalize, integrity_digest, short_id
-from choicebench.infra.artifacts import FileLock, atomic_write_json
+from choicebench.infra.atomic_io import atomic_write_json
+from choicebench.infra.file_lock import FileLock
 
 PROTOCOL_VERSION = "choicebench.protocol.v2"
 MANIFEST_SCHEMA_VERSION = "choicebench.manifest.v2"

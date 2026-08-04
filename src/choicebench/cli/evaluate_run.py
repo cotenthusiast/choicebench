@@ -18,7 +18,7 @@ import pandas as pd
 
 from choicebench.clients.types import FAILURE_STATUS
 from choicebench.config.paths import REPORTS_DIR, RUNS_DIR, ensure_dirs, validate_run_id
-from choicebench.infra.artifacts import atomic_write_json
+from choicebench.infra.atomic_io import atomic_write_json
 from choicebench.identity import canonicalize, integrity_digest, short_id
 from choicebench.io.readers import ResultSetError, read_manifest_results
 from choicebench.manifest import ManifestCompatibilityError, load_run_state

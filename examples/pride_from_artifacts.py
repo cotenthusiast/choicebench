@@ -31,7 +31,7 @@ from choicebench.config.paths import validate_run_id
 from choicebench.constants import letters_for
 from choicebench.io.readers import read_all_run_results, read_manifest_results
 from choicebench.identity import file_digest, short_id
-from choicebench.infra.artifacts import atomic_write_json
+from choicebench.infra.atomic_io import atomic_write_json
 from choicebench.manifest import validate_manifest
 from choicebench.methods.library.pride_math import (
     average_prior_probability_vectors,

@@ -16,7 +16,7 @@ from choicebench.datasets import (
     dataset_sample_identities, spec_for_benchmark, write_prepared_dataset,
 )
 from choicebench.identity import canonical_json, redact_text, sanitize_url, stable_digest
-from choicebench.infra.artifacts import FileLock
+from choicebench.infra.file_lock import FileLock
 from choicebench.infra.cache import ResponseCache
 from choicebench.infra.checkpoint import CheckpointManager
 from choicebench.io.writers import validate_result_artifact, write_run_results

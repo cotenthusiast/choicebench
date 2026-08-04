@@ -42,7 +42,7 @@ from choicebench.methods.library.pride_math import (
     logprob_map_to_label_distribution,
 )
 from choicebench.identity import integrity_digest, redact_text
-from choicebench.infra.artifacts import atomic_write_json
+from choicebench.infra.atomic_io import atomic_write_json
 
 logger = logging.getLogger(__name__)
 

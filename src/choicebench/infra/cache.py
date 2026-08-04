@@ -8,7 +8,7 @@ import json
 import logging
 from pathlib import Path
 from choicebench.identity import integrity_digest
-from choicebench.infra.artifacts import atomic_write_json
+from choicebench.infra.atomic_io import atomic_write_json
 
 from choicebench.clients.types import (
     ModelRequest,

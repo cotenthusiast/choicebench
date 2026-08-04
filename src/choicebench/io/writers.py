@@ -7,7 +7,7 @@ import pandas as pd
 import json
 
 from choicebench.identity import file_digest, integrity_digest
-from choicebench.infra.artifacts import atomic_write_json, atomic_write_text
+from choicebench.infra.atomic_io import atomic_write_json, atomic_write_text
 
 RESULT_ARTIFACT_SCHEMA_VERSION = "choicebench.result-artifact.v1"
 
