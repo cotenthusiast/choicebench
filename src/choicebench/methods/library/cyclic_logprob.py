@@ -28,7 +28,7 @@ from choicebench.identity import redact_text
 from choicebench.clients.types import FAILURE_STATUS, SUCCESS_STATUS
 from choicebench.parsing.types import PARSE_OK, ParseResult
 from choicebench.methods.base import ExperimentRunner
-from choicebench.methods.library.permutation import PermutationRunner
+from choicebench.pipeline.prompt_builder import build_permuted_prompt, generate_permutations
 from choicebench.methods.library.pride_math import (
     equation1_cyclic_debiased_content_probs,
     logprob_map_to_label_distribution,
@@ -51,12 +51,10 @@ class CyclicLogprobRunner(ExperimentRunner):
         canon = self._build_options(question_row)
         letters = list(canon.keys())
         n = len(letters)
-        permutations = PermutationRunner._generate_permutations(canon)
+        permutations = generate_permutations(canon)
 
         prompts = [
-            PermutationRunner._build_permuted_prompt(
-                question_row, perm, self._prompts["direct_mcq"]
-            )
+            build_permuted_prompt(question_row, perm, self._prompts["direct_mcq"])
             for perm in permutations
         ]
 
