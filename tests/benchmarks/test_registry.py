@@ -21,7 +21,6 @@ from choicebench.benchmarks.registry import (
     benchmark,
     get_by_hf_path,
 )
-from choicebench.config.paths import PROCESSED_DIR, get_benchmark_path
 from choicebench.config.schema import get_valid_benchmarks
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -100,16 +99,6 @@ def test_get_valid_benchmarks_includes_special_cases():
     valid = get_valid_benchmarks()
     assert "toy" in valid
     assert "huggingface" in valid
-
-
-# ---------------------------------------------------------------------------
-# get_benchmark_path
-# ---------------------------------------------------------------------------
-
-@pytest.mark.parametrize("name", [row[0] for row in _EXPECTED_BENCHMARKS])
-def test_get_benchmark_path_returns_correct_path(name):
-    expected = PROCESSED_DIR / f"{name}_normalized.csv"
-    assert get_benchmark_path(name) == expected
 
 
 # ---------------------------------------------------------------------------

@@ -49,11 +49,6 @@ def validate_run_id(run_id: str) -> str:
 TOY_BENCHMARK_PATH = PROCESSED_DIR / "toy_normalized.csv"
 
 
-def get_benchmark_path(name: str, split: str = "test") -> Path:
-    """Return the legacy generic path; verified runtime loaders do not use it."""
-    return PROCESSED_DIR / f"{name}_normalized.csv"
-
-
 def safe_reset_run_dir(run_dir: Path, allowed_root: Path = RUNS_DIR) -> Path:
     """Clear a run directory, guarded so it can only ever touch runs output.
 
