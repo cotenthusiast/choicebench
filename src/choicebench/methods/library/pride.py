@@ -226,75 +226,104 @@ class PriDeRunner(ExperimentRunner):
         )
         sorted_ids = tuple(sorted(cal_qids))
 
-        # Try to reuse a matching sidecar from a previous run.
-        path = self._sidecar_path()
-        if sorted_ids and path.exists():
-            try:
-                blob = json.loads(path.read_text())
-                digest = blob.get("sidecar_digest")
-                payload = {key: value for key, value in blob.items() if key != "sidecar_digest"}
-                if (
-                    blob.get("schema_version") == _SIDE_SCHEMA_VERSION
-                    and (self._condition_id is None or digest == integrity_digest(payload))
-                    and (self._condition_id is None or blob.get("condition_id") == self._condition_id)
-                    and tuple(sorted(blob.get("calibration_question_ids") or [])) == sorted_ids
-                    and int(blob.get("calibration_seed", -1)) == self._calibration_seed
-                    # PF-9: also key on the generation settings the prior was fit
-                    # under, so a sidecar is never silently reused across runs with
-                    # a different temperature / max_tokens / prompt_version.
-                    and blob.get("temperature") == self.temperature
-                    and blob.get("max_tokens") == self.max_tokens
-                    and blob.get("prompt_version") == self.prompt_version
-                    # A prior fit at a different option count is not reusable.
-                    and int(blob.get("n_options", -1)) == self._modal_k
-                    and blob.get("calibration_identity", {}) == self._calibration_identity
-                ):
-                    self._calibration_state = calibration_state_from_sidecar(blob, self._modal_letters)
-                    self._calibration_ready = True
-                    logger.info(
-                        "PriDe loaded sidecar (K=%d) → %s",
-                        len(sorted_ids),
-                        path,
-                    )
-                    return
-                if self._condition_id is not None:
-                    raise RuntimeError(
-                        f"PriDe calibration sidecar does not belong to condition {self._condition_id}: {path}."
-                    )
-            except (json.JSONDecodeError, KeyError, OSError, TypeError, ValueError) as exc:
-                raise RuntimeError(
-                    f"PriDe calibration sidecar is corrupt or incompatible: {path}. "
-                    "Reset the run to recompute it."
-                ) from exc
+        cached_state = self._load_cached_sidecar(sorted_ids)
+        if cached_state is not None:
+            self._calibration_state = cached_state
+            self._calibration_ready = True
+            return
 
+        self._calibration_state = self._compute_calibration_state(cal_rows, sorted_ids)
+        self._calibration_ready = True
+        self._write_calibration_sidecar(self._calibration_state, sorted_ids)
+
+    def _load_cached_sidecar(self, sorted_ids: tuple[str, ...]) -> CalibrationState | None:
+        """Load & validate a cached sidecar from disk, if reusable.
+
+        Returns None (caller should fall through to recompute) when no
+        sidecar exists or no calibration questions were selected. Raises
+        RuntimeError if a sidecar exists but is corrupt or belongs to a
+        different condition/run.
+        """
+        path = self._sidecar_path()
+        if not (sorted_ids and path.exists()):
+            return None
+        try:
+            blob = json.loads(path.read_text())
+            digest = blob.get("sidecar_digest")
+            payload = {key: value for key, value in blob.items() if key != "sidecar_digest"}
+            if (
+                blob.get("schema_version") == _SIDE_SCHEMA_VERSION
+                and (self._condition_id is None or digest == integrity_digest(payload))
+                and (self._condition_id is None or blob.get("condition_id") == self._condition_id)
+                and tuple(sorted(blob.get("calibration_question_ids") or [])) == sorted_ids
+                and int(blob.get("calibration_seed", -1)) == self._calibration_seed
+                # PF-9: also key on the generation settings the prior was fit
+                # under, so a sidecar is never silently reused across runs with
+                # a different temperature / max_tokens / prompt_version.
+                and blob.get("temperature") == self.temperature
+                and blob.get("max_tokens") == self.max_tokens
+                and blob.get("prompt_version") == self.prompt_version
+                # A prior fit at a different option count is not reusable.
+                and int(blob.get("n_options", -1)) == self._modal_k
+                and blob.get("calibration_identity", {}) == self._calibration_identity
+            ):
+                logger.info(
+                    "PriDe loaded sidecar (K=%d) → %s",
+                    len(sorted_ids),
+                    path,
+                )
+                return calibration_state_from_sidecar(blob, self._modal_letters)
+            if self._condition_id is not None:
+                raise RuntimeError(
+                    f"PriDe calibration sidecar does not belong to condition {self._condition_id}: {path}."
+                )
+        except (json.JSONDecodeError, KeyError, OSError, TypeError, ValueError) as exc:
+            raise RuntimeError(
+                f"PriDe calibration sidecar is corrupt or incompatible: {path}. "
+                "Reset the run to recompute it."
+            ) from exc
+        return None
+
+    def _compute_calibration_state(
+        self, cal_rows: list[Any], sorted_ids: tuple[str, ...],
+    ) -> CalibrationState:
+        """Compute the calibration math when no cached sidecar was reusable.
+
+        Per-row cyclic rollouts → Eq.7 priors → averaging into a global
+        prior; falls back to a uniform prior when no calibration rows are
+        available.
+        """
         if not cal_rows:
             logger.warning(
                 "PriDe: no calibration questions available — using uniform prior."
             )
-            self._calibration_state = calibration_state_uniform(self._modal_letters)
-        else:
-            for row in cal_rows:
-                self._require_modal_k_options(row)
-            prior_vectors: list[np.ndarray] = []
-            for row in cal_rows:
-                roll_mat = self._cyclic_rollout_prob_matrix(row)
-                prior_vectors.append(equation7_prior_from_rollouts(roll_mat))
+            return calibration_state_uniform(self._modal_letters)
 
-            pep_global = average_prior_probability_vectors(prior_vectors, self._modal_letters)
-            self._calibration_state = CalibrationState(
-                peprior_probs={
-                    self._modal_letters[i]: float(pep_global[i])
-                    for i in range(len(self._modal_letters))
-                },
-                epsilon=1e-12,
-                estimation_question_ids=tuple(sorted_ids),
-            )
+        for row in cal_rows:
+            self._require_modal_k_options(row)
+        prior_vectors: list[np.ndarray] = []
+        for row in cal_rows:
+            roll_mat = self._cyclic_rollout_prob_matrix(row)
+            prior_vectors.append(equation7_prior_from_rollouts(roll_mat))
 
-        self._calibration_ready = True
+        pep_global = average_prior_probability_vectors(prior_vectors, self._modal_letters)
+        return CalibrationState(
+            peprior_probs={
+                self._modal_letters[i]: float(pep_global[i])
+                for i in range(len(self._modal_letters))
+            },
+            epsilon=1e-12,
+            estimation_question_ids=tuple(sorted_ids),
+        )
 
+    def _write_calibration_sidecar(
+        self, state: CalibrationState, sorted_ids: tuple[str, ...],
+    ) -> None:
+        """Persist the freshly computed calibration state as a new sidecar."""
+        path = self._sidecar_path()
         sidecar_payload = {
             "schema_version": _SIDE_SCHEMA_VERSION,
-            "version": self._calibration_state.version,
+            "version": state.version,
             "calibration_seed": self._calibration_seed,
             # Generation settings the prior was fit under are part of the reuse key.
             "temperature": self.temperature,
@@ -305,10 +334,10 @@ class PriDeRunner(ExperimentRunner):
             "calibration_identity": self._calibration_identity,
             "calibration_question_ids": list(sorted_ids),
             "peprior_probs": {
-                L: float(self._calibration_state.peprior_probs.get(L, 0.0))
+                L: float(state.peprior_probs.get(L, 0.0))
                 for L in self._modal_letters
             },
-            "epsilon": self._calibration_state.epsilon,
+            "epsilon": state.epsilon,
         }
         sidecar_payload["sidecar_digest"] = integrity_digest(sidecar_payload)
         atomic_write_json(path, sidecar_payload)
