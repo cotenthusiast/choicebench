@@ -9,22 +9,6 @@ from choicebench.scoring.types import (
 )
 
 
-def is_choice_correct(predicted_choice: str, gold_choice: str) -> bool:
-    """
-    Compare a parsed prediction against the gold label.
-
-    Returns True only for exact choice-letter equality (e.g. "A" == "A").
-
-    Args:
-        predicted_choice: Parsed answer letter from the model output.
-        gold_choice: Ground-truth answer letter.
-
-    Returns:
-        Boolean correctness result.
-    """
-    return predicted_choice == gold_choice
-
-
 def score_prediction(parse_result: ParseResult, gold_choice: str) -> ScoreResult:
     """
     Convert a ParseResult into a scoring outcome.
@@ -49,7 +33,7 @@ def score_prediction(parse_result: ParseResult, gold_choice: str) -> ScoreResult
             status = SCORE_UNSCORABLE,
             parse_status=parse_result.status,
         )
-    result = is_choice_correct(parse_result.final_choice, gold_choice)
+    result = parse_result.final_choice == gold_choice
     return ScoreResult(
         is_correct = result,
         predicted_choice = parse_result.final_choice,
