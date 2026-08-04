@@ -1,8 +1,8 @@
 # src/choicebench/pipeline/prompt_builder.py
 
 from pathlib import Path
-from importlib import resources
 
+from choicebench.config.paths import PROMPTS_DIR
 from choicebench.identity import integrity_digest, short_id
 
 
@@ -36,7 +36,7 @@ def load_prompt_templates(version: str, prompts_dir: Path | None = None) -> dict
     """
     if not version or version in {".", ".."} or "/" in version or "\\" in version:
         raise ValueError(f"Invalid logical prompt version: {version!r}")
-    root = prompts_dir or resources.files("choicebench.resources").joinpath("prompts")
+    root = prompts_dir or PROMPTS_DIR
     version_dir = root / version
     if not version_dir.is_dir():
         raise FileNotFoundError(
