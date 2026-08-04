@@ -86,7 +86,6 @@ class _AsyncMockBackend(APIBackend):
         self._max_tokens = 16
         self._seed = 42
         self._concurrency_limit = len(responses) or 10
-        self._semaphore = None
         self._queued = list(responses)
         self.prompts_received: list[str] = []
         self.call_count = 0
@@ -243,11 +242,17 @@ async def test_semaphore_limits_concurrent_requests():
         )
 
     # Build a minimal APIBackend with a mock client that exposes fake_generate.
+    # Concurrency gating now lives on the client (mirroring BaseClient's own
+    # semaphore) since APIBackend's redundant outer semaphore was removed —
+    # see step 26.1.
     class _MinimalClient:
         provider = "openai"
         model_name = "mock"
+        def __init__(self, limit):
+            self._semaphore = asyncio.Semaphore(limit)
         async def generate(self, request):
-            return await fake_generate(request)
+            async with self._semaphore:
+                return await fake_generate(request)
         async def generate_batch(self, requests):
             return list(await asyncio.gather(*[self.generate(r) for r in requests]))
 
@@ -265,8 +270,7 @@ async def test_semaphore_limits_concurrent_requests():
                 self._max_tokens = 16
                 self._seed = 42
                 self._concurrency_limit = limit
-                self._semaphore = None
-                inner = _MinimalClient()
+                inner = _MinimalClient(limit)
                 self._client = CachingClientWrapper(inner, cache)
 
         backend = _APIBackendDirect(limit=1)
@@ -305,8 +309,11 @@ async def test_semaphore_allows_multiple_concurrent_with_higher_limit():
     class _MinimalClient:
         provider = "openai"
         model_name = "mock"
+        def __init__(self, limit):
+            self._semaphore = asyncio.Semaphore(limit)
         async def generate(self, request):
-            return await fake_generate(request)
+            async with self._semaphore:
+                return await fake_generate(request)
         async def generate_batch(self, requests):
             return list(await asyncio.gather(*[self.generate(r) for r in requests]))
 
@@ -324,8 +331,7 @@ async def test_semaphore_allows_multiple_concurrent_with_higher_limit():
                 self._max_tokens = 16
                 self._seed = 42
                 self._concurrency_limit = limit
-                self._semaphore = None
-                inner = _MinimalClient()
+                inner = _MinimalClient(limit)
                 self._client = CachingClientWrapper(inner, cache)
 
         backend = _APIBackendDirect(limit=4)
@@ -639,7 +645,6 @@ def test_api_backend_is_async_capable(tmp_path):
     backend._max_tokens = 16
     backend._seed = 42
     backend._concurrency_limit = 5
-    backend._semaphore = None
     backend._client = CachingClientWrapper(client, cache)
 
     assert backend.is_async_capable() is True
@@ -661,7 +666,6 @@ def test_api_backend_generate_raises_runtime_error(tmp_path):
     backend._max_tokens = 16
     backend._seed = 42
     backend._concurrency_limit = 5
-    backend._semaphore = None
     backend._client = CachingClientWrapper(_FakeClient(), cache)
 
     with pytest.raises(RuntimeError, match="generate_batch"):

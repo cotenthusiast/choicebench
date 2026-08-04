@@ -44,14 +44,6 @@ class APIBackend(BaseBackend):
         self._max_tokens = max_tokens
         self._seed = seed
         self._concurrency_limit = concurrency_limit
-        # Semaphore created lazily inside a running event loop — not in __init__.
-        self._semaphore: asyncio.Semaphore | None = None
-
-    def _get_semaphore(self) -> asyncio.Semaphore:
-        """Return the shared semaphore, creating it lazily on first use."""
-        if self._semaphore is None:
-            self._semaphore = asyncio.Semaphore(self._concurrency_limit)
-        return self._semaphore
 
     def _make_request(self, prompt: str) -> ModelRequest:
         return ModelRequest(
@@ -79,16 +71,15 @@ class APIBackend(BaseBackend):
     async def generate_single_async(self, prompt: str) -> ModelResponse:
         """Execute one request, respecting this backend's concurrency limit."""
         request = self._make_request(prompt)
-        async with self._get_semaphore():
-            return await self._client.generate(request)
+        return await self._client.generate(request)
 
     async def generate_batch(self, prompts: list[str]) -> list[ModelResponse]:
         """Execute all prompts concurrently, bounded by concurrency_limit.
 
-        The semaphore in _get_semaphore() (and in BaseClient) controls how
-        many requests are in-flight simultaneously. All prompts are submitted
-        to asyncio.gather() so they race for semaphore slots — no prompt
-        waits for the previous one to finish before being submitted.
+        The semaphore inside BaseClient controls how many requests are
+        in-flight simultaneously. All prompts are submitted to
+        asyncio.gather() so they race for semaphore slots — no prompt waits
+        for the previous one to finish before being submitted.
         """
         return list(await asyncio.gather(
             *[self.generate_single_async(p) for p in prompts]
