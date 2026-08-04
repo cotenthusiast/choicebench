@@ -58,6 +58,37 @@ def parse_choices_json(raw: object) -> list[dict[str, Any]]:
     return parsed
 
 
+def _build_choices_from_json(question_row: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """New schema: a ``choices_json`` column (list of {text, source_index}).
+
+    Labels are re-derived from position via letters_for().
+    """
+    raw = parse_choices_json(question_row[CHOICES_JSON_COL])
+    labels = letters_for(len(raw)) if raw else []
+    choices: list[dict[str, Any]] = []
+    for pos, (item, label) in enumerate(zip(raw, labels)):
+        text = normalize_option_text(item.get("text"))
+        source_index = item.get("source_index", pos)
+        choices.append(
+            {"label": label, "text": text, "source_index": int(source_index)}
+        )
+    return choices
+
+
+def _build_choices_legacy(question_row: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Legacy schema: fixed ``choice_a..choice_d`` columns.
+
+    Each column keeps its fixed letter as the label (A=choice_a, ...) and its
+    column index as source_index; missing/empty columns are dropped.
+    """
+    choices = []
+    for i, label in enumerate(LEGACY_OPTION_LETTERS):
+        text = normalize_option_text(question_row.get(f"choice_{label.lower()}"))
+        if text:
+            choices.append({"label": label, "text": text, "source_index": i})
+    return choices
+
+
 def build_choices(question_row: Mapping[str, Any]) -> list[dict[str, Any]]:
     """Return the canonical, ordered choice records for one question row.
 
@@ -68,32 +99,11 @@ def build_choices(question_row: Mapping[str, Any]) -> list[dict[str, Any]]:
       - ``source_index``: the option's original index in the raw source dataset,
         preserved for audit.
 
-    Supports both schemas:
-      - New: a ``choices_json`` column (list of {text, source_index}). Labels are
-        re-derived from position via letters_for().
-      - Legacy: ``choice_a..choice_d`` columns. Each column keeps its fixed
-        letter as the label (A=choice_a, ...) and its column index as
-        source_index; missing/empty columns are dropped.
+    Supports both schemas (see ``_build_choices_from_json``/``_build_choices_legacy``).
     """
     if _has_choices_json(question_row):
-        raw = parse_choices_json(question_row[CHOICES_JSON_COL])
-        labels = letters_for(len(raw)) if raw else []
-        choices: list[dict[str, Any]] = []
-        for pos, (item, label) in enumerate(zip(raw, labels)):
-            text = normalize_option_text(item.get("text"))
-            source_index = item.get("source_index", pos)
-            choices.append(
-                {"label": label, "text": text, "source_index": int(source_index)}
-            )
-        return choices
-
-    # Legacy path: fixed choice_a..choice_d columns.
-    choices = []
-    for i, label in enumerate(LEGACY_OPTION_LETTERS):
-        text = normalize_option_text(question_row.get(f"choice_{label.lower()}"))
-        if text:
-            choices.append({"label": label, "text": text, "source_index": i})
-    return choices
+        return _build_choices_from_json(question_row)
+    return _build_choices_legacy(question_row)
 
 
 def build_option_map(question_row: Mapping[str, Any]) -> dict[str, str]:
