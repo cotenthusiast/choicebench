@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any, Mapping
 
-from choicebench.constants import MCQ_OPTIONS, letters_for
+from choicebench.constants import LEGACY_OPTION_LETTERS, letters_for
 
 # Column that holds the variable-choice representation in the new schema. When
 # present, it takes precedence over the legacy choice_a..choice_d columns.
@@ -89,7 +89,7 @@ def build_choices(question_row: Mapping[str, Any]) -> list[dict[str, Any]]:
 
     # Legacy path: fixed choice_a..choice_d columns.
     choices = []
-    for i, label in enumerate(MCQ_OPTIONS):
+    for i, label in enumerate(LEGACY_OPTION_LETTERS):
         text = normalize_option_text(question_row.get(f"choice_{label.lower()}"))
         if text:
             choices.append({"label": label, "text": text, "source_index": i})

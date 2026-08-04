@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Collection, Mapping
 
-from choicebench.constants import MCQ_OPTIONS
+from choicebench.constants import LEGACY_OPTION_LETTERS
 from choicebench.parsing.types import (
     PARSE_AMBIGUOUS,
     PARSE_MISSING,
@@ -14,7 +14,7 @@ from choicebench.parsing.types import (
 )
 
 
-DEFAULT_VALID_CHOICES: tuple[str, ...] = tuple(MCQ_OPTIONS)
+DEFAULT_VALID_CHOICES: tuple[str, ...] = tuple(LEGACY_OPTION_LETTERS)
 
 
 def normalize_output_text(raw_text: str | None) -> str:

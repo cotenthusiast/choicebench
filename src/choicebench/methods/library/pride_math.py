@@ -21,9 +21,9 @@ from typing import Any, Iterable, Mapping
 
 import numpy as np
 
-from choicebench.constants import MCQ_OPTIONS
+from choicebench.constants import LEGACY_OPTION_LETTERS
 
-OPTION_LETTERS: tuple[str, ...] = tuple(MCQ_OPTIONS)
+OPTION_LETTERS: tuple[str, ...] = tuple(LEGACY_OPTION_LETTERS)
 
 
 _LOGPROB_FLOOR = -30.0

@@ -2,13 +2,6 @@
 
 import string
 
-# Legacy fixed A-D option set. Kept as the default for backwards compatibility
-# (parser defaults, 4-option PriDe path). New code that needs to support a
-# variable number of choices should derive its label set with letters_for(n).
-MCQ_OPTIONS: list[str] = ["A", "B", "C", "D"]
-
-MCQ_ANSWER_MAP: dict[int, str] = {i: letter for i, letter in enumerate(MCQ_OPTIONS)}
-
 # Full A-Z label alphabet. MCQ answer labels are single letters, so this caps a
 # question at 26 options — far above the 10-option maximum of MMLU-Pro.
 ALL_OPTION_LETTERS: list[str] = list(string.ascii_uppercase)
@@ -26,3 +19,9 @@ def letters_for(n: int) -> list[str]:
             f"letters_for(n) supports 1..{len(ALL_OPTION_LETTERS)} options; got n={n}."
         )
     return ALL_OPTION_LETTERS[:n]
+
+
+# Legacy fixed A-D option set. Kept as the default for backwards compatibility
+# (parser defaults, 4-option PriDe path). New code that needs to support a
+# variable number of choices should derive its label set with letters_for(n).
+LEGACY_OPTION_LETTERS: list[str] = letters_for(4)
