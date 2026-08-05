@@ -234,6 +234,22 @@ def write_prepared_dataset(
         )
 
 
+def _build_prepared_dataset_metadata(
+    spec_payload: dict[str, Any], digest: str, source_payload: dict[str, Any], row_count: int,
+) -> dict[str, Any]:
+    metadata = {
+        "schema_version": DATASET_ARTIFACT_SCHEMA_VERSION,
+        "artifact_id": short_id("ds", {"spec": spec_payload, "content_digest": digest, "source": source_payload}),
+        "spec": spec_payload,
+        "content_digest": digest,
+        "row_count": row_count,
+        "source": source_payload,
+        "provenance_status": "verified",
+    }
+    metadata["metadata_digest"] = integrity_digest(metadata)
+    return metadata
+
+
 def _write_prepared_dataset_unlocked(
     df: pd.DataFrame,
     processed_dir: Path,
@@ -251,16 +267,7 @@ def _write_prepared_dataset_unlocked(
     # not the pre-serialization in-memory dtypes.
     persisted_df = pd.read_csv(path, dtype={"question_id": "string"})
     digest = dataset_content_digest(persisted_df)
-    metadata = {
-        "schema_version": DATASET_ARTIFACT_SCHEMA_VERSION,
-        "artifact_id": short_id("ds", {"spec": spec_payload, "content_digest": digest, "source": source_payload}),
-        "spec": spec_payload,
-        "content_digest": digest,
-        "row_count": len(persisted_df),
-        "source": source_payload,
-        "provenance_status": "verified",
-    }
-    metadata["metadata_digest"] = integrity_digest(metadata)
+    metadata = _build_prepared_dataset_metadata(spec_payload, digest, source_payload, len(persisted_df))
     metadata_path = artifact_metadata_path(path)
     atomic_write_json(metadata_path, metadata)
     return PreparedDataset(path, metadata_path, metadata, persisted_df)
