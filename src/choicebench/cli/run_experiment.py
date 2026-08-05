@@ -1251,6 +1251,53 @@ def main() -> None:
         sys.exit(1)
 
 
+def _reconcile_run_state(
+    state: dict,
+    failures: list[tuple[str, Exception]],
+    gated: list[tuple[str, ModalKGateReport]],
+    output_dir: Path,
+) -> None:
+    """Reconcile (failures, gated) plus on-disk result files into per-condition state."""
+    failed_errors = {label.split()[0]: redact_text(exc) for label, exc in failures}
+    gated_ids = {label.split()[0] for label, _ in gated}
+    for condition_id, item in state["conditions"].items():
+        result_path = output_dir / "results" / f"{condition_id}.csv"
+        if condition_id in failed_errors:
+            item["status"] = "failed"
+            item["error"] = failed_errors[condition_id]
+        elif condition_id in gated_ids:
+            item["status"] = "gated"
+            item.pop("error", None)
+        elif result_path.exists():
+            result_metadata = validate_result_artifact(result_path)
+            item["status"] = "completed"
+            item["result_path"] = str(result_path.relative_to(output_dir))
+            item["result_sha256"] = result_metadata["file_sha256"]
+            item.pop("error", None)
+
+
+def _log_run_summary(
+    run_id: str,
+    output_dir: Path,
+    failures: list[tuple[str, Exception]],
+    gated: list[tuple[str, ModalKGateReport]],
+) -> None:
+    logger.info("── Run complete ─────────────────────────────────")
+    logger.info("  Run ID:     %s", run_id)
+    logger.info("  Results in: %s", output_dir)
+    if failures:
+        logger.error("  Failed jobs: %d", len(failures))
+        for label, exc in failures:
+            logger.error("    - %s: %s", label, redact_text(exc))
+    else:
+        logger.info("  Failed jobs: 0")
+    if gated:
+        logger.info("  Gated by design (PriDe modal-k threshold): %d", len(gated))
+        for label, report in gated:
+            logger.info("    - %s: %s", label, report.reason)
+    logger.info("─────────────────────────────────────────────────")
+
+
 def _execute_locked_run(args, config, run_id: str, output_dir: Path, checkpoint_dir: Path) -> None:
 
     if args.reset_run:
@@ -1286,39 +1333,10 @@ def _execute_locked_run(args, config, run_id: str, output_dir: Path, checkpoint_
     logger.info("Experiment identity: %s", manifest["experiment_id"])
 
     failures, gated = asyncio.run(_async_main(config, run_id, output_dir, checkpoint_dir, plan))
-    failed_errors = {label.split()[0]: redact_text(exc) for label, exc in failures}
-    gated_ids = {label.split()[0] for label, _ in gated}
-    for condition_id, item in state["conditions"].items():
-        result_path = output_dir / "results" / f"{condition_id}.csv"
-        if condition_id in failed_errors:
-            item["status"] = "failed"
-            item["error"] = failed_errors[condition_id]
-        elif condition_id in gated_ids:
-            item["status"] = "gated"
-            item.pop("error", None)
-        elif result_path.exists():
-            result_metadata = validate_result_artifact(result_path)
-            item["status"] = "completed"
-            item["result_path"] = str(result_path.relative_to(output_dir))
-            item["result_sha256"] = result_metadata["file_sha256"]
-            item.pop("error", None)
+    _reconcile_run_state(state, failures, gated, output_dir)
     write_run_state(output_dir, state)
 
-    # --- Run summary ---
-    logger.info("── Run complete ─────────────────────────────────")
-    logger.info("  Run ID:     %s", run_id)
-    logger.info("  Results in: %s", output_dir)
-    if failures:
-        logger.error("  Failed jobs: %d", len(failures))
-        for label, exc in failures:
-            logger.error("    - %s: %s", label, redact_text(exc))
-    else:
-        logger.info("  Failed jobs: 0")
-    if gated:
-        logger.info("  Gated by design (PriDe modal-k threshold): %d", len(gated))
-        for label, report in gated:
-            logger.info("    - %s: %s", label, report.reason)
-    logger.info("─────────────────────────────────────────────────")
+    _log_run_summary(run_id, output_dir, failures, gated)
 
     if failures:
         sys.exit(1)
