@@ -168,7 +168,8 @@ def make_manifest(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def validate_manifest(manifest: dict[str, Any]) -> None:
+def _validate_manifest_identity(manifest: dict[str, Any]) -> dict[str, Any]:
+    """Validate manifest/payload versioning and integrity digests; return the payload."""
     if manifest.get("schema_version") != MANIFEST_SCHEMA_VERSION:
         raise ManifestCompatibilityError("Unsupported or missing manifest schema version.")
     payload = manifest.get("payload")
@@ -187,6 +188,11 @@ def validate_manifest(manifest: dict[str, Any]) -> None:
     experiment_id = f"exp_{digest[:16]}"
     if manifest.get("experiment_digest") != digest or manifest.get("experiment_id") != experiment_id:
         raise ManifestCompatibilityError("Manifest integrity check failed; payload or identity was modified.")
+    return payload
+
+
+def _validate_manifest_artifact_paths(payload: dict[str, Any]) -> None:
+    """Reject any manifest artifact path that doesn't match its expected literal path."""
     conditions = payload.get("conditions", [])
     ids = [item.get("condition_id") for item in conditions]
     result_paths = [item.get("result_path") for item in conditions]
@@ -216,6 +222,11 @@ def validate_manifest(manifest: dict[str, Any]) -> None:
         expected_prompt = f"artifacts/prompts/{prompt.get('prompt_id')}"
         if prompt.get("run_snapshot_path") != expected_prompt:
             raise ManifestCompatibilityError("Manifest contains an unsafe prompt snapshot path.")
+
+
+def validate_manifest(manifest: dict[str, Any]) -> None:
+    payload = _validate_manifest_identity(manifest)
+    _validate_manifest_artifact_paths(payload)
 
 
 def _differing_identity_sections(existing: dict[str, Any], candidate: dict[str, Any]) -> list[str]:
