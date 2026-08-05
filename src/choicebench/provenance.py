@@ -11,7 +11,7 @@ from importlib.metadata import PackageNotFoundError, packages_distributions, ver
 from pathlib import Path
 from typing import Any
 
-from choicebench.identity import file_digest, integrity_digest
+from choicebench.identity import digest_directory_tree, file_digest, integrity_digest
 
 _COMMIT_RE = re.compile(r"^[0-9a-fA-F]{40,64}$")
 
@@ -26,15 +26,11 @@ def directory_digest(root: Path) -> tuple[str, list[dict[str, Any]]]:
     if root.is_file():
         record = {"path": root.name, "size": root.stat().st_size, "sha256": file_digest(root)}
         return integrity_digest([record]), [record]
-    records: list[dict[str, Any]] = []
-    for path in sorted(item for item in root.rglob("*") if item.is_file()):
-        if any(part in {".git", "__pycache__"} for part in path.relative_to(root).parts):
-            continue
-        records.append({
-            "path": path.relative_to(root).as_posix(),
-            "size": path.stat().st_size,
-            "sha256": file_digest(path),
-        })
+    records = digest_directory_tree(
+        root,
+        exclude=lambda rel: any(part in {".git", "__pycache__"} for part in rel.parts),
+        hash_fn=file_digest,
+    )
     if not records:
         raise ProvenanceResolutionError(f"Local model path contains no files: {root}")
     return integrity_digest(records), records
@@ -132,18 +128,12 @@ def implementation_identity(target: Any) -> dict[str, Any]:
         try:
             package = importlib.import_module(top_level)
             roots = [Path(item) for item in getattr(package, "__path__", [])]
-            tree_records: list[dict[str, Any]] = []
-            for root in roots:
-                if not root.is_dir():
-                    continue
-                for path in sorted(item for item in root.rglob("*") if item.is_file()):
-                    if "__pycache__" in path.parts or path.suffix in {".pyc", ".pyo"}:
-                        continue
-                    tree_records.append({
-                        "path": f"{root.name}/{path.relative_to(root).as_posix()}",
-                        "size": path.stat().st_size,
-                        "sha256": file_digest(path),
-                    })
+            tree_records = digest_directory_tree(
+                roots,
+                exclude=lambda rel: "__pycache__" in rel.parts or rel.suffix in {".pyc", ".pyo"},
+                hash_fn=file_digest,
+                record_path=lambda root, path: f"{root.name}/{path.relative_to(root).as_posix()}",
+            )
             if tree_records:
                 record["package_tree_digest"] = integrity_digest(tree_records)
                 record["package_file_count"] = len(tree_records)
