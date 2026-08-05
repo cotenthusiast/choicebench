@@ -21,11 +21,14 @@ from choicebench.infra.checkpoint import CheckpointManager
 from choicebench.io.writers import write_run_results
 
 
-def _row(qid: str) -> dict:
+def _row(qid: str, condition_id: str) -> dict:
     return {
         "question_id": qid,
         "correct_option": "A",
         "parsed_choice": "A",
+        "experiment_id": "exp", "condition_id": condition_id, "dataset_artifact_id": "ds",
+        "dataset_selection_id": "sel", "model_id": "model", "method_id": "method",
+        "prompt_id": "prompt", "benchmark_split": "test",
     }
 
 
@@ -39,9 +42,9 @@ def test_two_huggingface_datasets_get_distinct_written_identity(tmp_path: Path):
     assert label_a == "ai2_arc"
     assert label_b == "mmlu"
 
-    # Distinct CSV filenames + benchmark_name column.
-    out_a = write_run_results([_row("a1")], tmp_path, "run", "direct_mcq", "m", label_a)
-    out_b = write_run_results([_row("b1")], tmp_path, "run", "direct_mcq", "m", label_b)
+    # Distinct CSV filenames (via condition_id) + benchmark_name column.
+    out_a = write_run_results([_row("a1", "cond_a")], tmp_path, "cond_a", label_a)
+    out_b = write_run_results([_row("b1", "cond_b")], tmp_path, "cond_b", label_b)
     assert out_a != out_b
     assert pd.read_csv(out_a)["benchmark_name"].iloc[0] == "ai2_arc"
     assert pd.read_csv(out_b)["benchmark_name"].iloc[0] == "mmlu"

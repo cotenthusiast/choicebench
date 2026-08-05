@@ -147,8 +147,7 @@ def test_completed_result_is_validated_and_skipped(tmp_path, monkeypatch):
     result = tmp_path / "results" / f"{condition['condition_id']}.csv"
     result.parent.mkdir()
     write_run_results(
-        rows.to_dict(orient="records"), tmp_path, "r", "direct_mcq", "same", "toy",
-        condition_id=condition["condition_id"],
+        rows.to_dict(orient="records"), tmp_path, condition["condition_id"], "toy",
     )
     monkeypatch.setattr(mod, "build_backend", lambda *a, **k: (_ for _ in ()).throw(AssertionError("must skip")))
     asyncio.run(mod._run_model(
@@ -158,8 +157,7 @@ def test_completed_result_is_validated_and_skipped(tmp_path, monkeypatch):
     result.unlink()
     result.with_suffix(".artifact.json").unlink()
     write_run_results(
-        rows.iloc[:-1].to_dict(orient="records"), tmp_path, "r", "direct_mcq", "same", "toy",
-        condition_id=condition["condition_id"],
+        rows.iloc[:-1].to_dict(orient="records"), tmp_path, condition["condition_id"], "toy",
     )
     with pytest.raises(mod.ConfigurationError, match="incomplete"):
         asyncio.run(mod._run_model(

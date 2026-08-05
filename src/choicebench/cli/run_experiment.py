@@ -504,11 +504,8 @@ async def run_method(
     output_path = write_run_results(
         results=accumulated_results,
         output_dir=output_dir,
-        run_id=runner.run_id,
-        method_name=method_name,
-        model_name=model_name,
-        benchmark=benchmark,
         condition_id=(condition_metadata or {}).get("condition_id"),
+        benchmark=benchmark,
     )
     checkpoint_mgr.delete()
     logger.info("[%s] Done → %s", method_name, output_path)

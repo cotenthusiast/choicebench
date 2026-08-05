@@ -288,8 +288,7 @@ def _completed_run_with_rows(run_dir: Path, rows: list[dict]):
     snapshot.parent.mkdir(parents=True)
     selection_df.to_csv(snapshot, index=False)
     rows = [{**row, "experiment_id": manifest["experiment_id"]} for row in rows]
-    result_path = write_run_results(rows, run_dir, "r", "direct_mcq", "dummy_model", "toy",
-                                    condition_id="cond_1")
+    result_path = write_run_results(rows, run_dir, "cond_1", "toy")
     metadata = validate_result_artifact(result_path)
     (run_dir / "run_state.json").write_text(json.dumps({
         "schema_version": RUN_STATE_SCHEMA_VERSION,
@@ -354,5 +353,4 @@ def test_null_row_ownership_is_rejected_at_write(tmp_path):
 
     rows = [_identity_row("q1", "exp_x"), {**_identity_row("q2", "exp_x"), "condition_id": None}]
     with pytest.raises(RuntimeError, match="missing condition_id identity"):
-        write_run_results(rows, tmp_path, "r", "direct_mcq", "dummy_model", "toy",
-                          condition_id="cond_1")
+        write_run_results(rows, tmp_path, "cond_1", "toy")

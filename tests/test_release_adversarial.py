@@ -139,7 +139,7 @@ def test_result_and_cache_tampering_are_detected(tmp_path):
     }
     result = write_run_results(
         [{"question_id": "q1", "is_correct": False, **metadata}], tmp_path,
-        "r", "direct", "model", "toy", condition_id="cond",
+        "cond", "toy",
     )
     frame = pd.read_csv(result)
     frame.loc[0, "is_correct"] = True

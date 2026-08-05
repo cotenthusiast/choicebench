@@ -687,23 +687,26 @@ def test_checkpoint_paths_are_unique_per_model(tmp_path):
 
 
 def test_output_csv_paths_are_unique_per_model(tmp_path):
-    """write_run_results for two different models must produce different file paths."""
+    """write_run_results for two different conditions must produce different file paths."""
     from choicebench.io.writers import write_run_results
 
+    identity_a = {
+        "experiment_id": "exp", "condition_id": "cond_a", "dataset_artifact_id": "ds",
+        "dataset_selection_id": "sel", "model_id": "openai/gpt-4.1", "method_id": "method",
+        "prompt_id": "prompt", "benchmark_split": "test",
+    }
+    identity_b = {**identity_a, "condition_id": "cond_b", "model_id": "google/gemini"}
+
     path_a = write_run_results(
-        results=[{"question_id": "q1", "is_correct": True}],
+        results=[{"question_id": "q1", "is_correct": True, **identity_a}],
         output_dir=tmp_path,
-        run_id="rid",
-        method_name="direct_mcq",
-        model_name="openai/gpt-4.1",
+        condition_id="cond_a",
         benchmark="toy",
     )
     path_b = write_run_results(
-        results=[{"question_id": "q1", "is_correct": True}],
+        results=[{"question_id": "q1", "is_correct": True, **identity_b}],
         output_dir=tmp_path,
-        run_id="rid",
-        method_name="direct_mcq",
-        model_name="google/gemini",
+        condition_id="cond_b",
         benchmark="toy",
     )
 
