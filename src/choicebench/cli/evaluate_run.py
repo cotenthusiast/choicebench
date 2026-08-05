@@ -164,24 +164,20 @@ def _verified_metric_records(manifest: dict) -> tuple[list[dict], dict[str, obje
     return sorted(records, key=lambda item: item["name"]), metrics
 
 
-def build_evaluation_report(run_id: str, run_df: pd.DataFrame, manifest: dict, reparse: bool) -> dict:
-    """Compute a self-identifying report bound to run and post-processing code."""
-    metric_records, metrics = _verified_metric_records(manifest)
-    postprocessing = (
-        {
-            "parser": implementation_identity(parse_model_answer),
-            "option_builder": implementation_identity(build_option_map),
-            "scorer": implementation_identity(score_prediction),
-        }
-        if reparse else None
-    )
+def _build_result_records_and_identity(
+    run_id: str, manifest: dict, metric_records: list[dict], reparse: bool, postprocessing: dict | None,
+) -> tuple[dict, dict, str]:
+    """Load run state and bind the exact consumed result set into an evaluation identity.
+
+    The ordered condition statuses plus the verified content digest of each
+    completed result file. Byte-identical result sets share an evaluation ID;
+    materially different results (e.g. after --reset-run and a rerun) receive
+    a different ID, so one report can never silently replace another.
+
+    Returns (state, declared_conditions, evaluation_id).
+    """
     state = load_run_state(RUNS_DIR / run_id, manifest)
     declared_conditions = {item["condition_id"]: item for item in manifest["payload"]["conditions"]}
-    # Bind the exact consumed result set into the evaluation identity: the
-    # ordered condition statuses plus the verified content digest of each
-    # completed result file. Byte-identical result sets share an evaluation ID;
-    # materially different results (e.g. after --reset-run and a rerun) receive
-    # a different ID, so one report can never silently replace another.
     result_records = []
     for condition_id in sorted(declared_conditions):
         entry = state["conditions"][condition_id]
@@ -201,45 +197,78 @@ def build_evaluation_report(run_id: str, run_df: pd.DataFrame, manifest: dict, r
         "results": result_records,
     })
     evaluation_id = short_id("eval", identity)
+    return state, declared_conditions, evaluation_id
+
+
+def _compute_condition_result(
+    condition_id: str,
+    condition: dict,
+    status: str,
+    state: dict,
+    manifest: dict,
+    run_df: pd.DataFrame,
+    metrics: dict,
+) -> dict:
+    """Compute one condition's status/metric result record."""
+    if status in ("gated", "failed"):
+        result = {
+            "status": status, "method_name": _method_name(manifest, condition),
+            "model_name": condition["model_display_name"],
+            "benchmark_name": condition["benchmark_name"], "benchmark_split": condition["split"],
+            "metrics": {},
+        }
+        if status == "failed" and state["conditions"][condition_id].get("error"):
+            result["error"] = state["conditions"][condition_id]["error"]
+        return result
+    if status != "completed":
+        raise RuntimeError(
+            f"Condition {condition_id} has status {status!r}; the run has not finished. "
+            "Complete, resume, or reset the run before evaluating."
+        )
+    group = run_df[run_df["condition_id"] == condition_id]
+    if group.empty:
+        raise RuntimeError(f"Completed condition {condition_id} has no validated result rows.")
+    transport_failures = int((group["transport_status"] == FAILURE_STATUS).sum())
+    transport_failure_fraction = transport_failures / len(group)
+    condition_status = (
+        "infra_failure"
+        if transport_failure_fraction >= INFRA_FAILURE_FRACTION_THRESHOLD
+        else "completed"
+    )
+    first = group.iloc[0]
+    result = {
+        "status": condition_status, "method_name": first["method_name"],
+        "model_name": first["model_name"], "benchmark_name": first["benchmark_name"],
+        "benchmark_split": first["benchmark_split"], "metrics": {},
+        "transport_failure_count": transport_failures,
+        "transport_failure_fraction": transport_failure_fraction,
+    }
+    for name in sorted(metrics):
+        result["metrics"].update(metrics[name].compute(group))
+    return result
+
+
+def build_evaluation_report(run_id: str, run_df: pd.DataFrame, manifest: dict, reparse: bool) -> dict:
+    """Compute a self-identifying report bound to run and post-processing code."""
+    metric_records, metrics = _verified_metric_records(manifest)
+    postprocessing = (
+        {
+            "parser": implementation_identity(parse_model_answer),
+            "option_builder": implementation_identity(build_option_map),
+            "scorer": implementation_identity(score_prediction),
+        }
+        if reparse else None
+    )
+    state, declared_conditions, evaluation_id = _build_result_records_and_identity(
+        run_id, manifest, metric_records, reparse, postprocessing,
+    )
     results: dict[str, dict] = {}
     for condition_id in sorted(declared_conditions):
         status = state["conditions"][condition_id]["status"]
         condition = declared_conditions[condition_id]
-        if status in ("gated", "failed"):
-            results[condition_id] = {
-                "status": status, "method_name": _method_name(manifest, condition),
-                "model_name": condition["model_display_name"],
-                "benchmark_name": condition["benchmark_name"], "benchmark_split": condition["split"],
-                "metrics": {},
-            }
-            if status == "failed" and state["conditions"][condition_id].get("error"):
-                results[condition_id]["error"] = state["conditions"][condition_id]["error"]
-            continue
-        if status != "completed":
-            raise RuntimeError(
-                f"Condition {condition_id} has status {status!r}; the run has not finished. "
-                "Complete, resume, or reset the run before evaluating."
-            )
-        group = run_df[run_df["condition_id"] == condition_id]
-        if group.empty:
-            raise RuntimeError(f"Completed condition {condition_id} has no validated result rows.")
-        transport_failures = int((group["transport_status"] == FAILURE_STATUS).sum())
-        transport_failure_fraction = transport_failures / len(group)
-        condition_status = (
-            "infra_failure"
-            if transport_failure_fraction >= INFRA_FAILURE_FRACTION_THRESHOLD
-            else "completed"
+        results[condition_id] = _compute_condition_result(
+            condition_id, condition, status, state, manifest, run_df, metrics,
         )
-        first = group.iloc[0]
-        results[condition_id] = {
-            "status": condition_status, "method_name": first["method_name"],
-            "model_name": first["model_name"], "benchmark_name": first["benchmark_name"],
-            "benchmark_split": first["benchmark_split"], "metrics": {},
-            "transport_failure_count": transport_failures,
-            "transport_failure_fraction": transport_failure_fraction,
-        }
-        for name in sorted(metrics):
-            results[condition_id]["metrics"].update(metrics[name].compute(group))
     condition_counts = {
         "completed": sum(1 for item in results.values() if item["status"] == "completed"),
         "gated": sum(1 for item in results.values() if item["status"] == "gated"),
