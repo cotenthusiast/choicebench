@@ -35,7 +35,7 @@ def n_choices_for_row(row: Mapping[str, Any]) -> int:
     n = row.get("n_choices")
     if n is not None:
         try:
-            if not (isinstance(n, float) and n != n):  # not NaN
+            if not pd.isna(n):
                 return int(n)
         except (TypeError, ValueError):
             pass
