@@ -43,7 +43,7 @@ def _sanitize_machine_paths(value: Any, key: str = "") -> Any:
     )
     if key == "model_name_or_path" and isinstance(value, str) and Path(value).is_absolute():
         return Path(value).name
-    if path_key and isinstance(value, str) and value != "benchmark":
+    if path_key and isinstance(value, str):
         return Path(value).name
     return value
 
