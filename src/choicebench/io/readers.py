@@ -14,6 +14,163 @@ class ResultSetError(RuntimeError):
     pass
 
 
+def _validate_input_snapshots(manifest: dict, run_dir: Path) -> None:
+    """Validate dataset/calibration input snapshots declared by the manifest."""
+    snapshot_problems: list[str] = []
+    for section in ("datasets", "calibrations"):
+        for record in manifest["payload"].get(section, []):
+            path = run_dir / record["run_snapshot_path"]
+            if not path.is_file():
+                snapshot_problems.append(f"{record['selection_id']}: missing snapshot {record['run_snapshot_path']}")
+                continue
+            try:
+                frame = (
+                    pd.read_csv(path, dtype={"question_id": "string"})
+                    if int(record["row_count"]) else pd.DataFrame()
+                )
+            except (OSError, pd.errors.EmptyDataError) as exc:
+                snapshot_problems.append(f"{record['selection_id']}: unreadable snapshot: {exc}")
+                continue
+            expected_digest = record["selected_content_digest"]
+            actual_ids = [str(value) for value in frame.get("question_id", [])]
+            if (
+                len(frame) != int(record["row_count"])
+                or dataset_content_digest(frame) != expected_digest
+                or actual_ids != list(record.get("selected_question_ids", []))
+            ):
+                snapshot_problems.append(f"{record['selection_id']}: snapshot content/identity mismatch")
+    if snapshot_problems:
+        raise ResultSetError("Run input snapshot validation failed:\n- " + "\n- ".join(snapshot_problems))
+
+
+def _validate_prompt_snapshot(manifest: dict, run_dir: Path) -> None:
+    """Validate the declared prompt snapshot exists and matches its recorded content."""
+    prompt = manifest["payload"].get("prompts", {})
+    prompt_root = run_dir / prompt.get("run_snapshot_path", "") / prompt.get("version", "")
+    declared_prompts = {f"{name}.txt" for name in prompt.get("files", {})}
+    actual_prompts = {path.name for path in prompt_root.glob("*.txt")} if prompt_root.is_dir() else set()
+    if actual_prompts != declared_prompts:
+        raise ResultSetError("Run prompt snapshot is missing files or contains unexpected templates.")
+    for name, item in prompt.get("files", {}).items():
+        path = prompt_root / f"{name}.txt"
+        try:
+            content = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise ResultSetError(f"Run prompt snapshot is unreadable: {path}: {exc}") from exc
+        if content != item.get("content") or integrity_digest(content) != item.get("sha256"):
+            raise ResultSetError(f"Run prompt snapshot content mismatch: {path}")
+
+
+def _validate_result_directory_membership(conditions: dict, run_dir: Path) -> None:
+    """Reject any result CSV on disk that isn't declared by the manifest."""
+    declared = {Path(c["result_path"]) for c in conditions.values()}
+    results_dir = run_dir / "results"
+    actual = {p.relative_to(run_dir) for p in results_dir.glob("*.csv")} if results_dir.exists() else set()
+    unexpected = actual - declared
+    if unexpected:
+        raise ResultSetError(f"Unexpected result artifacts: {sorted(map(str, unexpected))}")
+
+
+def _validate_and_load_condition(
+    condition_id: str,
+    condition: dict,
+    state: dict,
+    manifest: dict,
+    run_dir: Path,
+    selections: dict,
+    models: dict,
+    methods: dict,
+) -> tuple[pd.DataFrame | None, list[str]]:
+    """Validate one condition's gate/status/result artifact.
+
+    Returns the loaded dataframe (or None if this condition contributes no
+    rows) plus every problem found for this condition — a condition can fail
+    more than one independent check in the same pass (e.g. an invalid gate
+    artifact alongside invalid identity columns), so all of them must survive.
+    """
+    problems: list[str] = []
+    status = state["conditions"][condition_id].get("status")
+    path = run_dir / condition["result_path"]
+    if "gate_path" in condition:
+        gate_path = run_dir / condition["gate_path"]
+        try:
+            gate = json.loads(gate_path.read_text())
+            gate_digest = gate.pop("artifact_digest")
+            if gate_digest != integrity_digest(gate):
+                raise ValueError("digest mismatch")
+            if gate.get("condition_id") != condition_id or gate.get("experiment_id") != manifest["experiment_id"]:
+                raise ValueError("identity mismatch")
+        except (OSError, json.JSONDecodeError, KeyError, ValueError) as exc:
+            problems.append(f"{condition_id}: invalid modal-k gate artifact: {exc}")
+    if status == "gated":
+        if path.exists():
+            problems.append(f"{condition_id}: gated condition has a result artifact")
+        return None, problems
+    if status == "failed":
+        # Failed conditions are evaluable as accounting entries (no metrics);
+        # a failed condition must not leave a result artifact behind.
+        if path.exists():
+            problems.append(
+                f"{condition_id}: failed condition has a result artifact; "
+                "resume the run to re-verify it or use --reset-run"
+            )
+        return None, problems
+    if status != "completed":
+        problems.append(
+            f"{condition_id}: run has not finished (status={status!r}); "
+            "complete, resume, or reset the run before evaluating"
+        )
+        return None, problems
+    if not path.exists():
+        problems.append(f"{condition_id}: missing {condition['result_path']}")
+        return None, problems
+    try:
+        artifact = validate_result_artifact(path)
+        df = pd.read_csv(path)
+    except (pd.errors.EmptyDataError, OSError, RuntimeError) as exc:
+        problems.append(f"{condition_id}: invalid result artifact: {exc}")
+        return None, problems
+    if artifact.get("condition_id") != condition_id or artifact.get("row_count") != len(df):
+        problems.append(f"{condition_id}: result metadata identity/row count mismatch")
+    if state["conditions"][condition_id].get("result_sha256") != artifact.get("file_sha256"):
+        problems.append(f"{condition_id}: run-state result digest mismatch")
+    for column, expected in (
+        ("condition_id", condition_id),
+        ("experiment_id", manifest["experiment_id"]),
+        ("dataset_selection_id", condition["selection_id"]),
+        ("model_id", condition["model_id"]),
+        ("method_id", condition["method_id"]),
+        ("prompt_id", condition["prompt_id"]),
+        ("dataset_artifact_id", condition["artifact_id"]),
+        ("benchmark_split", condition["split"]),
+        ("benchmark_name", condition["benchmark_name"]),
+        ("model_name", models.get(condition["model_id"], {}).get("config", {}).get("model_name_or_path")),
+        ("method_name", methods.get(condition["method_id"], {}).get("config", {}).get("name")),
+    ):
+        # Fail closed on missing/null identity values: a row whose ownership
+        # metadata is absent must be an error, never silently excluded.
+        if (
+            expected is None
+            or column not in df
+            or df[column].isna().any()
+            or set(df[column].astype(str)) != {str(expected)}
+        ):
+            problems.append(f"{condition_id}: invalid {column}")
+    expected_qids = selections[condition["selection_id"]]["selected_question_ids"]
+    # Modal-k methods may intentionally evaluate a manifest-recorded subset;
+    # gate counts remain in rows, so require uniqueness/subset rather than equality.
+    actual_qids = [str(v) for v in df.get("question_id", [])]
+    if len(actual_qids) != len(set(actual_qids)) or not set(actual_qids) <= set(expected_qids):
+        problems.append(f"{condition_id}: question IDs conflict with declared selection")
+    elif "gate_n_evaluated" in df and df["gate_n_evaluated"].notna().any():
+        counts = set(df["gate_n_evaluated"].dropna().astype(int))
+        if len(counts) != 1 or len(actual_qids) != next(iter(counts)):
+            problems.append(f"{condition_id}: modal-k result row count is incomplete")
+    elif set(actual_qids) != set(expected_qids):
+        problems.append(f"{condition_id}: result is missing declared question rows")
+    return df, problems
+
+
 def read_manifest_results(run_dir: Path) -> tuple[pd.DataFrame, dict]:
     """Read exactly the completed result artifacts declared by a run manifest.
 
@@ -44,51 +201,10 @@ def read_manifest_results(run_dir: Path) -> tuple[pd.DataFrame, dict]:
     conditions = {c["condition_id"]: c for c in condition_items}
     if len(conditions) != len(condition_items):
         raise ResultSetError("Manifest declares duplicate condition IDs.")
-    snapshot_problems: list[str] = []
-    for section in ("datasets", "calibrations"):
-        for record in manifest["payload"].get(section, []):
-            path = run_dir / record["run_snapshot_path"]
-            if not path.is_file():
-                snapshot_problems.append(f"{record['selection_id']}: missing snapshot {record['run_snapshot_path']}")
-                continue
-            try:
-                frame = (
-                    pd.read_csv(path, dtype={"question_id": "string"})
-                    if int(record["row_count"]) else pd.DataFrame()
-                )
-            except (OSError, pd.errors.EmptyDataError) as exc:
-                snapshot_problems.append(f"{record['selection_id']}: unreadable snapshot: {exc}")
-                continue
-            expected_digest = record["selected_content_digest"]
-            actual_ids = [str(value) for value in frame.get("question_id", [])]
-            if (
-                len(frame) != int(record["row_count"])
-                or dataset_content_digest(frame) != expected_digest
-                or actual_ids != list(record.get("selected_question_ids", []))
-            ):
-                snapshot_problems.append(f"{record['selection_id']}: snapshot content/identity mismatch")
-    if snapshot_problems:
-        raise ResultSetError("Run input snapshot validation failed:\n- " + "\n- ".join(snapshot_problems))
-    prompt = manifest["payload"].get("prompts", {})
-    prompt_root = run_dir / prompt.get("run_snapshot_path", "") / prompt.get("version", "")
-    declared_prompts = {f"{name}.txt" for name in prompt.get("files", {})}
-    actual_prompts = {path.name for path in prompt_root.glob("*.txt")} if prompt_root.is_dir() else set()
-    if actual_prompts != declared_prompts:
-        raise ResultSetError("Run prompt snapshot is missing files or contains unexpected templates.")
-    for name, item in prompt.get("files", {}).items():
-        path = prompt_root / f"{name}.txt"
-        try:
-            content = path.read_text(encoding="utf-8")
-        except OSError as exc:
-            raise ResultSetError(f"Run prompt snapshot is unreadable: {path}: {exc}") from exc
-        if content != item.get("content") or integrity_digest(content) != item.get("sha256"):
-            raise ResultSetError(f"Run prompt snapshot content mismatch: {path}")
-    declared = {Path(c["result_path"]) for c in conditions.values()}
-    results_dir = run_dir / "results"
-    actual = {p.relative_to(run_dir) for p in results_dir.glob("*.csv")} if results_dir.exists() else set()
-    unexpected = actual - declared
-    if unexpected:
-        raise ResultSetError(f"Unexpected result artifacts: {sorted(map(str, unexpected))}")
+
+    _validate_input_snapshots(manifest, run_dir)
+    _validate_prompt_snapshot(manifest, run_dir)
+    _validate_result_directory_membership(conditions, run_dir)
 
     frames: list[pd.DataFrame] = []
     problems: list[str] = []
@@ -96,87 +212,13 @@ def read_manifest_results(run_dir: Path) -> tuple[pd.DataFrame, dict]:
     models = {item["model_id"]: item for item in manifest["payload"].get("models", [])}
     methods = {item["method_id"]: item for item in manifest["payload"].get("methods", [])}
     for condition_id in sorted(conditions):
-        condition = conditions[condition_id]
-        status = state["conditions"][condition_id].get("status")
-        path = run_dir / condition["result_path"]
-        if "gate_path" in condition:
-            gate_path = run_dir / condition["gate_path"]
-            try:
-                gate = json.loads(gate_path.read_text())
-                gate_digest = gate.pop("artifact_digest")
-                if gate_digest != integrity_digest(gate):
-                    raise ValueError("digest mismatch")
-                if gate.get("condition_id") != condition_id or gate.get("experiment_id") != manifest["experiment_id"]:
-                    raise ValueError("identity mismatch")
-            except (OSError, json.JSONDecodeError, KeyError, ValueError) as exc:
-                problems.append(f"{condition_id}: invalid modal-k gate artifact: {exc}")
-        if status == "gated":
-            if path.exists():
-                problems.append(f"{condition_id}: gated condition has a result artifact")
-            continue
-        if status == "failed":
-            # Failed conditions are evaluable as accounting entries (no metrics);
-            # a failed condition must not leave a result artifact behind.
-            if path.exists():
-                problems.append(
-                    f"{condition_id}: failed condition has a result artifact; "
-                    "resume the run to re-verify it or use --reset-run"
-                )
-            continue
-        if status != "completed":
-            problems.append(
-                f"{condition_id}: run has not finished (status={status!r}); "
-                "complete, resume, or reset the run before evaluating"
-            )
-            continue
-        if not path.exists():
-            problems.append(f"{condition_id}: missing {condition['result_path']}")
-            continue
-        try:
-            artifact = validate_result_artifact(path)
-            df = pd.read_csv(path)
-        except (pd.errors.EmptyDataError, OSError, RuntimeError) as exc:
-            problems.append(f"{condition_id}: invalid result artifact: {exc}")
-            continue
-        if artifact.get("condition_id") != condition_id or artifact.get("row_count") != len(df):
-            problems.append(f"{condition_id}: result metadata identity/row count mismatch")
-        if state["conditions"][condition_id].get("result_sha256") != artifact.get("file_sha256"):
-            problems.append(f"{condition_id}: run-state result digest mismatch")
-        for column, expected in (
-            ("condition_id", condition_id),
-            ("experiment_id", manifest["experiment_id"]),
-            ("dataset_selection_id", condition["selection_id"]),
-            ("model_id", condition["model_id"]),
-            ("method_id", condition["method_id"]),
-            ("prompt_id", condition["prompt_id"]),
-            ("dataset_artifact_id", condition["artifact_id"]),
-            ("benchmark_split", condition["split"]),
-            ("benchmark_name", condition["benchmark_name"]),
-            ("model_name", models.get(condition["model_id"], {}).get("config", {}).get("model_name_or_path")),
-            ("method_name", methods.get(condition["method_id"], {}).get("config", {}).get("name")),
-        ):
-            # Fail closed on missing/null identity values: a row whose ownership
-            # metadata is absent must be an error, never silently excluded.
-            if (
-                expected is None
-                or column not in df
-                or df[column].isna().any()
-                or set(df[column].astype(str)) != {str(expected)}
-            ):
-                problems.append(f"{condition_id}: invalid {column}")
-        expected_qids = selections[condition["selection_id"]]["selected_question_ids"]
-        # Modal-k methods may intentionally evaluate a manifest-recorded subset;
-        # gate counts remain in rows, so require uniqueness/subset rather than equality.
-        actual_qids = [str(v) for v in df.get("question_id", [])]
-        if len(actual_qids) != len(set(actual_qids)) or not set(actual_qids) <= set(expected_qids):
-            problems.append(f"{condition_id}: question IDs conflict with declared selection")
-        elif "gate_n_evaluated" in df and df["gate_n_evaluated"].notna().any():
-            counts = set(df["gate_n_evaluated"].dropna().astype(int))
-            if len(counts) != 1 or len(actual_qids) != next(iter(counts)):
-                problems.append(f"{condition_id}: modal-k result row count is incomplete")
-        elif set(actual_qids) != set(expected_qids):
-            problems.append(f"{condition_id}: result is missing declared question rows")
-        frames.append(df)
+        df, condition_problems = _validate_and_load_condition(
+            condition_id, conditions[condition_id], state, manifest, run_dir,
+            selections, models, methods,
+        )
+        problems.extend(condition_problems)
+        if df is not None:
+            frames.append(df)
     if problems:
         raise ResultSetError("Result-set validation failed:\n- " + "\n- ".join(problems))
     return (pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()), manifest
