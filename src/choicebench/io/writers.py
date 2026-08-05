@@ -36,6 +36,42 @@ def validate_result_artifact(result_path: Path) -> dict[str, Any]:
     return metadata
 
 
+def _validate_identity_columns(df: pd.DataFrame, condition_id: str) -> dict[str, str]:
+    identity_columns = (
+        "experiment_id", "condition_id", "dataset_artifact_id", "dataset_selection_id",
+        "model_id", "method_id", "prompt_id", "benchmark_split",
+    )
+    identities = {}
+    for column in identity_columns:
+        # Fail closed: a row with a missing/null identity value is corrupt
+        # and must abort the write, never be silently dropped from the check.
+        if column not in df or df[column].isna().any():
+            raise RuntimeError(
+                f"Result rows for {condition_id} have missing {column} identity values."
+            )
+        values = sorted(set(df[column].astype(str)))
+        if len(values) != 1:
+            raise RuntimeError(f"Result rows for {condition_id} have invalid {column} identity.")
+        identities[column] = values[0]
+    return identities
+
+
+def _write_result_metadata_sidecar(
+    output_path: Path, condition_id: str, df: pd.DataFrame, identities: dict[str, str],
+) -> None:
+    metadata = {
+        "schema_version": RESULT_ARTIFACT_SCHEMA_VERSION,
+        "condition_id": condition_id,
+        "row_count": len(df),
+        "columns": list(df.columns),
+        "columns_digest": integrity_digest(list(df.columns)),
+        "file_sha256": file_digest(output_path),
+        "identities": identities,
+    }
+    metadata["metadata_digest"] = integrity_digest(metadata)
+    atomic_write_json(result_artifact_path(output_path), metadata)
+
+
 def write_run_results(
     results: list[dict[str, Any]],
     output_dir: Path,
@@ -65,32 +101,7 @@ def write_run_results(
 
     df = pd.DataFrame(results)
     df["benchmark_name"] = benchmark
-    identity_columns = (
-        "experiment_id", "condition_id", "dataset_artifact_id", "dataset_selection_id",
-        "model_id", "method_id", "prompt_id", "benchmark_split",
-    )
-    identities = {}
-    for column in identity_columns:
-        # Fail closed: a row with a missing/null identity value is corrupt
-        # and must abort the write, never be silently dropped from the check.
-        if column not in df or df[column].isna().any():
-            raise RuntimeError(
-                f"Result rows for {condition_id} have missing {column} identity values."
-            )
-        values = sorted(set(df[column].astype(str)))
-        if len(values) != 1:
-            raise RuntimeError(f"Result rows for {condition_id} have invalid {column} identity.")
-        identities[column] = values[0]
+    identities = _validate_identity_columns(df, condition_id)
     atomic_write_text(output_path, df.to_csv(index=False))
-    metadata = {
-        "schema_version": RESULT_ARTIFACT_SCHEMA_VERSION,
-        "condition_id": condition_id,
-        "row_count": len(df),
-        "columns": list(df.columns),
-        "columns_digest": integrity_digest(list(df.columns)),
-        "file_sha256": file_digest(output_path),
-        "identities": identities,
-    }
-    metadata["metadata_digest"] = integrity_digest(metadata)
-    atomic_write_json(result_artifact_path(output_path), metadata)
+    _write_result_metadata_sidecar(output_path, condition_id, df, identities)
     return output_path
