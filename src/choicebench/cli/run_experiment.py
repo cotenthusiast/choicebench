@@ -643,10 +643,6 @@ async def _run_model(
 
     checkpoint_mgr = CheckpointManager(
         checkpoint_dir=checkpoint_dir,
-        run_id=run_id,
-        condition=method.name,
-        model=model_config.model_name_or_path,
-        benchmark=write_label,
         condition_id=condition["condition_id"],
         experiment_id=condition["experiment_id"],
         selection_id=condition["selection_id"],

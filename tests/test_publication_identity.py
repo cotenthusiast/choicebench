@@ -124,9 +124,9 @@ def test_tampered_existing_manifest_is_rejected(tmp_path):
 
 
 def test_checkpoint_is_bound_to_condition_and_manifest(tmp_path):
-    good = CheckpointManager(tmp_path, "r", "m", "model", "b", condition_id="cond_a", experiment_id="exp", selection_id="sel")
+    good = CheckpointManager(tmp_path, condition_id="cond_a", experiment_id="exp", selection_id="sel")
     good.save(["q1"], [{"question_id": "q1"}], "now")
-    wrong = CheckpointManager(tmp_path, "r", "m", "model", "b", condition_id="cond_a", experiment_id="other", selection_id="sel")
+    wrong = CheckpointManager(tmp_path, condition_id="cond_a", experiment_id="other", selection_id="sel")
     with pytest.raises(RuntimeError, match="belongs to"):
         wrong.load()
 
@@ -136,7 +136,7 @@ def test_identity_bound_interrupted_run_resumes_exact_remaining_rows(tmp_path):
     import choicebench.cli.run_experiment as mod
     mod = importlib.reload(mod)
     manager = CheckpointManager(
-        tmp_path / "checkpoints", "r", "direct_mcq", "m", "toy",
+        tmp_path / "checkpoints",
         condition_id="cond_resume", experiment_id="exp_resume", selection_id="sel_resume",
     )
     metadata = {

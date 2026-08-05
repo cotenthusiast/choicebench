@@ -167,8 +167,7 @@ def test_batch_mismatch_does_not_advance_checkpoint(tmp_path):
             return []
 
     manager = CheckpointManager(
-        tmp_path / "checkpoints", "r", "m", "model", "toy",
-        condition_id="cond", experiment_id="exp", selection_id="sel",
+        tmp_path / "checkpoints", condition_id="cond", experiment_id="exp", selection_id="sel",
     )
     with pytest.raises(RuntimeError, match="returned 0 result rows"):
         asyncio.run(run.run_method("m", Runner(), pd.DataFrame([{"question_id": "q1"}]), manager, tmp_path, 1))

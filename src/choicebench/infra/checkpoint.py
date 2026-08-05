@@ -15,8 +15,8 @@ logger = logging.getLogger(__name__)
 class CheckpointManager:
     """Manages per-job checkpoint files for resumable experiment runs.
 
-    One checkpoint file per (run_id, condition, model, benchmark) job,
-    stored as JSON under checkpoint_dir/run_id/.
+    One checkpoint file per manifest condition, stored as JSON at
+    checkpoint_dir/{condition_id}.json.
 
     The file is written atomically (write to .tmp, then rename) so a crash
     during the write never leaves a corrupt checkpoint.
@@ -25,22 +25,14 @@ class CheckpointManager:
     def __init__(
         self,
         checkpoint_dir: Path,
-        run_id: str,
-        condition: str,
-        model: str,
-        benchmark: str,
-        condition_id: str | None = None,
+        condition_id: str,
         experiment_id: str | None = None,
         selection_id: str | None = None,
     ) -> None:
         self._condition_id = condition_id
         self._experiment_id = experiment_id
         self._selection_id = selection_id
-        safe_model = model.replace("/", "_")
-        self._path = (
-            checkpoint_dir / f"{condition_id}.json" if condition_id
-            else checkpoint_dir / run_id / f"{condition}__{safe_model}__{benchmark}.json"
-        )
+        self._path = checkpoint_dir / f"{condition_id}.json"
         self._path.parent.mkdir(parents=True, exist_ok=True)
 
     def load(self) -> dict | None:
@@ -61,27 +53,19 @@ class CheckpointManager:
                 self._path,
                 len(state.get("completed_ids", [])),
             )
-            if self._condition_id:
-                digest = state.get("checkpoint_digest")
-                payload = {k: v for k, v in state.items() if k != "checkpoint_digest"}
-                if state.get("schema_version") != "choicebench.checkpoint.v1" or digest != integrity_digest(payload):
-                    raise RuntimeError(f"Checkpoint integrity check failed: {self._path}")
-                expected = (self._experiment_id, self._condition_id, self._selection_id)
-                actual = (state.get("experiment_id"), state.get("condition_id"), state.get("selection_id"))
-                if actual != expected:
-                    raise RuntimeError(
-                        f"Checkpoint {self._path} belongs to {actual}, expected {expected}."
-                    )
+            digest = state.get("checkpoint_digest")
+            payload = {k: v for k, v in state.items() if k != "checkpoint_digest"}
+            if state.get("schema_version") != "choicebench.checkpoint.v1" or digest != integrity_digest(payload):
+                raise RuntimeError(f"Checkpoint integrity check failed: {self._path}")
+            expected = (self._experiment_id, self._condition_id, self._selection_id)
+            actual = (state.get("experiment_id"), state.get("condition_id"), state.get("selection_id"))
+            if actual != expected:
+                raise RuntimeError(
+                    f"Checkpoint {self._path} belongs to {actual}, expected {expected}."
+                )
             return state
         except (json.JSONDecodeError, OSError) as exc:
-            if self._condition_id:
-                raise RuntimeError(f"Verified checkpoint is unreadable: {self._path}: {exc}") from exc
-            logger.warning(
-                "Failed to load checkpoint %s: %s — starting fresh",
-                self._path,
-                exc,
-            )
-            return None
+            raise RuntimeError(f"Verified checkpoint is unreadable: {self._path}: {exc}") from exc
 
     def save(
         self,
@@ -97,7 +81,7 @@ class CheckpointManager:
             started_at: ISO-format UTC timestamp when this job started.
         """
         state = {
-            "schema_version": "choicebench.checkpoint.v1" if self._condition_id else None,
+            "schema_version": "choicebench.checkpoint.v1",
             "experiment_id": self._experiment_id,
             "condition_id": self._condition_id,
             "selection_id": self._selection_id,
@@ -106,8 +90,7 @@ class CheckpointManager:
             "started_at": started_at,
             "last_checkpoint_at": datetime.now(timezone.utc).isoformat(),
         }
-        if self._condition_id:
-            state["checkpoint_digest"] = integrity_digest(state)
+        state["checkpoint_digest"] = integrity_digest(state)
         try:
             atomic_write_json(self._path, state)
         except OSError as exc:

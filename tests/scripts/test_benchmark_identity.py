@@ -50,8 +50,8 @@ def test_two_huggingface_datasets_get_distinct_written_identity(tmp_path: Path):
     assert pd.read_csv(out_b)["benchmark_name"].iloc[0] == "mmlu"
 
     # Distinct checkpoint keys.
-    ckpt_a = CheckpointManager(tmp_path, "run", "direct_mcq", "m", label_a)
-    ckpt_b = CheckpointManager(tmp_path, "run", "direct_mcq", "m", label_b)
+    ckpt_a = CheckpointManager(tmp_path, condition_id="cond_a")
+    ckpt_b = CheckpointManager(tmp_path, condition_id="cond_b")
     assert ckpt_a._path != ckpt_b._path
 
 

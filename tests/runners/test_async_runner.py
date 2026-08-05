@@ -677,11 +677,11 @@ def test_api_backend_generate_raises_runtime_error(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_checkpoint_paths_are_unique_per_model(tmp_path):
-    """Two CheckpointManagers for different models must not share a path."""
+    """Two CheckpointManagers for different conditions must not share a path."""
     from choicebench.infra.checkpoint import CheckpointManager
 
-    mgr_a = CheckpointManager(tmp_path, "rid", "direct_mcq", "openai/gpt-4.1", "toy")
-    mgr_b = CheckpointManager(tmp_path, "rid", "direct_mcq", "google/gemini", "toy")
+    mgr_a = CheckpointManager(tmp_path, condition_id="cond_a")
+    mgr_b = CheckpointManager(tmp_path, condition_id="cond_b")
 
     assert mgr_a._path != mgr_b._path
 

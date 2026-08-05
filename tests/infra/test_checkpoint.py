@@ -11,10 +11,9 @@ from choicebench.infra.checkpoint import CheckpointManager
 def manager(tmp_path: Path) -> CheckpointManager:
     return CheckpointManager(
         checkpoint_dir=tmp_path / "checkpoints",
-        run_id="run_001",
-        condition="baseline",
-        model="gpt-4.1-mini",
-        benchmark="mmlu",
+        condition_id="cond_1",
+        experiment_id="exp_1",
+        selection_id="sel_1",
     )
 
 
@@ -22,18 +21,18 @@ class TestCheckpointManagerLoad:
     def test_returns_none_when_no_file_exists(self, manager):
         assert manager.load() is None
 
-    def test_returns_none_for_corrupt_json(self, tmp_path):
+    def test_raises_for_corrupt_json(self, tmp_path):
         mgr = CheckpointManager(
             checkpoint_dir=tmp_path / "checkpoints",
-            run_id="run_001",
-            condition="baseline",
-            model="gpt-4.1-mini",
-            benchmark="mmlu",
+            condition_id="cond_1",
+            experiment_id="exp_1",
+            selection_id="sel_1",
         )
-        path = tmp_path / "checkpoints" / "run_001" / "baseline__gpt-4.1-mini__mmlu.json"
+        path = tmp_path / "checkpoints" / "cond_1.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("{corrupted json ][")
-        assert mgr.load() is None
+        with pytest.raises(RuntimeError, match="unreadable"):
+            mgr.load()
 
     def test_returns_state_dict_after_save(self, manager):
         manager.save(["q1", "q2"], [{"question_id": "q1"}, {"question_id": "q2"}], "2026-01-01T00:00:00Z")
@@ -61,11 +60,10 @@ class TestCheckpointManagerLoad:
         assert "started_at" in state
         assert "last_checkpoint_at" in state
 
-
 class TestCheckpointManagerSave:
     def test_save_creates_file_on_disk(self, manager, tmp_path):
         manager.save(["q1"], [{}], "2026-01-01T00:00:00Z")
-        expected = tmp_path / "checkpoints" / "run_001" / "baseline__gpt-4.1-mini__mmlu.json"
+        expected = tmp_path / "checkpoints" / "cond_1.json"
         assert expected.exists()
 
     def test_save_preserves_started_at(self, manager):
@@ -88,40 +86,33 @@ class TestCheckpointManagerSave:
 
     def test_checkpoint_file_is_valid_json(self, manager, tmp_path):
         manager.save(["q1"], [{"x": 1}], "2026-01-01T00:00:00Z")
-        path = tmp_path / "checkpoints" / "run_001" / "baseline__gpt-4.1-mini__mmlu.json"
+        path = tmp_path / "checkpoints" / "cond_1.json"
         with path.open() as f:
             parsed = json.load(f)
         assert isinstance(parsed, dict)
 
-    def test_checkpoint_path_encodes_condition_model_benchmark(self, tmp_path):
+    def test_checkpoint_path_encodes_condition_id(self, tmp_path):
         mgr = CheckpointManager(
             checkpoint_dir=tmp_path / "cp",
-            run_id="run_abc",
-            condition="two_stage",
-            model="gemini-2.5-flash",
-            benchmark="arc_challenge",
+            condition_id="cond_two_stage",
         )
         mgr.save([], [], "2026-01-01T00:00:00Z")
-        expected = tmp_path / "cp" / "run_abc" / "two_stage__gemini-2.5-flash__arc_challenge.json"
+        expected = tmp_path / "cp" / "cond_two_stage.json"
         assert expected.exists()
 
     def test_no_tmp_file_left_after_save(self, manager, tmp_path):
         manager.save(["q1"], [{}], "2026-01-01T00:00:00Z")
-        tmp_file = tmp_path / "checkpoints" / "run_001" / "baseline__gpt-4.1-mini__mmlu.tmp"
+        tmp_file = tmp_path / "checkpoints" / "cond_1.tmp"
         assert not tmp_file.exists()
 
     def test_parent_directories_created_automatically(self, tmp_path):
         deep_path = tmp_path / "a" / "b" / "c"
         mgr = CheckpointManager(
             checkpoint_dir=deep_path,
-            run_id="run_x",
-            condition="cyclic",
-            model="llama-3.1-8b-instant",
-            benchmark="mmlu",
+            condition_id="cond_cyclic",
         )
         mgr.save([], [], "2026-01-01T00:00:00Z")
-        assert (deep_path / "run_x" / "cyclic__llama-3.1-8b-instant__mmlu.json").exists()
-
+        assert (deep_path / "cond_cyclic.json").exists()
 
 class TestCheckpointManagerDelete:
     def test_delete_removes_file(self, manager):
@@ -136,7 +127,7 @@ class TestCheckpointManagerDelete:
 
     def test_delete_after_save_removes_file(self, manager, tmp_path):
         manager.save([], [], "2026-01-01T00:00:00Z")
-        path = tmp_path / "checkpoints" / "run_001" / "baseline__gpt-4.1-mini__mmlu.json"
+        path = tmp_path / "checkpoints" / "cond_1.json"
         assert path.exists()
         manager.delete()
         assert not path.exists()
