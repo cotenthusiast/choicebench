@@ -390,6 +390,7 @@ async def test_run_models_concurrently_api_models_run_in_parallel(tmp_path):
             run_id="rid",
             output_dir=tmp_path,
             checkpoint_dir=tmp_path / "checkpoints",
+            conditions=[{"condition_id": "cond_model_a"}, {"condition_id": "cond_model_b"}],
         )
 
     # Both models should have started before either finished
@@ -438,6 +439,7 @@ async def test_run_models_concurrently_sync_models_run_sequentially(tmp_path):
             run_id="rid",
             output_dir=tmp_path,
             checkpoint_dir=tmp_path / "checkpoints",
+            conditions=[{"condition_id": "cond_dummy_a"}, {"condition_id": "cond_dummy_b"}],
         )
 
     # Sequential: model_a must finish before model_b starts
@@ -494,6 +496,7 @@ async def test_run_models_concurrently_isolates_failures(tmp_path):
             run_id="rid",
             output_dir=tmp_path,
             checkpoint_dir=tmp_path / "checkpoints",
+            conditions=[{"condition_id": "cond_ok"}, {"condition_id": "cond_broken"}],
         )
 
     # The healthy sibling must have completed despite the other raising.
@@ -552,6 +555,7 @@ async def test_run_models_concurrently_routes_modal_k_gate_to_gated_not_failures
             run_id="rid",
             output_dir=tmp_path,
             checkpoint_dir=tmp_path / "checkpoints",
+            conditions=[{"condition_id": "cond_dummy_a"}],
         )
 
     assert failures == []
@@ -601,17 +605,28 @@ async def test_run_model_reuses_cached_backend_across_calls(tmp_path):
         run=RunConfig(),
     )
 
+    condition_a = {
+        "condition_id": "cond_a", "experiment_id": "exp_test", "selection_id": "sel_a",
+        "artifact_id": "ds_test", "model_id": "model_test", "method_id": "method_a",
+        "prompt_id": "prompt_test", "split": "test", "identity": {"preflight": None},
+    }
+    condition_b = {
+        "condition_id": "cond_b", "experiment_id": "exp_test", "selection_id": "sel_b",
+        "artifact_id": "ds_test", "model_id": "model_test", "method_id": "method_b",
+        "prompt_id": "prompt_test", "split": "test", "identity": {"preflight": None},
+    }
+
     backend_cache: dict = {}
     with mock.patch.object(run_exp, "build_backend", side_effect=fake_build_backend), \
          mock.patch.object(run_exp, "instantiate_runner", return_value=mock.MagicMock()), \
          mock.patch.object(run_exp, "run_method", side_effect=fake_run_method):
         await run_exp._run_model(
             method_a, model, bench, pd.DataFrame({"question_id": []}), None,
-            config, "rid", tmp_path, tmp_path / "checkpoints", backend_cache,
+            config, "rid", tmp_path, tmp_path / "checkpoints", backend_cache, condition_a,
         )
         await run_exp._run_model(
             method_b, model, bench, pd.DataFrame({"question_id": []}), None,
-            config, "rid", tmp_path, tmp_path / "checkpoints", backend_cache,
+            config, "rid", tmp_path, tmp_path / "checkpoints", backend_cache, condition_b,
         )
 
     # Built once for the first (benchmark, method) call; reused on the second.

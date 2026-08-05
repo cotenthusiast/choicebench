@@ -521,11 +521,9 @@ async def _run_model(
     output_dir: Path,
     checkpoint_dir: Path,
     backend_cache: dict[int, APIBackend | HuggingFaceBackend | DummyBackend],
-    condition: dict | None = None,
+    condition: dict,
 ) -> None:
     """Set up and run one (method, model, benchmark) combination."""
-    if condition is None:
-        condition = _compat_condition(method, model_config, benchmark_cfg, config.run.seed)
     existing_result = output_dir / "results" / f"{condition['condition_id']}.csv"
     if existing_result.exists():
         if not config.run.resume:
@@ -680,22 +678,6 @@ def _job_label(method: MethodConfig, model_config: ModelConfig, benchmark_cfg: B
     )
 
 
-def _compat_condition(method, model, benchmark, seed) -> dict:
-    """Identity-safe fallback for direct programmatic helper calls in legacy code."""
-    payload = canonicalize({
-        "method": asdict(method), "model": asdict(model),
-        "benchmark": asdict(benchmark), "seed": seed,
-    })
-    condition_id = short_id("cond", payload)
-    return {
-        "condition_id": condition_id, "experiment_id": "exp_programmatic",
-        "selection_id": short_id("sel", {"benchmark": asdict(benchmark), "seed": seed}),
-        "artifact_id": "ds_programmatic", "model_id": short_id("model", asdict(model)),
-        "method_id": short_id("method", asdict(method)), "prompt_id": "prompt_programmatic",
-        "split": benchmark.split, "identity": {"preflight": None},
-    }
-
-
 def _validate_completed_result(path: Path, condition: dict, questions: pd.DataFrame) -> None:
     try:
         metadata = validate_result_artifact(path)
@@ -772,8 +754,8 @@ async def run_models_concurrently(
     run_id: str,
     output_dir: Path,
     checkpoint_dir: Path,
+    conditions: list[dict],
     backend_cache: dict[int, APIBackend | HuggingFaceBackend | DummyBackend] | None = None,
-    conditions: list[dict] | None = None,
 ) -> tuple[list[tuple[str, Exception]], list[tuple[str, ModalKGateReport]]]:
     """Run all models for one (benchmark, method) combination.
 
@@ -793,8 +775,6 @@ async def run_models_concurrently(
     if backend_cache is None:
         backend_cache = {}
 
-    if conditions is None:
-        conditions = [_compat_condition(method, model, benchmark_cfg, config.run.seed) for model in model_configs]
     if len(conditions) != len(model_configs):
         raise ConfigurationError("Canonical condition records are required for every model.")
     api_models = [(i, m) for i, m in enumerate(model_configs) if m.backend == "api"]
