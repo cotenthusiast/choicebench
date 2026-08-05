@@ -50,6 +50,90 @@ class PreflightSelection:
     question_ids: tuple[str, ...]
 
 
+def _load_preflight_from_benchmark(
+    cfg,
+    benchmark_cfg: BenchmarkConfig,
+    run_seed: int,
+    eval_question_ids: set[str] | None,
+    eval_artifact_id: str | None,
+    eval_sample_identities: set[str] | None,
+    return_selection: bool,
+) -> list[dict] | PreflightSelection:
+    artifact = _load_benchmark_artifact(benchmark_cfg, cfg.split)
+    if eval_artifact_id is not None and artifact.artifact_id == eval_artifact_id:
+        raise ValueError("Preflight and evaluation resolve to the same prepared artifact.")
+    df = artifact.dataframe
+    if eval_question_ids:
+        df = df[~df["question_id"].isin(eval_question_ids)]
+    n = max(0, min(cfg.n, len(df)))
+    if n == 0:
+        logger.warning(
+            "load_preflight: n=%d yields 0 questions (benchmark has %d rows).",
+            cfg.n,
+            len(df),
+        )
+        records: list[dict] = []
+        selection = PreflightSelection(
+            records, "benchmark", cfg.split, artifact.artifact_id,
+            artifact.content_digest, short_id("sel", []), (), artifact.metadata,
+            str(artifact.path.relative_to(PROCESSED_DIR)), (),
+        )
+        return selection if return_selection else records
+    sample = df.sample(n=n, random_state=run_seed)
+    records = sample.to_dict(orient="records")
+    identities = tuple(dataset_sample_identities(sample))
+    overlap = set(identities) & set(eval_sample_identities or set())
+    if overlap:
+        raise ValueError(
+            f"Preflight/evaluation content overlap detected across real artifacts: {len(overlap)} sample(s)."
+        )
+    selection = PreflightSelection(
+        records, "benchmark", cfg.split, artifact.artifact_id,
+        artifact.content_digest, short_id("sel", {"artifact_id": artifact.artifact_id, "rows": identities}), identities,
+        artifact.metadata, str(artifact.path.relative_to(PROCESSED_DIR)),
+        tuple(str(record.get("question_id")) for record in records),
+    )
+    return selection if return_selection else records
+
+
+def _load_preflight_from_file(
+    cfg,
+    eval_sample_identities: set[str] | None,
+    return_selection: bool,
+) -> list[dict] | PreflightSelection:
+    source_path = Path(cfg.source)
+    suffix = source_path.suffix.lower()
+    if suffix == ".jsonl":
+        records: list[dict] = []
+        with open(source_path) as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    records.append(json.loads(line))
+        df = pd.DataFrame(records)
+        records = df.head(cfg.n).to_dict(orient="records")
+    elif suffix == ".csv":
+        df = pd.read_csv(source_path).head(cfg.n)
+        records = df.to_dict(orient="records")
+    else:
+        raise ValueError(
+            f"Unsupported preflight source file type {suffix!r} in {cfg.source!r}. "
+            f"Use a .jsonl or .csv file, or set source: benchmark."
+        )
+    identities = tuple(dataset_sample_identities(pd.DataFrame(records)))
+    overlap = set(identities) & set(eval_sample_identities or set())
+    if overlap:
+        raise ValueError(f"Preflight/evaluation content overlap detected: {len(overlap)} sample(s).")
+    digest = dataset_content_digest(pd.DataFrame(records))
+    selection = PreflightSelection(
+        records, Path(cfg.source).name, cfg.split, short_id("file", digest), digest,
+        short_id("sel", identities), identities,
+        {"provenance_status": "verified-file", "source_name": Path(cfg.source).name},
+        Path(cfg.source).name, tuple(str(record.get("question_id")) for record in records),
+    )
+    return selection if return_selection else records
+
+
 def load_preflight(
     method_config: MethodConfig,
     benchmark_cfg: BenchmarkConfig,
@@ -84,82 +168,8 @@ def load_preflight(
     cfg = method_config.preflight
 
     if cfg.source == "benchmark":
-        artifact = _load_benchmark_artifact(benchmark_cfg, cfg.split)
-        if eval_artifact_id is not None and artifact.artifact_id == eval_artifact_id:
-            raise ValueError("Preflight and evaluation resolve to the same prepared artifact.")
-        df = artifact.dataframe
-        if eval_question_ids:
-            df = df[~df["question_id"].isin(eval_question_ids)]
-        n = max(0, min(cfg.n, len(df)))
-        if n == 0:
-            logger.warning(
-                "load_preflight: n=%d yields 0 questions (benchmark has %d rows).",
-                cfg.n,
-                len(df),
-            )
-            records: list[dict] = []
-            selection = PreflightSelection(
-                records, "benchmark", cfg.split, artifact.artifact_id,
-                artifact.content_digest, short_id("sel", []), (), artifact.metadata,
-                str(artifact.path.relative_to(PROCESSED_DIR)), (),
-            )
-            return selection if return_selection else records
-        sample = df.sample(n=n, random_state=run_seed)
-        records = sample.to_dict(orient="records")
-        identities = tuple(dataset_sample_identities(sample))
-        overlap = set(identities) & set(eval_sample_identities or set())
-        if overlap:
-            raise ValueError(
-                f"Preflight/evaluation content overlap detected across real artifacts: {len(overlap)} sample(s)."
-            )
-        selection = PreflightSelection(
-            records, "benchmark", cfg.split, artifact.artifact_id,
-            artifact.content_digest, short_id("sel", {"artifact_id": artifact.artifact_id, "rows": identities}), identities,
-            artifact.metadata, str(artifact.path.relative_to(PROCESSED_DIR)),
-            tuple(str(record.get("question_id")) for record in records),
+        return _load_preflight_from_benchmark(
+            cfg, benchmark_cfg, run_seed, eval_question_ids, eval_artifact_id,
+            eval_sample_identities, return_selection,
         )
-        return selection if return_selection else records
-
-    # source is a file path
-    source_path = Path(cfg.source)
-    suffix = source_path.suffix.lower()
-    if suffix == ".jsonl":
-        records: list[dict] = []
-        with open(source_path) as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    records.append(json.loads(line))
-        df = pd.DataFrame(records)
-        records = df.head(cfg.n).to_dict(orient="records")
-        identities = tuple(dataset_sample_identities(pd.DataFrame(records)))
-        overlap = set(identities) & set(eval_sample_identities or set())
-        if overlap:
-            raise ValueError(f"Preflight/evaluation content overlap detected: {len(overlap)} sample(s).")
-        digest = dataset_content_digest(pd.DataFrame(records))
-        selection = PreflightSelection(
-            records, Path(cfg.source).name, cfg.split, short_id("file", digest), digest,
-            short_id("sel", identities), identities,
-            {"provenance_status": "verified-file", "source_name": Path(cfg.source).name},
-            Path(cfg.source).name, tuple(str(record.get("question_id")) for record in records),
-        )
-        return selection if return_selection else records
-    if suffix == ".csv":
-        df = pd.read_csv(source_path).head(cfg.n)
-        records = df.to_dict(orient="records")
-        identities = tuple(dataset_sample_identities(df))
-        overlap = set(identities) & set(eval_sample_identities or set())
-        if overlap:
-            raise ValueError(f"Preflight/evaluation content overlap detected: {len(overlap)} sample(s).")
-        digest = dataset_content_digest(df)
-        selection = PreflightSelection(
-            records, Path(cfg.source).name, cfg.split, short_id("file", digest), digest,
-            short_id("sel", identities), identities,
-            {"provenance_status": "verified-file", "source_name": Path(cfg.source).name},
-            Path(cfg.source).name, tuple(str(record.get("question_id")) for record in records),
-        )
-        return selection if return_selection else records
-    raise ValueError(
-        f"Unsupported preflight source file type {suffix!r} in {cfg.source!r}. "
-        f"Use a .jsonl or .csv file, or set source: benchmark."
-    )
+    return _load_preflight_from_file(cfg, eval_sample_identities, return_selection)
