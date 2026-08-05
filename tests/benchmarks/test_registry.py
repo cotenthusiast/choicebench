@@ -210,7 +210,7 @@ def test_load_benchmark_missing_csv_generates_correct_command(
     from choicebench.config.schema import BenchmarkConfig
 
     with pytest.raises(FileNotFoundError) as exc_info:
-        run_exp.load_benchmark(BenchmarkConfig(name=name, split=default_split), run_seed=42)
+        run_exp.load_benchmark_selection(BenchmarkConfig(name=name, split=default_split), run_seed=42)
 
     msg = str(exc_info.value)
     assert f"--hf-path {hf_path}" in msg
@@ -234,7 +234,7 @@ def test_load_benchmark_unregistered_huggingface_gives_non_circular_error():
         hf_subset=None,
     )
     with pytest.raises(FileNotFoundError) as exc_info:
-        run_exp.load_benchmark(bench, run_seed=42)
+        run_exp.load_benchmark_selection(bench, run_seed=42)
 
     msg = str(exc_info.value)
     # Names the offending dataset and points to the real next step.

@@ -319,7 +319,7 @@ def test_yaml_dry_run_is_honored(monkeypatch):
     monkeypatch.setattr(run_exp, "load_config", lambda path: cfg)
     monkeypatch.setattr(
         run_exp,
-        "load_benchmark",
+        "load_benchmark_selection",
         lambda *args, **kwargs: pytest.fail("dry run should not load benchmarks"),
     )
 
@@ -449,10 +449,10 @@ def test_load_benchmark_applies_subject_filter(monkeypatch):
     )
     monkeypatch.setattr(run_exp, "load_prepared_dataset", lambda *a, **k: artifact)
 
-    questions = run_exp.load_benchmark(
+    questions = run_exp.load_benchmark_selection(
         BenchmarkConfig(name="toy", subject_filter=["math"]),
         run_seed=123,
-    )
+    ).questions
 
     assert questions["question_id"].tolist() == ["q1"]
 
@@ -466,7 +466,7 @@ def test_load_benchmark_subject_filter_rejects_empty_result(monkeypatch):
     monkeypatch.setattr(run_exp, "load_prepared_dataset", lambda *a, **k: artifact)
 
     with pytest.raises(ValueError, match="subject_filter.*removed all rows"):
-        run_exp.load_benchmark(
+        run_exp.load_benchmark_selection(
             BenchmarkConfig(name="toy", subject_filter=["history"]),
             run_seed=123,
         )

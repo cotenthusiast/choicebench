@@ -265,11 +265,6 @@ def load_benchmark_selection(benchmark: BenchmarkConfig, run_seed: int) -> Bench
     return BenchmarkSelection(benchmark, artifact, questions, selection_id, identities)
 
 
-def load_benchmark(benchmark: BenchmarkConfig, run_seed: int) -> pd.DataFrame:
-    """Compatibility API returning the selected verified DataFrame."""
-    return load_benchmark_selection(benchmark, run_seed).questions
-
-
 def _resolve_runner_cls(method_name: str):
     """Look up a runner class by method name (built-in or importable)."""
     runner_cls = METHOD_REGISTRY.get(method_name)
