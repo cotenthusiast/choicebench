@@ -17,6 +17,7 @@ import sys
 import pandas as pd
 
 from choicebench.clients.types import FAILURE_STATUS
+from choicebench.cli import configure_logging
 from choicebench.config.paths import REPORTS_DIR, RUNS_DIR, ensure_dirs, validate_run_id
 from choicebench.infra.atomic_io import atomic_write_json
 from choicebench.identity import canonicalize, integrity_digest, short_id
@@ -28,15 +29,6 @@ from choicebench.pipeline.options import build_option_map
 from choicebench.provenance import implementation_identity
 from choicebench.scoring.scorer import score_prediction
 
-# ---------------------------------------------------------------------------
-# Logging
-# ---------------------------------------------------------------------------
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s  %(levelname)-8s  %(message)s",
-    datefmt="%H:%M:%S",
-)
 logger = logging.getLogger(__name__)
 
 # A "completed" condition (its result CSV exists) can still be entirely
@@ -56,23 +48,6 @@ def _json_safe(value):
     if isinstance(value, float) and not math.isfinite(value):
         return None
     return value
-
-
-# ---------------------------------------------------------------------------
-# Data loading
-# ---------------------------------------------------------------------------
-
-def load_run(run_id: str):
-    """Concatenate all result CSVs from a run directory into one DataFrame."""
-    run_dir = RUNS_DIR / validate_run_id(run_id)
-    df, _ = read_manifest_results(run_dir)
-    return df
-
-
-def load_run_config(run_id: str) -> dict:
-    """Load the config snapshot saved alongside the run results."""
-    manifest_path = RUNS_DIR / validate_run_id(run_id) / "manifest.json"
-    return json.loads(manifest_path.read_text())["payload"]["config"]
 
 
 # ---------------------------------------------------------------------------
@@ -348,6 +323,7 @@ def write_evaluation_report(output_path, report: dict) -> None:
 
 
 def main() -> None:
+    configure_logging()
     ensure_dirs()
     args = parse_args()
     args.run_id = validate_run_id(args.run_id)
