@@ -136,19 +136,30 @@ class TwoStageRunner(ExperimentRunner):
 
         return result
 
-    async def run_many_async(self, question_rows: Sequence[Any]) -> list[dict]:
-        """Async batch execution for TwoStageRunner.
+    async def _run_phases(
+        self, rows: list[dict]
+    ) -> tuple[
+        list[str],
+        list[Any],
+        dict[int, str],
+        dict[int, Any],
+        dict[int, Any],
+        dict[int, Any],
+        set[int],
+    ]:
+        """Run the three batched phases for TwoStageRunner.
 
-        Runs three batched phases:
-          Phase 1 — all free-text prompts in one generate_batch() call.
-          Phase 2 — option-matching prompts for questions where phase 1
-                    succeeded, in one generate_batch() call.
-          Phase 3 (optional) — fallback direct-MCQ prompts for questions
-                    where phase 2 was unparseable and fallback_on_parse_failure
-                    is enabled, in one generate_batch() call.
+        Phase 1 — all free-text prompts in one generate_batch() call.
+        Phase 2 — option-matching prompts for questions where phase 1
+                  succeeded, in one generate_batch() call.
+        Phase 3 (optional) — fallback direct-MCQ prompts for questions
+                  where phase 2 was unparseable and fallback_on_parse_failure
+                  is enabled, in one generate_batch() call.
+
+        Returns:
+            s1_prompts, s1_responses, s2_prompt_by_idx, s2_resp_by_idx,
+            parsed_by_idx, scored_by_idx, fb_used_set
         """
-        rows = question_rows.to_dict(orient="records")
-
         # Phase 1: free-text answers for all questions.
         s1_prompts = [
             build_free_text_prompt(self._prompts["free_text"], row["question_text"])
@@ -214,6 +225,34 @@ class TwoStageRunner(ExperimentRunner):
                 parsed_by_idx[i] = parsed
                 scored_by_idx[i] = scored
                 fb_used_set.add(i)
+
+        return (
+            s1_prompts,
+            s1_responses,
+            s2_prompt_by_idx,
+            s2_resp_by_idx,
+            parsed_by_idx,
+            scored_by_idx,
+            fb_used_set,
+        )
+
+    async def run_many_async(self, question_rows: Sequence[Any]) -> list[dict]:
+        """Async batch execution for TwoStageRunner.
+
+        Runs the three batched phases via `_run_phases`, then builds result
+        rows in original question order.
+        """
+        rows = question_rows.to_dict(orient="records")
+
+        (
+            s1_prompts,
+            s1_responses,
+            s2_prompt_by_idx,
+            s2_resp_by_idx,
+            parsed_by_idx,
+            scored_by_idx,
+            fb_used_set,
+        ) = await self._run_phases(rows)
 
         # Assemble results in original question order.
         results = []
