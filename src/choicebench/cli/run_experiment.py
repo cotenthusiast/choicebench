@@ -298,7 +298,7 @@ def instantiate_runner(
     """
     method_name = method_config.name
     method_params = method_config.params
-    runner_cls = METHOD_REGISTRY.get(method_name)
+    runner_cls = _resolve_runner_cls(method_name)
     if runner_cls is None:
         if ":" not in method_name:
             raise ValueError(
@@ -306,14 +306,7 @@ def instantiate_runner(
                 f"Built-ins: {sorted(METHOD_REGISTRY)}. "
                 f"For external methods use 'module.path:ClassName'."
             )
-        module_path, class_name = method_name.rsplit(":", 1)
-        try:
-            module = importlib.import_module(module_path)
-            runner_cls = getattr(module, class_name)
-        except (ImportError, AttributeError) as exc:
-            raise ValueError(
-                f"Could not load method class {method_name!r}: {exc}"
-            ) from exc
+        raise ValueError(f"Could not load method class {method_name!r}.")
 
     extra_kwargs: dict = {}
     if preflight_questions is not None:
@@ -323,7 +316,6 @@ def instantiate_runner(
     # calibration_runs_dir / run_id. Default that to RUNS_DIR so sidecars land in
     # the run's own directory instead of the current working directory — but only
     # if the method accepts the parameter and the user did not set it in params.
-    import inspect
     runner_params = inspect.signature(runner_cls.__init__).parameters
     if "calibration_runs_dir" in runner_params and "calibration_runs_dir" not in method_params:
         extra_kwargs["calibration_runs_dir"] = RUNS_DIR
@@ -370,14 +362,7 @@ def validate_logprob_compatibility(config: ExperimentConfig) -> None:
     call is made.
     """
     for method_cfg in config.methods:
-        runner_cls = METHOD_REGISTRY.get(method_cfg.name)
-        if runner_cls is None and ":" in method_cfg.name:
-            module_path, class_name = method_cfg.name.rsplit(":", 1)
-            try:
-                module = importlib.import_module(module_path)
-                runner_cls = getattr(module, class_name)
-            except (ImportError, AttributeError):
-                runner_cls = None
+        runner_cls = _resolve_runner_cls(method_cfg.name)
         if runner_cls is None or not getattr(runner_cls, "requires_score_options", False):
             continue
         for model_cfg in config.models:
