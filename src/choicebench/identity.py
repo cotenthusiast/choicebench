@@ -10,7 +10,7 @@ import unicodedata
 from dataclasses import asdict, is_dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping, Sequence
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 CANONICALIZATION_VERSION = "choicebench.canonical-json.v1"
@@ -207,3 +207,36 @@ def file_digest(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def digest_directory_tree(
+    roots: Path | Sequence[Path],
+    *,
+    exclude: Callable[[Path], bool],
+    hash_fn: Callable[[Path], str],
+    include_size: bool = True,
+    record_path: Callable[[Path, Path], str] | None = None,
+) -> list[dict[str, Any]]:
+    """Walk one or more directory roots and build a sorted file-hash record list.
+
+    `exclude` and `record_path` receive the file's path relative to its root
+    (`record_path` also receives the root itself). Non-existent/non-directory
+    roots are skipped. Callers own aggregating the records into a digest and
+    deciding what an empty result means for them.
+    """
+    root_list = [roots] if isinstance(roots, Path) else list(roots)
+    if record_path is None:
+        record_path = lambda root, path: path.relative_to(root).as_posix()
+    records: list[dict[str, Any]] = []
+    for root in root_list:
+        if not root.is_dir():
+            continue
+        for path in sorted(item for item in root.rglob("*") if item.is_file()):
+            rel = path.relative_to(root)
+            if exclude(rel):
+                continue
+            record: dict[str, Any] = {"path": record_path(root, path), "sha256": hash_fn(path)}
+            if include_size:
+                record["size"] = path.stat().st_size
+            records.append(record)
+    return records
