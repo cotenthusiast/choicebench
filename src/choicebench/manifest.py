@@ -12,7 +12,13 @@ from pathlib import Path
 from typing import Any
 
 from choicebench import __version__
-from choicebench.identity import CANONICALIZATION_VERSION, canonicalize, integrity_digest, short_id
+from choicebench.identity import (
+    CANONICALIZATION_VERSION,
+    canonicalize,
+    digest_directory_tree,
+    integrity_digest,
+    short_id,
+)
 from choicebench.infra.atomic_io import atomic_write_json
 from choicebench.infra.file_lock import FileLock
 
@@ -68,15 +74,20 @@ def source_identity(cwd: Path | None = None) -> dict[str, Any]:
         else:
             root = Path(__file__).resolve().parent
             source_roots = (root,)
-    source_files = sorted(
-        [p for base in source_roots if base.exists()
-         for p in base.rglob("*.py") if "__pycache__" not in p.parts]
-        + ([root / "pyproject.toml"] if (root / "pyproject.toml").exists() else [])
+    tree_payload = digest_directory_tree(
+        source_roots,
+        exclude=lambda rel: rel.suffix != ".py" or "__pycache__" in rel.parts,
+        hash_fn=lambda p: integrity_digest(p.read_bytes().hex()),
+        include_size=False,
+        record_path=lambda _base, path: str(path.relative_to(root)),
     )
-    tree_payload = [
-        {"path": str(path.relative_to(root)), "sha256": integrity_digest(path.read_bytes().hex())}
-        for path in source_files
-    ]
+    if (root / "pyproject.toml").exists():
+        pyproject_path = root / "pyproject.toml"
+        tree_payload.append({
+            "path": str(pyproject_path.relative_to(root)),
+            "sha256": integrity_digest(pyproject_path.read_bytes().hex()),
+        })
+    tree_payload.sort(key=lambda record: record["path"])
     tree_digest = integrity_digest(tree_payload) if tree_payload else None
     is_checkout = (root / "pyproject.toml").exists() and (root / ".git").exists()
     if not is_checkout:
