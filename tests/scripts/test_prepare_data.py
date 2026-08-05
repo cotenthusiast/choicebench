@@ -61,6 +61,9 @@ def test_filter_flag_appends_filtered_suffix_when_no_output_name(monkeypatch, tm
             split="test",
             output_name=None,
             filter_permutation_unsafe=True,
+            revision=None,
+            force=False,
+            exclude_duplicate_question_ids=False,
         ),
     )
 
@@ -95,6 +98,9 @@ def test_filter_flag_respects_explicit_output_name(monkeypatch, tmp_path):
             split="test",
             output_name="custom_stem",
             filter_permutation_unsafe=True,
+            revision=None,
+            force=False,
+            exclude_duplicate_question_ids=False,
         ),
     )
 
@@ -122,6 +128,9 @@ def test_no_filter_flag_leaves_output_unfiltered(monkeypatch, tmp_path):
             split="test",
             output_name=None,
             filter_permutation_unsafe=False,
+            revision=None,
+            force=False,
+            exclude_duplicate_question_ids=False,
         ),
     )
 

@@ -14,6 +14,7 @@ import logging
 import pandas as pd
 
 from choicebench.benchmarks.registry import get_by_hf_path
+from choicebench.cli import configure_logging
 from choicebench.config.paths import PROCESSED_DIR, ensure_dirs
 from choicebench.datasets import (
     DatasetSpec, artifact_csv_path, artifact_stats_path, load_prepared_dataset,
@@ -27,11 +28,6 @@ from choicebench.permutation_filter import (
 from choicebench.stats import compute_benchmark_stats, stats_path_for, write_stats
 from choicebench.provenance import resolve_hf_dataset_revision
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s  %(levelname)-8s  %(message)s",
-    datefmt="%H:%M:%S",
-)
 logger = logging.getLogger(__name__)
 
 
@@ -166,18 +162,19 @@ def _write_stats(df: pd.DataFrame, output_path, stem: str, dataset_digest: str |
 
 
 def main() -> None:
+    configure_logging()
     ensure_dirs()
     args = parse_args()
 
     stem = _resolve_output_stem(args.output_name, args.hf_path, args.hf_subset)
     if args.filter_permutation_unsafe and not args.output_name:
         stem = f"{stem}_filtered"
-    revision = getattr(args, "revision", None)
-    force = getattr(args, "force", False)
+    revision = args.revision
+    force = args.force
     transforms = tuple(
         name for enabled, name in (
             (args.filter_permutation_unsafe, "permutation_safe_v1"),
-            (getattr(args, "exclude_duplicate_question_ids", False), "unique_question_ids_v1"),
+            (args.exclude_duplicate_question_ids, "unique_question_ids_v1"),
         ) if enabled
     )
     entry = get_by_hf_path(args.hf_path, args.hf_subset)
@@ -215,7 +212,7 @@ def main() -> None:
             exclusions, n_before, permutation_filter_path_for(output_path)
         )
 
-    if getattr(args, "exclude_duplicate_question_ids", False):
+    if args.exclude_duplicate_question_ids:
         duplicated = df_normalized["question_id"].astype(str).duplicated(keep=False)
         removed = int(duplicated.sum())
         df_normalized = df_normalized.loc[~duplicated].reset_index(drop=True)
