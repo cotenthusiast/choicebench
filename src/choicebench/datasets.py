@@ -287,6 +287,12 @@ def load_prepared_dataset(processed_dir: Path, spec: DatasetSpec) -> PreparedDat
             f"Verified prepared artifact not found for benchmark={spec.benchmark!r}, "
             f"split={spec.split!r}: {path}.{legacy_note}"
         )
+    metadata = _load_and_verify_dataset_metadata(path, metadata_path, spec)
+    df = _load_and_verify_dataset_dataframe(path, metadata_path, spec, metadata)
+    return PreparedDataset(path, metadata_path, metadata, df)
+
+
+def _load_and_verify_dataset_metadata(path: Path, metadata_path: Path, spec: DatasetSpec) -> dict[str, Any]:
     try:
         metadata = json.loads(metadata_path.read_text())
     except (OSError, json.JSONDecodeError) as exc:
@@ -298,6 +304,12 @@ def load_prepared_dataset(processed_dir: Path, spec: DatasetSpec) -> PreparedDat
         raise DatasetArtifactError(f"Dataset metadata integrity check failed: {metadata_path}")
     if canonicalize(metadata.get("spec")) != spec.identity_payload():
         raise DatasetArtifactError(f"Dataset metadata spec does not match requested artifact: {path}")
+    return metadata
+
+
+def _load_and_verify_dataset_dataframe(
+    path: Path, metadata_path: Path, spec: DatasetSpec, metadata: dict[str, Any],
+) -> pd.DataFrame:
     df = pd.read_csv(path, dtype={"question_id": "string"})
     validate_normalized_dataset(df, source=str(path))
     actual_digest = dataset_content_digest(df)
@@ -312,4 +324,4 @@ def load_prepared_dataset(processed_dir: Path, spec: DatasetSpec) -> PreparedDat
     })
     if metadata.get("artifact_id") != expected_id:
         raise DatasetArtifactError(f"Dataset artifact identity is invalid in {metadata_path}.")
-    return PreparedDataset(path, metadata_path, metadata, df)
+    return df
