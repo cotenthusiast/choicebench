@@ -29,7 +29,7 @@ from choicebench.clients.types import SUCCESS_STATUS
 from choicebench.config.paths import RUNS_DIR
 from choicebench.config.paths import validate_run_id
 from choicebench.constants import letters_for
-from choicebench.io.readers import read_all_run_results, read_manifest_results
+from choicebench.io.readers import read_manifest_results
 from choicebench.identity import file_digest, short_id
 from choicebench.infra.atomic_io import atomic_write_json
 from choicebench.manifest import validate_manifest
@@ -83,6 +83,78 @@ def _parse_matrix(raw: object) -> np.ndarray | None:
     return arr
 
 
+# Tried longest-first so arc_challenge is matched before a hypothetical
+# benchmark whose name is a suffix of it.
+_KNOWN_BENCHMARKS = sorted(
+    [
+        "arc_challenge",
+        "truthful_qa",
+        "hellaswag",
+        "mmlu_pro",
+        "mmlu",
+        "huggingface",
+        "toy",
+    ],
+    key=len,
+    reverse=True,
+)
+
+
+def _infer_benchmark_from_stem(stem: str) -> str:
+    """Parse the benchmark name from a result CSV filename stem.
+
+    Filename format: {run_id}_{method_name}_{safe_model}_{benchmark}.
+    The benchmark is the suffix after the last _ that matches a known name.
+    """
+    for name in _KNOWN_BENCHMARKS:
+        if stem.endswith("_" + name):
+            return name
+    return "unknown"
+
+
+def _read_all_run_results(
+    input_dir: Path,
+    run_id: str | None = None,
+    method_name: str | None = None,
+    model_name: str | None = None,
+) -> pd.DataFrame:
+    """Read and combine results from multiple legacy (pre-manifest) CSV files.
+
+    Optionally filters by run ID, method, or model using filename
+    matching. All matching files are concatenated into a single DataFrame.
+
+    Args:
+        input_dir: Directory containing result CSV files.
+        run_id: If provided, only include files matching this run ID.
+        method_name: If provided, only include files matching this method.
+        model_name: If provided, only include files matching this model.
+
+    Returns:
+        Combined DataFrame from all matching files.
+    """
+    frames: list[pd.DataFrame] = []
+
+    for csv_path in sorted(input_dir.glob("*.csv")):
+        filename = csv_path.stem
+
+        if run_id and run_id not in filename:
+            continue
+        if method_name and method_name not in filename:
+            continue
+        if model_name and model_name not in filename:
+            continue
+
+        df = pd.read_csv(csv_path)
+        if "benchmark_name" not in df.columns:
+            df["benchmark_name"] = _infer_benchmark_from_stem(csv_path.stem)
+        frames.append(df)
+
+    if not frames:
+        return pd.DataFrame()
+
+    return pd.concat(frames, ignore_index=True)
+
+
 def _load_method_frame(run_dir: Path, method_name: str) -> pd.DataFrame:
     """Load one method's result CSV(s) for a run, indexed by question_id.
 
@@ -97,7 +169,7 @@ def _load_method_frame(run_dir: Path, method_name: str) -> pd.DataFrame:
         df, _ = read_manifest_results(run_dir)
         df = df[df["method_name"] == method_name].copy()
     else:
-        df = read_all_run_results(run_dir, method_name=method_name)
+        df = _read_all_run_results(run_dir, method_name=method_name)
     if df.empty:
         raise FileNotFoundError(
             f"No {method_name!r} result CSVs found under {run_dir}. This script "
