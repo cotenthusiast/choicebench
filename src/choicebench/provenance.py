@@ -104,8 +104,8 @@ def resolve_hf_dataset_revision(dataset_id: str, revision: str | None) -> str:
     return resolved.lower()
 
 
-def implementation_identity(target: Any) -> dict[str, Any]:
-    """Bind a configured class/function to its defining module bytes and package version."""
+def _source_file_identity(target: Any) -> tuple[str | None, dict[str, Any]]:
+    """Resolve a target's module name and its qualified-name/source-file digest."""
     module = inspect.getmodule(target)
     module_name = getattr(module, "__name__", getattr(target, "__module__", None))
     source_path = inspect.getsourcefile(target) or (getattr(module, "__file__", None) if module else None)
@@ -115,7 +115,12 @@ def implementation_identity(target: Any) -> dict[str, Any]:
     if source_path and Path(source_path).is_file():
         record["source_file"] = Path(source_path).name
         record["source_digest"] = file_digest(Path(source_path))
-    top_level = module_name.split(".", 1)[0] if module_name else None
+    return module_name, record
+
+
+def _distribution_identity(top_level: str | None) -> dict[str, Any]:
+    """Resolve the installed distribution name/version for a top-level package."""
+    record: dict[str, Any] = {}
     distributions = packages_distributions().get(top_level, []) if top_level else []
     if distributions:
         distribution = sorted(distributions)[0]
@@ -124,6 +129,12 @@ def implementation_identity(target: Any) -> dict[str, Any]:
             record["distribution_version"] = version(distribution)
         except PackageNotFoundError:
             pass
+    return record
+
+
+def _package_tree_identity(top_level: str | None) -> dict[str, Any]:
+    """Hash a third-party package's entire tree (skipped for choicebench itself)."""
+    record: dict[str, Any] = {}
     if top_level and top_level != "choicebench":
         try:
             package = importlib.import_module(top_level)
@@ -139,4 +150,13 @@ def implementation_identity(target: Any) -> dict[str, Any]:
                 record["package_file_count"] = len(tree_records)
         except (ImportError, OSError):
             pass
+    return record
+
+
+def implementation_identity(target: Any) -> dict[str, Any]:
+    """Bind a configured class/function to its defining module bytes and package version."""
+    module_name, record = _source_file_identity(target)
+    top_level = module_name.split(".", 1)[0] if module_name else None
+    record.update(_distribution_identity(top_level))
+    record.update(_package_tree_identity(top_level))
     return record
