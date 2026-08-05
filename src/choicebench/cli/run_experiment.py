@@ -26,6 +26,7 @@ from choicebench.backends.api_backend import APIBackend
 from choicebench.backends.dummy_backend import DummyBackend
 from choicebench.backends.hf_backend import HuggingFaceBackend
 from choicebench.benchmarks.registry import BENCHMARK_REGISTRY, get_by_hf_path
+from choicebench.cli import configure_logging
 from choicebench.config.paths import (
     PROCESSED_DIR,
     PROMPTS_DIR,
@@ -129,15 +130,6 @@ def _identity_safe_params(value, key: str = ""):
     return value
 
 
-# ---------------------------------------------------------------------------
-# Logging
-# ---------------------------------------------------------------------------
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s  %(levelname)-8s  %(message)s",
-    datefmt="%H:%M:%S",
-)
 logger = logging.getLogger(__name__)
 
 
@@ -495,47 +487,48 @@ async def run_method(
 # Concurrent model execution
 # ---------------------------------------------------------------------------
 
-async def _run_model(
-    method: MethodConfig,
-    model_config: ModelConfig,
-    benchmark_cfg: BenchmarkConfig,
-    questions: pd.DataFrame,
-    preflight_questions: list[dict] | None,
-    config: ExperimentConfig,
-    run_id: str,
-    output_dir: Path,
-    checkpoint_dir: Path,
-    backend_cache: dict[int, APIBackend | HuggingFaceBackend | DummyBackend],
-    condition: dict,
-) -> None:
-    """Set up and run one (method, model, benchmark) combination."""
+def _check_existing_result(
+    output_dir: Path, condition: dict, questions: pd.DataFrame, config: ExperimentConfig,
+) -> bool:
+    """Check for an already-verified completed result.
+
+    Returns True if the caller should skip this condition entirely (already
+    verified complete). A discarded uncommitted/corrupt result (recoverable
+    from its checkpoint) returns False so the caller proceeds with the run.
+    """
     existing_result = output_dir / "results" / f"{condition['condition_id']}.csv"
-    if existing_result.exists():
-        if not config.run.resume:
-            raise ConfigurationError(
-                f"Result already exists for {condition['condition_id']}. "
-                "Use --reset-run for an intentional rerun or enable run.resume."
-            )
-        try:
-            _validate_completed_result(existing_result, condition, questions)
-        except ConfigurationError:
-            checkpoint_path = output_dir / condition["checkpoint_path"]
-            if not checkpoint_path.exists():
-                raise
-            logger.warning(
-                "Discarding an uncommitted/corrupt result for %s because a verified checkpoint "
-                "is still present; resume will reconstruct it.", condition["condition_id"],
-            )
-            existing_result.unlink(missing_ok=True)
-            result_artifact_path(existing_result).unlink(missing_ok=True)
-        else:
-            logger.info("Verified completed result; skipping condition %s", condition["condition_id"])
-            return
-    logger.info(
-        "── Benchmark: %s  Method: %s  Model: %s (%s) ──────────────────",
-        benchmark_cfg.name, method.name,
-        model_config.model_name_or_path, model_config.backend,
-    )
+    if not existing_result.exists():
+        return False
+    if not config.run.resume:
+        raise ConfigurationError(
+            f"Result already exists for {condition['condition_id']}. "
+            "Use --reset-run for an intentional rerun or enable run.resume."
+        )
+    try:
+        _validate_completed_result(existing_result, condition, questions)
+    except ConfigurationError:
+        checkpoint_path = output_dir / condition["checkpoint_path"]
+        if not checkpoint_path.exists():
+            raise
+        logger.warning(
+            "Discarding an uncommitted/corrupt result for %s because a verified checkpoint "
+            "is still present; resume will reconstruct it.", condition["condition_id"],
+        )
+        existing_result.unlink(missing_ok=True)
+        result_artifact_path(existing_result).unlink(missing_ok=True)
+        return False
+    else:
+        logger.info("Verified completed result; skipping condition %s", condition["condition_id"])
+        return True
+
+
+def _get_or_build_backend(
+    model_config: ModelConfig,
+    condition: dict,
+    run_id: str,
+    config: ExperimentConfig,
+    backend_cache: dict[int, APIBackend | HuggingFaceBackend | DummyBackend],
+) -> APIBackend | HuggingFaceBackend | DummyBackend:
     # Keyed by object identity: config.models is the same list of ModelConfig
     # instances for the whole run, so a model is built/loaded once and reused
     # across every (benchmark, method) combination instead of reloading from
@@ -559,6 +552,98 @@ async def _run_model(
             condition.get("model_id"),
         )
         backend_cache[cache_key] = backend
+    return backend
+
+
+def _apply_modal_k_gate_if_needed(
+    method: MethodConfig,
+    questions: pd.DataFrame,
+    condition: dict,
+    output_dir: Path,
+    write_label: str,
+    config: ExperimentConfig,
+) -> tuple[pd.DataFrame, dict]:
+    """Apply the PriDe-only modal-k compatibility gate.
+
+    Runs before calibration so a heterogeneous-option benchmark fails fast,
+    and so PriDe calibrates and evaluates on a single option count.
+    Per-question methods skip this. Returns (eval_questions, extra_runtime_kwargs).
+    """
+    eval_questions = questions
+    extra_runtime_kwargs: dict = {}
+    runner_cls = _resolve_runner_cls(method.name)
+    if not getattr(runner_cls, "applies_modal_k_gate", False):
+        return eval_questions, extra_runtime_kwargs
+    stats = compute_benchmark_stats(questions)
+    modal_k = stats.get("modal_k")
+    if modal_k is None:
+        raise ConfigurationError(
+            f"Cannot resolve modal k from the manifest-bound rows for {write_label!r}."
+        )
+    modal_k = int(modal_k)
+    gate_path = output_dir / "artifacts" / condition["condition_id"] / "modal_k_gate.json"
+    gate_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        eval_questions, gate_report = apply_modal_k_gate(
+            questions, modal_k, config.pride.modal_k_threshold, write_label,
+        )
+    except ModalKGateError as exc:
+        # Below-threshold coverage is an intentional design exclusion, not
+        # a bug — write the report so the empty result cell is traceable,
+        # then re-raise so _run_model_isolated can route it to the
+        # run's "gated" tally instead of "failures" (no sys.exit(1),
+        # evaluate_run.py still runs).
+        if exc.report is not None:
+            _write_identity_artifact(gate_path, {
+                **exc.report.as_dict(), "condition_id": condition["condition_id"],
+                "experiment_id": condition["experiment_id"],
+                "dataset_artifact_id": condition["artifact_id"],
+            })
+        logger.info(
+            "[%s] modal-k gate: benchmark %s skipped by design — %s",
+            method.name, write_label, exc,
+        )
+        raise
+    logger.info(
+        "[%s] modal-k gate: k=%d, %d/%d evaluated (%s).",
+        method.name, gate_report.modal_k, gate_report.n_evaluated,
+        gate_report.n_total, gate_report.reason,
+    )
+    _write_identity_artifact(gate_path, {
+        **gate_report.as_dict(), "condition_id": condition["condition_id"],
+        "experiment_id": condition["experiment_id"],
+        "dataset_artifact_id": condition["artifact_id"],
+    })
+    extra_runtime_kwargs = {
+        "modal_k": modal_k, "gate_summary": gate_report.as_dict(),
+        "condition_id": condition["condition_id"],
+        "calibration_identity": condition["identity"].get("preflight"),
+    }
+    return eval_questions, extra_runtime_kwargs
+
+
+async def _run_model(
+    method: MethodConfig,
+    model_config: ModelConfig,
+    benchmark_cfg: BenchmarkConfig,
+    questions: pd.DataFrame,
+    preflight_questions: list[dict] | None,
+    config: ExperimentConfig,
+    run_id: str,
+    output_dir: Path,
+    checkpoint_dir: Path,
+    backend_cache: dict[int, APIBackend | HuggingFaceBackend | DummyBackend],
+    condition: dict,
+) -> None:
+    """Set up and run one (method, model, benchmark) combination."""
+    if _check_existing_result(output_dir, condition, questions, config):
+        return
+    logger.info(
+        "── Benchmark: %s  Method: %s  Model: %s (%s) ──────────────────",
+        benchmark_cfg.name, method.name,
+        model_config.model_name_or_path, model_config.backend,
+    )
+    backend = _get_or_build_backend(model_config, condition, run_id, config, backend_cache)
     logger.info("Backend: %s", backend.__class__.__name__)
 
     # The written identity for the generic `huggingface` path is the normalized
@@ -566,58 +651,9 @@ async def _run_model(
     # datasets collide on the CSV filename / checkpoint key (FCD-3 / MF-C).
     write_label = benchmark_write_label(benchmark_cfg)
 
-    # Modal-k compatibility gate (PriDe only). Runs before calibration so a
-    # heterogeneous-option benchmark fails fast, and so PriDe calibrates and
-    # evaluates on a single option count. Per-question methods skip this.
-    eval_questions = questions
-    extra_runtime_kwargs: dict = {}
-    runner_cls = _resolve_runner_cls(method.name)
-    if getattr(runner_cls, "applies_modal_k_gate", False):
-        stats = compute_benchmark_stats(questions)
-        modal_k = stats.get("modal_k")
-        if modal_k is None:
-            raise ConfigurationError(
-                f"Cannot resolve modal k from the manifest-bound rows for {write_label!r}."
-            )
-        modal_k = int(modal_k)
-        gate_path = output_dir / "artifacts" / condition["condition_id"] / "modal_k_gate.json"
-        gate_path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            eval_questions, gate_report = apply_modal_k_gate(
-                questions, modal_k, config.pride.modal_k_threshold, write_label,
-            )
-        except ModalKGateError as exc:
-            # Below-threshold coverage is an intentional design exclusion, not
-            # a bug — write the report so the empty result cell is traceable,
-            # then re-raise so _run_model_isolated can route it to the
-            # run's "gated" tally instead of "failures" (no sys.exit(1),
-            # evaluate_run.py still runs).
-            if exc.report is not None:
-                _write_identity_artifact(gate_path, {
-                    **exc.report.as_dict(), "condition_id": condition["condition_id"],
-                    "experiment_id": condition["experiment_id"],
-                    "dataset_artifact_id": condition["artifact_id"],
-                })
-            logger.info(
-                "[%s] modal-k gate: benchmark %s skipped by design — %s",
-                method.name, write_label, exc,
-            )
-            raise
-        logger.info(
-            "[%s] modal-k gate: k=%d, %d/%d evaluated (%s).",
-            method.name, gate_report.modal_k, gate_report.n_evaluated,
-            gate_report.n_total, gate_report.reason,
-        )
-        _write_identity_artifact(gate_path, {
-            **gate_report.as_dict(), "condition_id": condition["condition_id"],
-            "experiment_id": condition["experiment_id"],
-            "dataset_artifact_id": condition["artifact_id"],
-        })
-        extra_runtime_kwargs = {
-            "modal_k": modal_k, "gate_summary": gate_report.as_dict(),
-            "condition_id": condition["condition_id"],
-            "calibration_identity": condition["identity"].get("preflight"),
-        }
+    eval_questions, extra_runtime_kwargs = _apply_modal_k_gate_if_needed(
+        method, questions, condition, output_dir, write_label, config,
+    )
 
     checkpoint_mgr = CheckpointManager(
         checkpoint_dir=checkpoint_dir,
@@ -1125,6 +1161,7 @@ async def _async_main(
 
 
 def main() -> None:
+    configure_logging()
     ensure_dirs()
     args = parse_args()
     try:
