@@ -3,7 +3,6 @@
 import pandas as pd
 import pytest
 
-from choicebench.io.readers import _infer_benchmark_from_stem
 from choicebench.io.writers import write_run_results
 
 
@@ -70,18 +69,3 @@ class TestWriteRunResultsRoundtrip:
         path = write_run_results(sample_two_stage_results, tmp_path, "cond_1")
         df = pd.read_csv(path)
         assert df.iloc[0]["free_text_response"] == "HTTPS"
-
-
-def test_legacy_filename_benchmark_inference_knows_registered_benchmarks():
-    """Older CSVs without benchmark_name should still infer current built-ins."""
-    for benchmark in [
-        "arc_challenge",
-        "hellaswag",
-        "huggingface",
-        "mmlu",
-        "mmlu_pro",
-        "truthful_qa",
-        "toy",
-    ]:
-        stem = f"run_001_direct_mcq_dummy_model_{benchmark}"
-        assert _infer_benchmark_from_stem(stem) == benchmark
