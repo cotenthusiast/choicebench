@@ -36,11 +36,6 @@ def _load_benchmark_artifact(benchmark_cfg: BenchmarkConfig, split: str) -> Prep
     return load_prepared_dataset(PROCESSED_DIR, spec_for_benchmark(benchmark_cfg, split=split))
 
 
-def _load_benchmark_df(benchmark_cfg: BenchmarkConfig, split: str | None = None) -> pd.DataFrame:
-    """Compatibility seam; production provenance uses _load_benchmark_artifact."""
-    return _load_benchmark_artifact(benchmark_cfg, split or benchmark_cfg.split).dataframe
-
-
 @dataclass(frozen=True)
 class PreflightSelection:
     records: list[dict]
@@ -72,17 +67,16 @@ def load_preflight(
         run_seed: Seed for reproducible sampling.
         eval_question_ids: question_ids already selected for the evaluation sample.
             When source is "benchmark", these are excluded from the calibration
-            pool before sampling — the split-label check alone does not
-            guarantee disjoint rows, since "benchmark" reloads the same
-            normalized CSV the eval sample was drawn from.
+            pool before sampling.
 
     Returns:
         A list of question dicts in the standard record schema, or None if the
         method has no preflight block.
 
     Raises:
-        ValueError: If source is "benchmark" and preflight split matches eval split
-            (disjointness violation), or if the source file type is unsupported.
+        ValueError: If source is "benchmark" and it resolves to the same prepared
+            artifact as eval_artifact_id, if sampled preflight content overlaps
+            eval_sample_identities, or if the source file type is unsupported.
     """
     if method_config.preflight is None:
         return None
@@ -90,14 +84,6 @@ def load_preflight(
     cfg = method_config.preflight
 
     if cfg.source == "benchmark":
-        if not return_selection:
-            if cfg.split == benchmark_cfg.split:
-                raise ValueError("Preflight and evaluation splits must be disjoint.")
-            df = _load_benchmark_df(benchmark_cfg, cfg.split)
-            if eval_question_ids:
-                df = df[~df["question_id"].isin(eval_question_ids)]
-            n = max(0, min(cfg.n, len(df)))
-            return df.sample(n=n, random_state=run_seed).to_dict(orient="records") if n else []
         artifact = _load_benchmark_artifact(benchmark_cfg, cfg.split)
         if eval_artifact_id is not None and artifact.artifact_id == eval_artifact_id:
             raise ValueError("Preflight and evaluation resolve to the same prepared artifact.")

@@ -38,6 +38,20 @@ def _make_questions(n: int = 20) -> pd.DataFrame:
     )
 
 
+def _make_prepared_dataset(df: pd.DataFrame, artifact_id: str = "art_bench"):
+    """Fake PreparedDataset for mocking _load_benchmark_artifact."""
+    from choicebench.config.paths import PROCESSED_DIR
+    from choicebench.datasets import PreparedDataset
+
+    metadata = {"artifact_id": artifact_id, "content_digest": f"{artifact_id}_digest"}
+    return PreparedDataset(
+        path=PROCESSED_DIR / artifact_id / "normalized.csv",
+        metadata_path=PROCESSED_DIR / artifact_id / "artifact.json",
+        metadata=metadata,
+        dataframe=df,
+    )
+
+
 class TestLoadPreflightNone:
     def test_no_preflight_block_returns_none(self):
         """No preflight block → load_preflight returns None."""
@@ -53,8 +67,8 @@ class TestLoadPreflightBenchmarkSource:
         method = _make_method(PreflightConfig(source="benchmark", split="validation", n=5))
         bench = _make_benchmark(split="test")
 
-        fake_df = _make_questions(20)
-        with patch("choicebench.preflight._load_benchmark_df", return_value=fake_df):
+        fake_artifact = _make_prepared_dataset(_make_questions(20))
+        with patch("choicebench.preflight._load_benchmark_artifact", return_value=fake_artifact):
             result = load_preflight(method, bench, run_seed=42)
 
         assert isinstance(result, list)
@@ -62,21 +76,23 @@ class TestLoadPreflightBenchmarkSource:
         for record in result:
             assert "question_id" in record
 
-    def test_split_matches_eval_split_raises(self):
-        """source: benchmark, preflight split == eval split → ValueError."""
+    def test_same_prepared_artifact_as_eval_raises(self):
+        """source: benchmark resolving to the same prepared artifact as eval_artifact_id → ValueError."""
         method = _make_method(PreflightConfig(source="benchmark", split="test", n=10))
         bench = _make_benchmark(split="test")
 
-        with pytest.raises(ValueError, match="disjoint"):
-            load_preflight(method, bench, run_seed=42)
+        fake_artifact = _make_prepared_dataset(_make_questions(20), artifact_id="art_shared")
+        with patch("choicebench.preflight._load_benchmark_artifact", return_value=fake_artifact):
+            with pytest.raises(ValueError, match="same prepared artifact"):
+                load_preflight(method, bench, run_seed=42, eval_artifact_id="art_shared")
 
     def test_n_larger_than_dataset_clamps(self):
         """Requesting more rows than available returns all rows."""
         method = _make_method(PreflightConfig(source="benchmark", split="validation", n=50))
         bench = _make_benchmark(split="test")
 
-        fake_df = _make_questions(10)
-        with patch("choicebench.preflight._load_benchmark_df", return_value=fake_df):
+        fake_artifact = _make_prepared_dataset(_make_questions(10))
+        with patch("choicebench.preflight._load_benchmark_artifact", return_value=fake_artifact):
             result = load_preflight(method, bench, run_seed=42)
 
         assert len(result) == 10
@@ -85,11 +101,11 @@ class TestLoadPreflightBenchmarkSource:
         """Same seed must return the same sample across two calls."""
         method = _make_method(PreflightConfig(source="benchmark", split="validation", n=5))
         bench = _make_benchmark(split="test")
-        fake_df = _make_questions(20)
+        fake_artifact = _make_prepared_dataset(_make_questions(20))
 
-        with patch("choicebench.preflight._load_benchmark_df", return_value=fake_df):
+        with patch("choicebench.preflight._load_benchmark_artifact", return_value=fake_artifact):
             first = load_preflight(method, bench, run_seed=7)
-        with patch("choicebench.preflight._load_benchmark_df", return_value=fake_df):
+        with patch("choicebench.preflight._load_benchmark_artifact", return_value=fake_artifact):
             second = load_preflight(method, bench, run_seed=7)
 
         assert [r["question_id"] for r in first] == [r["question_id"] for r in second]
@@ -98,10 +114,10 @@ class TestLoadPreflightBenchmarkSource:
         """eval_question_ids must never appear in the returned calibration sample."""
         method = _make_method(PreflightConfig(source="benchmark", split="validation", n=15))
         bench = _make_benchmark(split="test")
-        fake_df = _make_questions(20)
+        fake_artifact = _make_prepared_dataset(_make_questions(20))
         eval_ids = {f"q{i:03d}" for i in range(15)}  # same seed/pool would otherwise overlap
 
-        with patch("choicebench.preflight._load_benchmark_df", return_value=fake_df):
+        with patch("choicebench.preflight._load_benchmark_artifact", return_value=fake_artifact):
             result = load_preflight(method, bench, run_seed=42, eval_question_ids=eval_ids)
 
         returned_ids = {r["question_id"] for r in result}
@@ -112,11 +128,11 @@ class TestLoadPreflightBenchmarkSource:
         """Different seeds should (almost always) return different samples."""
         method = _make_method(PreflightConfig(source="benchmark", split="validation", n=5))
         bench = _make_benchmark(split="test")
-        fake_df = _make_questions(20)
+        fake_artifact = _make_prepared_dataset(_make_questions(20))
 
-        with patch("choicebench.preflight._load_benchmark_df", return_value=fake_df):
+        with patch("choicebench.preflight._load_benchmark_artifact", return_value=fake_artifact):
             first = load_preflight(method, bench, run_seed=1)
-        with patch("choicebench.preflight._load_benchmark_df", return_value=fake_df):
+        with patch("choicebench.preflight._load_benchmark_artifact", return_value=fake_artifact):
             second = load_preflight(method, bench, run_seed=999)
 
         assert [r["question_id"] for r in first] != [r["question_id"] for r in second]
