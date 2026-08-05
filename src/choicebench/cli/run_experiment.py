@@ -831,10 +831,13 @@ async def run_models_concurrently(
     return failures, gated
 
 
-def build_execution_plan(config: ExperimentConfig) -> ExecutionPlan:
-    """Resolve all scientific inputs and expand the immutable condition grid."""
+def _build_prompt_record(config: ExperimentConfig) -> dict:
     prompt_record = prompt_bundle_identity(config.run.prompt_version, _prompt_root(config))
     prompt_record["run_snapshot_path"] = f"artifacts/prompts/{prompt_record['prompt_id']}"
+    return prompt_record
+
+
+def _build_model_records(config: ExperimentConfig) -> list[dict]:
     model_records: list[dict] = []
     for model in config.models:
         raw = asdict(model)
@@ -880,6 +883,10 @@ def build_execution_plan(config: ExperimentConfig) -> ExecutionPlan:
                 **payload, "model_name_or_path": display_name,
             }, "resolved_model": resolved,
         })
+    return model_records
+
+
+def _build_method_records(config: ExperimentConfig) -> list[dict]:
     method_records: list[dict] = []
     runtime_parameters = {
         "self", "args", "kwargs", "backend", "method_name", "split_name", "prompt_version",
@@ -912,7 +919,18 @@ def build_execution_plan(config: ExperimentConfig) -> ExecutionPlan:
             "config": {"name": method.name, "params": effective_params, "preflight": preflight_config},
             "implementation": payload["implementation"],
         })
+    return method_records
 
+
+def _build_dataset_selections(
+    config: ExperimentConfig,
+) -> tuple[
+    list[BenchmarkSelection],
+    list[dict],
+    dict[tuple[int, int], PreflightSelection | None],
+    list[dict],
+]:
+    """Returns (selections, dataset_records, preflights, calibration_records)."""
     selections: list[BenchmarkSelection] = []
     dataset_records: list[dict] = []
     preflights: dict[tuple[int, int], PreflightSelection | None] = {}
@@ -958,7 +976,18 @@ def build_execution_plan(config: ExperimentConfig) -> ExecutionPlan:
                     "row_count": len(value.records),
                     "run_snapshot_path": f"artifacts/calibrations/{value.selection_id}.csv",
                 })
+    return selections, dataset_records, preflights, calibration_records
 
+
+def _build_condition_grid(
+    config: ExperimentConfig,
+    selections: list[BenchmarkSelection],
+    preflights: dict[tuple[int, int], PreflightSelection | None],
+    model_records: list[dict],
+    method_records: list[dict],
+    prompt_record: dict,
+) -> tuple[dict[tuple[int, int, int], dict], list[dict]]:
+    """Returns (conditions, condition_list)."""
     conditions: dict[tuple[int, int, int], dict] = {}
     seen: set[str] = set()
     condition_list: list[dict] = []
@@ -1016,7 +1045,10 @@ def build_execution_plan(config: ExperimentConfig) -> ExecutionPlan:
                     record["gate_path"] = f"artifacts/{condition_id}/modal_k_gate.json"
                 conditions[(bi, mi, model_i)] = record
                 condition_list.append(record)
+    return conditions, condition_list
 
+
+def _build_metric_records(config: ExperimentConfig) -> list[dict]:
     metric_records = []
     for name in config.metrics:
         metric_cls = BUILTIN_METRICS.get(name)
@@ -1024,6 +1056,19 @@ def build_execution_plan(config: ExperimentConfig) -> ExecutionPlan:
             module_name, class_name = name.rsplit(":", 1)
             metric_cls = getattr(importlib.import_module(module_name), class_name)
         metric_records.append({"name": name, "implementation": implementation_identity(metric_cls)})
+    return metric_records
+
+
+def build_execution_plan(config: ExperimentConfig) -> ExecutionPlan:
+    """Resolve all scientific inputs and expand the immutable condition grid."""
+    prompt_record = _build_prompt_record(config)
+    model_records = _build_model_records(config)
+    method_records = _build_method_records(config)
+    selections, dataset_records, preflights, calibration_records = _build_dataset_selections(config)
+    conditions, condition_list = _build_condition_grid(
+        config, selections, preflights, model_records, method_records, prompt_record,
+    )
+    metric_records = _build_metric_records(config)
     payload = build_manifest_payload(
         config=config, datasets=dataset_records, prompts=prompt_record,
         models=model_records, methods=method_records, conditions=condition_list,
