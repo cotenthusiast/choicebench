@@ -54,3 +54,8 @@ claude-terminal-capture.md
 
 # Pre-release audit notes (kept locally, not version-controlled)
 audits/
+
+# SIMPLIFICATION_PLAN.md's own planning/backlog docs (kept locally; the
+# commit-by-commit history already documents what changed and why)
+SIMPLIFICATION_PLAN.md
+CLEANUP_CANDIDATES.md
