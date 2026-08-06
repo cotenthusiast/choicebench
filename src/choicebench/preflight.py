@@ -60,8 +60,14 @@ def _load_preflight_from_benchmark(
     return_selection: bool,
 ) -> list[dict] | PreflightSelection:
     artifact = _load_benchmark_artifact(benchmark_cfg, cfg.split)
-    if eval_artifact_id is not None and artifact.artifact_id == eval_artifact_id:
-        raise ValueError("Preflight and evaluation resolve to the same prepared artifact.")
+    if eval_artifact_id is not None:
+        if artifact.artifact_id == eval_artifact_id:
+            raise ValueError("Preflight and evaluation resolve to the same prepared artifact.")
+    elif cfg.split == benchmark_cfg.split:
+        # No eval_artifact_id to compare against (e.g. a direct/programmatic
+        # caller) -- fall back to the split-label check so this case still
+        # raises instead of silently allowing preflight/eval overlap.
+        raise ValueError("Preflight and evaluation splits must be disjoint.")
     df = artifact.dataframe
     if eval_question_ids:
         df = df[~df["question_id"].isin(eval_question_ids)]
@@ -159,8 +165,10 @@ def load_preflight(
 
     Raises:
         ValueError: If source is "benchmark" and it resolves to the same prepared
-            artifact as eval_artifact_id, if sampled preflight content overlaps
-            eval_sample_identities, or if the source file type is unsupported.
+            artifact as eval_artifact_id (or, when eval_artifact_id isn't
+            supplied, if the preflight split label matches benchmark_cfg.split),
+            if sampled preflight content overlaps eval_sample_identities, or if
+            the source file type is unsupported.
     """
     if method_config.preflight is None:
         return None

@@ -86,6 +86,18 @@ class TestLoadPreflightBenchmarkSource:
             with pytest.raises(ValueError, match="same prepared artifact"):
                 load_preflight(method, bench, run_seed=42, eval_artifact_id="art_shared")
 
+    def test_split_matches_eval_split_raises_without_eval_artifact_id(self):
+        """No eval_artifact_id supplied: falls back to the split-label check,
+        so preflight split == eval split still raises instead of silently
+        allowing overlap."""
+        method = _make_method(PreflightConfig(source="benchmark", split="test", n=10))
+        bench = _make_benchmark(split="test")
+
+        fake_artifact = _make_prepared_dataset(_make_questions(20))
+        with patch("choicebench.preflight._load_benchmark_artifact", return_value=fake_artifact):
+            with pytest.raises(ValueError, match="disjoint"):
+                load_preflight(method, bench, run_seed=42)
+
     def test_n_larger_than_dataset_clamps(self):
         """Requesting more rows than available returns all rows."""
         method = _make_method(PreflightConfig(source="benchmark", split="validation", n=50))
