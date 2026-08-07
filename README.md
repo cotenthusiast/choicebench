@@ -326,16 +326,28 @@ The retry loop, backoff, semaphore, and request/response validation are all hand
 ### Add a new benchmark (4 steps)
 
 1. Create `src/choicebench/benchmarks/my_bench.py`
-2. Implement `build_normalized_dataframe(df)` — convert the raw HuggingFace
-   DataFrame into the normalized schema (`question_id`, `question_text`,
-   `choice_a`–`choice_d`, `correct_option`, `subject`, …) — and decorate it:
+2. Implement a row-level `normalize_row(row: dict) -> dict` — convert one raw
+   HuggingFace row into the normalized schema by calling
+   `make_normalized_row()` from `benchmarks/base.py` (it derives
+   `question_id`, `choices_json`, `correct_index`, `correct_option`,
+   `correct_answer_text`, and `n_choices` for you) — and decorate it:
    ```python
+   from choicebench.benchmarks.base import make_normalized_row
    from choicebench.benchmarks.registry import benchmark
 
    @benchmark(name="my_bench", hf_path="org/my-bench", hf_subset="default", default_split="test")
-   def build_normalized_dataframe(df):
-       ...
+   def normalize_row(row: dict) -> dict:
+       return make_normalized_row(
+           subject=row["subject"],
+           question_text=row["question"],
+           choices=row["choices"],       # ordered list of option texts
+           correct_index=row["answer"],  # 0-based index into choices
+       )
    ```
+   The decorator wraps your row-level function with
+   `build_normalized_dataframe()` so the registry always stores a
+   DataFrame-level normalizer; each benchmark module only defines the
+   per-row logic.
 3. Import the module in `src/choicebench/benchmarks/__init__.py` so the
    `@benchmark` decorator runs and registers the entry on import.
 4. Run `python scripts/prepare_data.py --hf-path org/my-bench --hf-subset default`.
