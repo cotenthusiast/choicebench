@@ -584,7 +584,10 @@ async def test_run_model_reuses_cached_backend_across_calls(tmp_path):
 
     build_calls: list[str] = []
 
-    def fake_build_backend(model_config, run_id, run_seed, default_concurrency_limit=10, model_identity=None):
+    def fake_build_backend(
+        model_config, run_id, run_seed, default_concurrency_limit=10,
+        model_identity=None, cache_scope="per_run",
+    ):
         build_calls.append(model_config.model_name_or_path)
         return object()
 

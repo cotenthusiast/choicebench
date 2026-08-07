@@ -278,6 +278,9 @@ run:
   prompt_version: "v1"          # packaged prompt bundle; file contents are hashed
   prompt_dir: null               # optional external root for custom prompt bundles
   concurrency_limit: 10         # max in-flight requests per API model (rate-limit guard)
+  cache_scope: per_run          # "per_run" (default, isolated in runs/<run_id>/cache/) or
+                                 # "shared" (runs/-independent, reused across run IDs by
+                                 # model identity + request content — see below)
 ```
 
 ---
@@ -432,9 +435,9 @@ Nonempty v0.1 run directories without a manifest are treated as unverifiable
 legacy runs and cannot be resumed.
 
 Presentation and operational controls (`experiment.name`, `run.resume`,
-`run.dry_run`, checkpoint cadence, API concurrency, and YAML grid ordering) do
-not invalidate resume. They remain in the config snapshot but are excluded
-from scientific identity. `run_state.json` is deliberately separate and mutable; it records whether
+`run.dry_run`, `run.cache_scope`, checkpoint cadence, API concurrency, and
+YAML grid ordering) do not invalidate resume. They remain in the config
+snapshot but are excluded from scientific identity. `run_state.json` is deliberately separate and mutable; it records whether
 each immutable condition is pending, completed, failed, or gated. Evaluation
 reads only result paths declared by the manifest and rejects missing,
 unexpected, duplicate, identity-conflicting, or digest-corrupt artifacts.
@@ -504,6 +507,20 @@ revision even when the client configuration is fully identified.
 questions. Checkpoints embed the experiment, condition, and dataset-selection
 identities; corruption or mismatch is a hard error. They are deleted after a
 condition completes successfully.
+
+**Response cache:** successful API responses are cached to disk, keyed by a
+hash of the deterministic request content (provider/model/prompt/temperature/
+max_tokens/seed) — nothing about the run ID or ChoiceBench's own source code
+is part of the key. With the default `run.cache_scope: per_run`, the cache
+lives under `runs/<run_id>/cache/<model_id>/`, so a new run ID always starts
+cold, even for requests byte-identical to ones already cached under a
+different run ID (e.g. after a source-only refactor that changes the run's
+identity but not its requests). Set `run.cache_scope: shared` to instead
+cache under a single run-independent directory keyed by model identity, so
+identical requests reuse a hit across run IDs. Either setting is safe with
+respect to resume: the cache key already excludes anything run-specific, and
+`cache_scope` itself is an operational control excluded from the experiment
+digest (see above).
 
 ---
 

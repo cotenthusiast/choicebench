@@ -58,6 +58,21 @@ def test_run_defaults_applied(tmp_path):
     assert cfg.run.prompt_version == "v1"
     assert cfg.run.concurrency_limit == 10
     assert cfg.run.resume is True
+    assert cfg.run.cache_scope == "per_run"
+
+
+def test_run_cache_scope_shared_accepted(tmp_path):
+    data = _valid_config()
+    data["run"]["cache_scope"] = "shared"
+    cfg = load_config(_write_config(tmp_path, data))
+    assert cfg.run.cache_scope == "shared"
+
+
+def test_run_cache_scope_rejects_unknown_value(tmp_path):
+    data = _valid_config()
+    data["run"]["cache_scope"] = "global"
+    with pytest.raises(ConfigError, match="run.cache_scope"):
+        load_config(_write_config(tmp_path, data))
 
 
 def test_generation_kwargs_parsed(tmp_path):

@@ -139,6 +139,48 @@ def test_per_model_concurrency_limit_overrides_run_default(tmp_path, monkeypatch
     assert backend._raw_client.concurrency_limit == 7
 
 
+def test_api_backend_cache_dir_defaults_to_per_run(tmp_path, monkeypatch):
+    """Default cache_scope nests the cache under runs/<run_id>/cache/."""
+    run_exp = _load_run_experiment()
+    monkeypatch.setattr(run_exp, "RUNS_DIR", tmp_path)
+
+    class _FakeClient:
+        def __init__(self, model_name, concurrency_limit=10, **kwargs):
+            self.model_name = model_name
+            self.provider = "fake"
+
+    monkeypatch.setitem(run_exp.CLIENT_REGISTRY, "fake", _FakeClient)
+
+    backend = run_exp.build_backend(
+        _model("api", provider="fake", model_name_or_path="fake-model"),
+        "rid",
+        run_seed=1,
+    )
+    cache_dir = backend._client._cache._dir
+    assert cache_dir.is_relative_to(tmp_path / "rid" / "cache")
+
+
+def test_api_backend_cache_dir_shared_is_run_independent(tmp_path, monkeypatch):
+    """cache_scope='shared' uses CACHE_DIR, not runs/<run_id>/cache/."""
+    run_exp = _load_run_experiment()
+    monkeypatch.setattr(run_exp, "RUNS_DIR", tmp_path / "runs")
+    monkeypatch.setattr(run_exp, "CACHE_DIR", tmp_path / "cache")
+
+    class _FakeClient:
+        def __init__(self, model_name, concurrency_limit=10, **kwargs):
+            self.model_name = model_name
+            self.provider = "fake"
+
+    monkeypatch.setitem(run_exp.CLIENT_REGISTRY, "fake", _FakeClient)
+
+    model = _model("api", provider="fake", model_name_or_path="fake-model")
+    backend_a = run_exp.build_backend(model, "run_a", run_seed=1, cache_scope="shared")
+    backend_b = run_exp.build_backend(model, "run_b", run_seed=1, cache_scope="shared")
+
+    assert backend_a._client._cache._dir.is_relative_to(tmp_path / "cache")
+    assert backend_a._client._cache._dir == backend_b._client._cache._dir
+
+
 def test_api_backend_unknown_provider_raises():
     run_exp = _load_run_experiment()
     with pytest.raises(ValueError, match="Unknown provider"):

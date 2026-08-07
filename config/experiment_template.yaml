@@ -221,6 +221,15 @@ run:
   # for stricter providers. Ignored for huggingface/dummy backends.
   concurrency_limit: 10
 
+  # Where an API model's response cache lives:
+  #   "per_run" (default): runs/<run_id>/cache/<model_id>/ — a new run ID
+  #     always starts cold, even for requests byte-identical to ones already
+  #     cached under a different run ID.
+  #   "shared": a single run-independent directory keyed by model identity,
+  #     so identical requests reuse a hit across run IDs. Safe either way —
+  #     the cache key already excludes anything run-specific.
+  cache_scope: per_run
+
 # ---------------------------------------------------------------------------
 # PriDe (optional)
 # ---------------------------------------------------------------------------

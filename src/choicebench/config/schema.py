@@ -37,6 +37,7 @@ def _credential_keys_in(value: Any) -> set[str]:
     return found
 
 _VALID_BACKENDS = {"huggingface", "api", "dummy"}
+_VALID_CACHE_SCOPES = {"per_run", "shared"}
 # Non-api backend classes, consulted for their declared supports_logprobs so we
 # never maintain a second hardcoded "logprob-capable" name list (FCD-2 / PF-2).
 _NONAPI_BACKEND_CLASSES = {
@@ -125,6 +126,13 @@ class RunConfig:
     prompt_version: str = "v1"
     prompt_dir: str | None = None
     concurrency_limit: int = 10
+    # "per_run" (default): cache lives under runs/<run_id>/cache/, so a new
+    # run ID starts cold even for requests already cached under another run.
+    # "shared": cache lives under a single run-independent directory keyed
+    # only by model identity + request content, so identical requests reuse
+    # a hit across run IDs. Safe either way — the cache key already excludes
+    # anything run-specific (see infra/cache.py's _cache_key()).
+    cache_scope: str = "per_run"
 
 
 @dataclass
@@ -448,8 +456,13 @@ def _build_run(raw: dict | None) -> RunConfig:
     raw = raw or {}
     _reject_unknown(raw, {
         "seed", "resume", "dry_run", "checkpoint_every_n", "prompt_version",
-        "prompt_dir", "concurrency_limit",
+        "prompt_dir", "concurrency_limit", "cache_scope",
     }, "run")
+    cache_scope = _nonempty(raw.get("cache_scope", "per_run"), "run.cache_scope")
+    if cache_scope not in _VALID_CACHE_SCOPES:
+        raise ConfigError(
+            f"run.cache_scope must be one of {sorted(_VALID_CACHE_SCOPES)}; got {cache_scope!r}."
+        )
     return RunConfig(
         seed=_strict_int(raw.get("seed", 42), "run.seed", minimum=0),
         resume=_strict_bool(raw.get("resume", True), "run.resume"),
@@ -461,6 +474,7 @@ def _build_run(raw: dict | None) -> RunConfig:
             if raw.get("prompt_dir") is not None else None
         ),
         concurrency_limit=_strict_int(raw.get("concurrency_limit", 10), "run.concurrency_limit", minimum=1),
+        cache_scope=cache_scope,
     )
 
 

@@ -28,6 +28,7 @@ from choicebench.backends.hf_backend import HuggingFaceBackend
 from choicebench.benchmarks.registry import BENCHMARK_REGISTRY, get_by_hf_path
 from choicebench.cli import configure_logging
 from choicebench.config.paths import (
+    CACHE_DIR,
     PROCESSED_DIR,
     PROMPTS_DIR,
     RUNS_DIR,
@@ -143,11 +144,18 @@ def build_backend(
     run_seed: int,
     default_concurrency_limit: int = 10,
     model_identity: str | None = None,
+    cache_scope: str = "per_run",
 ) -> APIBackend | HuggingFaceBackend | DummyBackend:
     """Construct the inference backend for a single model config.
 
     A model that does not set its own ``concurrency_limit`` inherits
     ``default_concurrency_limit`` (the run-level ``run.concurrency_limit``).
+
+    ``cache_scope`` selects where an API model's response cache lives: the
+    default ``"per_run"`` nests it under ``runs/<run_id>/cache/``, so a new
+    run ID starts cold; ``"shared"`` uses a single run-independent directory
+    keyed by model identity, so identical requests reuse a hit across run
+    IDs (see ``run.cache_scope`` in config/schema.py).
     """
     backend_type = model_config.backend
 
@@ -167,9 +175,11 @@ def build_backend(
         if model_config.base_url is not None:
             client_kwargs["base_url"] = model_config.base_url
         client = client_cls(**client_kwargs)
-        cache_dir = RUNS_DIR / run_id / "cache" / (
-            model_identity or short_id("model", canonicalize(asdict(model_config)))
-        )
+        model_cache_id = model_identity or short_id("model", canonicalize(asdict(model_config)))
+        if cache_scope == "shared":
+            cache_dir = CACHE_DIR / model_cache_id
+        else:
+            cache_dir = RUNS_DIR / run_id / "cache" / model_cache_id
         return APIBackend(
             model_config.provider,
             model_config.model_name_or_path,
@@ -549,7 +559,7 @@ def _get_or_build_backend(
                 runtime_model = replace(model_config, revision=resolved_model["resolved_commit"])
         backend = build_backend(
             runtime_model, run_id, config.run.seed, config.run.concurrency_limit,
-            condition.get("model_id"),
+            condition.get("model_id"), config.run.cache_scope,
         )
         backend_cache[cache_key] = backend
     return backend

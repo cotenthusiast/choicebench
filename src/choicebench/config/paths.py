@@ -16,6 +16,12 @@ RUNS_DIR = ROOT_DIR / "runs"
 REPORTS_DIR = ROOT_DIR / "reports"
 PROMPTS_DIR = Path(__file__).resolve().parents[1] / "resources" / "prompts"
 
+# Run-independent response cache, used when run.cache_scope == "shared" (see
+# infra/cache.py / cli/run_experiment.py's build_backend()) so identical
+# requests can be reused across run IDs instead of always nesting under
+# runs/<run_id>/cache/.
+CACHE_DIR = ROOT_DIR / "cache"
+
 def ensure_dirs() -> None:
     """Create all standard project directories. Call once at program startup."""
     for directory in [
@@ -23,6 +29,7 @@ def ensure_dirs() -> None:
         PROCESSED_DIR,
         RUNS_DIR,
         REPORTS_DIR,
+        CACHE_DIR,
     ]:
         try:
             directory.mkdir(parents=True, exist_ok=True)
