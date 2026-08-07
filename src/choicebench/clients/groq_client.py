@@ -43,28 +43,10 @@ class GroqClient(BaseClient):
             max_retries=0,
         )
 
-    async def _generate_provider_response(
-        self,
-        request: ModelRequest,
-    ) -> ModelResponse:
-        create_kwargs: dict[str, object] = {
-            "model": request.model_name,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": request.payload,
-                }
-            ],
-        }
-
-        if request.temperature is not None:
-            create_kwargs["temperature"] = request.temperature
-
-        if request.max_tokens is not None:
-            create_kwargs["max_completion_tokens"] = request.max_tokens
-
+    async def _call_groq(self, create_kwargs: dict[str, object]):
+        """Make the Groq chat-completions call, remapping SDK exceptions to our taxonomy."""
         try:
-            response = await self.client.chat.completions.create(**create_kwargs)
+            return await self.client.chat.completions.create(**create_kwargs)
         except groq.APITimeoutError as exc:
             raise ProviderTimeoutError(str(exc)) from exc
         except groq.APIConnectionError as exc:
@@ -72,6 +54,9 @@ class GroqClient(BaseClient):
         except groq.APIStatusError as exc:
             raise map_api_status_error(exc) from exc
 
+    @staticmethod
+    def _extract_response(response) -> tuple[str, str | None, UsageInfo | None]:
+        """Parse a Groq chat-completions response into (raw_text, finish_reason, usage)."""
         raw_text = None
         finish_reason = None
 
@@ -101,6 +86,31 @@ class GroqClient(BaseClient):
                     else (prompt_tokens or 0) + (completion_tokens or 0)
                 ),
             )
+
+        return raw_text, finish_reason, usage
+
+    async def _generate_provider_response(
+        self,
+        request: ModelRequest,
+    ) -> ModelResponse:
+        create_kwargs: dict[str, object] = {
+            "model": request.model_name,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": request.payload,
+                }
+            ],
+        }
+
+        if request.temperature is not None:
+            create_kwargs["temperature"] = request.temperature
+
+        if request.max_tokens is not None:
+            create_kwargs["max_completion_tokens"] = request.max_tokens
+
+        response = await self._call_groq(create_kwargs)
+        raw_text, finish_reason, usage = self._extract_response(response)
 
         return ModelResponse(
             provider=request.provider,

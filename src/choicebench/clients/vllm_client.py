@@ -62,21 +62,10 @@ class VLLMClient(BaseClient):
             max_retries=0,
         )
 
-    async def _generate_provider_response(
-        self,
-        request: ModelRequest,
-    ) -> ModelResponse:
-        create_kwargs: dict[str, object] = {
-            "model": request.model_name,
-            "messages": [{"role": "user", "content": request.payload}],
-        }
-        if request.temperature is not None:
-            create_kwargs["temperature"] = request.temperature
-        if request.max_tokens is not None:
-            create_kwargs["max_tokens"] = request.max_tokens
-
+    async def _call_vllm(self, create_kwargs: dict[str, object]):
+        """Make the vLLM chat-completions call, remapping SDK exceptions to our taxonomy."""
         try:
-            response = await self.client.chat.completions.create(**create_kwargs)
+            return await self.client.chat.completions.create(**create_kwargs)
         except openai.APITimeoutError as exc:
             raise ProviderTimeoutError(str(exc)) from exc
         except openai.APIConnectionError as exc:
@@ -84,6 +73,9 @@ class VLLMClient(BaseClient):
         except openai.APIStatusError as exc:
             raise map_api_status_error(exc) from exc
 
+    @staticmethod
+    def _extract_response(response) -> tuple[str, str | None, UsageInfo | None]:
+        """Parse a vLLM chat-completions response into (raw_text, finish_reason, usage)."""
         if not response.choices:
             raise ProviderResponseError("vLLM returned no choices")
 
@@ -99,13 +91,31 @@ class VLLMClient(BaseClient):
                 total_tokens=response.usage.total_tokens,
             )
 
+        return raw_text, response.choices[0].finish_reason, usage
+
+    async def _generate_provider_response(
+        self,
+        request: ModelRequest,
+    ) -> ModelResponse:
+        create_kwargs: dict[str, object] = {
+            "model": request.model_name,
+            "messages": [{"role": "user", "content": request.payload}],
+        }
+        if request.temperature is not None:
+            create_kwargs["temperature"] = request.temperature
+        if request.max_tokens is not None:
+            create_kwargs["max_tokens"] = request.max_tokens
+
+        response = await self._call_vllm(create_kwargs)
+        raw_text, finish_reason, usage = self._extract_response(response)
+
         return ModelResponse(
             provider=request.provider,
             model_name=request.model_name,
             status=SUCCESS_STATUS,
             latency_seconds=0.0,
             raw_text=raw_text,
-            finish_reason=response.choices[0].finish_reason,
+            finish_reason=finish_reason,
             usage=usage,
             error=None,
             timestamp_utc=None,
