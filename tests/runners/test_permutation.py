@@ -308,8 +308,10 @@ class TestPermutationRunnerRunOne:
 
         assert len(backend.requests_received) == 4
 
-    def test_missing_trailing_option_makes_three_api_calls(self, runner_question_row):
-        row = dict(runner_question_row, choice_d="", correct_option="C")
+    def test_missing_trailing_option_makes_three_api_calls(
+        self, runner_question_row_missing_trailing_option
+    ):
+        row = runner_question_row_missing_trailing_option
         canonical = {"A": "FTP", "B": "HTTP", "C": "HTTPS"}
         perms = PermutationRunner._generate_permutations(canonical)
         # Respond with whichever letter holds "HTTPS" in each rotation, so all

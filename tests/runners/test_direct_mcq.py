@@ -101,11 +101,14 @@ class TestDirectMCQRunnerRunOne:
         assert result["parsed_choice"] == "C"
         assert result["is_correct"] is True
 
-    def test_missing_trailing_option_is_not_rendered_or_parsed(self, runner_question_row):
-        row = dict(runner_question_row, choice_d="", correct_option="C")
+    def test_missing_trailing_option_is_not_rendered_or_parsed(
+        self, runner_question_row_missing_trailing_option
+    ):
         backend = MockBackend(responses=["D"])
 
-        result = _make_runner(backend).run_one(row, sample_index=0)
+        result = _make_runner(backend).run_one(
+            runner_question_row_missing_trailing_option, sample_index=0
+        )
 
         assert "D." not in result["prompt"]
         assert result["parsed_choice"] is None
@@ -134,9 +137,11 @@ class TestDirectMCQRunnerBuildPrompt:
         assert "HTTPS" in prompt
         assert "SMTP" in prompt
 
-    def test_prompt_omits_missing_trailing_option(self, runner_question_row):
+    def test_prompt_omits_missing_trailing_option(
+        self, runner_question_row_missing_trailing_option
+    ):
         runner = _make_runner(MockBackend(responses=[]))
-        prompt = runner._build_prompt(dict(runner_question_row, choice_d=""))
+        prompt = runner._build_prompt(runner_question_row_missing_trailing_option)
 
         assert "A. FTP" in prompt
         assert "B. HTTP" in prompt

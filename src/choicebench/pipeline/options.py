@@ -3,10 +3,9 @@ from __future__ import annotations
 import json
 from typing import Any, Mapping
 
-from choicebench.constants import LEGACY_OPTION_LETTERS, letters_for
+from choicebench.constants import letters_for
 
-# Column that holds the variable-choice representation in the new schema. When
-# present, it takes precedence over the legacy choice_a..choice_d columns.
+# Column that holds the variable-choice representation.
 CHOICES_JSON_COL = "choices_json"
 
 
@@ -22,25 +21,6 @@ def normalize_option_text(value: object) -> str:
             return ""
         value = str(value)
     return " ".join(value.strip().split())
-
-
-def _has_choices_json(question_row: Mapping[str, Any]) -> bool:
-    """True if the row carries a non-empty variable-choice `choices_json` value."""
-    if CHOICES_JSON_COL not in question_row:
-        return False
-    raw = question_row[CHOICES_JSON_COL]
-    if raw is None:
-        return False
-    # pandas encodes a missing cell as NaN (a float), which != itself.
-    if isinstance(raw, float):
-        try:
-            if raw != raw:
-                return False
-        except Exception:
-            return False
-    if isinstance(raw, str) and raw.strip() == "":
-        return False
-    return True
 
 
 def parse_choices_json(raw: object) -> list[dict[str, Any]]:
@@ -75,20 +55,6 @@ def _build_choices_from_json(question_row: Mapping[str, Any]) -> list[dict[str, 
     return choices
 
 
-def _build_choices_legacy(question_row: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """Legacy schema: fixed ``choice_a..choice_d`` columns.
-
-    Each column keeps its fixed letter as the label (A=choice_a, ...) and its
-    column index as source_index; missing/empty columns are dropped.
-    """
-    choices = []
-    for i, label in enumerate(LEGACY_OPTION_LETTERS):
-        text = normalize_option_text(question_row.get(f"choice_{label.lower()}"))
-        if text:
-            choices.append({"label": label, "text": text, "source_index": i})
-    return choices
-
-
 def build_choices(question_row: Mapping[str, Any]) -> list[dict[str, Any]]:
     """Return the canonical, ordered choice records for one question row.
 
@@ -99,20 +65,16 @@ def build_choices(question_row: Mapping[str, Any]) -> list[dict[str, Any]]:
       - ``source_index``: the option's original index in the raw source dataset,
         preserved for audit.
 
-    Supports both schemas (see ``_build_choices_from_json``/``_build_choices_legacy``).
+    See ``_build_choices_from_json``.
     """
-    if _has_choices_json(question_row):
-        return _build_choices_from_json(question_row)
-    return _build_choices_legacy(question_row)
+    return _build_choices_from_json(question_row)
 
 
 def build_option_map(question_row: Mapping[str, Any]) -> dict[str, str]:
     """Build and validate the label→text option map for one normalized row.
 
-    Missing, NaN, and empty-string choices are dropped. Works for both the new
-    variable-choice schema and the legacy choice_a..choice_d schema (see
-    build_choices). Downstream prompt rendering and parsing only see real
-    options.
+    Missing, NaN, and empty-string choices are dropped (see build_choices).
+    Downstream prompt rendering and parsing only see real options.
 
     Raises:
         ValueError: if fewer than 2 valid options remain, or if the row's
@@ -144,10 +106,9 @@ def correct_option_for_row(
 ) -> str:
     """Derive the correct answer *letter* for a row.
 
-    Prefers a persisted ``correct_option`` letter (present in both schemas). If
-    absent, falls back to deriving it from ``correct_index`` against the built
-    label order — so a new-schema CSV authored with only correct_index still
-    resolves correctly.
+    Prefers a persisted ``correct_option`` letter. If absent, falls back to
+    deriving it from ``correct_index`` against the built label order — so a
+    CSV authored with only correct_index still resolves correctly.
     """
     raw = question_row.get("correct_option")
     if raw is not None and str(raw).strip() != "":

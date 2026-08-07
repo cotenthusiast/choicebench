@@ -44,11 +44,10 @@ def test_choice_count_distribution_new_schema():
     assert choice_count_distribution(df) == {4: 2, 10: 1}
 
 
-def test_n_choices_for_row_both_schemas():
-    new_row = _mp_row(6)
-    assert n_choices_for_row(new_row) == 6
-    legacy_row = {"choice_a": "a", "choice_b": "b", "choice_c": "c", "choice_d": ""}
-    assert n_choices_for_row(legacy_row) == 3
+def test_n_choices_for_row_counts_built_choices_when_n_choices_absent():
+    row = _mp_row(6)
+    del row["n_choices"]
+    assert n_choices_for_row(row) == 6
 
 
 def test_compute_benchmark_stats_reports_modal_k_and_proportion():

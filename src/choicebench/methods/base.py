@@ -335,9 +335,8 @@ class ExperimentRunner(ABC):
     def _question_choice_fields(question_row: Any) -> dict[str, Any]:
         """Build the variable-choice content fields written to a result row.
 
-        Emits the schema-agnostic representation (``choices_json``,
-        ``correct_index``, ``correct_option``, ``n_choices``) for either a
-        new-schema or a legacy choice_a..choice_d question row, so a result CSV
+        Emits the variable-choice representation (``choices_json``,
+        ``correct_index``, ``correct_option``, ``n_choices``), so a result CSV
         faithfully records questions with any number of options and stays
         reparseable via build_option_map().
         """

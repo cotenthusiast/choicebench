@@ -617,10 +617,6 @@ source dataset, which is inconsistent past J — while `source_index` preserves
 each option's original position for audit. This supports benchmarks with any
 number of options (e.g. MMLU-Pro's up to 10, A–J).
 
-Legacy `choice_a`–`choice_d` CSVs still load unchanged: the reader falls back
-to those columns when `choices_json` is absent, so previously prepared datasets
-do not need to be re-prepared.
-
 `prepare_data.py` also writes a `<name>_stats.json` sidecar recording the modal
 option count (k) and its coverage. PriDe consumes this via a modal-k
 compatibility gate (see [Method Compatibility](#method-compatibility--known-limitations)

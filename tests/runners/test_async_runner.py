@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import json
 import pathlib
 from pathlib import Path
 from typing import Any
@@ -114,6 +115,11 @@ def _make_direct_mcq_runner(backend, method_name="direct_mcq"):
     )
 
 
+_QUESTION_CHOICES_JSON = json.dumps(
+    [{"text": t, "source_index": i} for i, t in enumerate(["FTP", "HTTP", "HTTPS", "SMTP"])]
+)
+
+
 def _question_df(n: int = 3) -> pd.DataFrame:
     rows = []
     for i in range(n):
@@ -121,10 +127,7 @@ def _question_df(n: int = 3) -> pd.DataFrame:
             "question_id": f"q{i:04d}",
             "subject": "computer_security",
             "question_text": f"Question {i}: Which protocol is used for secure web browsing?",
-            "choice_a": "FTP",
-            "choice_b": "HTTP",
-            "choice_c": "HTTPS",
-            "choice_d": "SMTP",
+            "choices_json": _QUESTION_CHOICES_JSON,
             "correct_option": "C",
             "correct_answer_text": "HTTPS",
         })

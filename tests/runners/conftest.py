@@ -3,6 +3,7 @@
 import pytest
 
 from choicebench.backends.base import BaseBackend
+from choicebench.benchmarks.base import make_normalized_row
 
 
 class MockBackend(BaseBackend):
@@ -72,17 +73,23 @@ class MockBackend(BaseBackend):
 @pytest.fixture
 def runner_question_row() -> dict[str, object]:
     """A normalized question row with all fields runners expect."""
-    return {
-        "question_id": "4865890d7f0efae8",
-        "subject": "computer_security",
-        "question_text": "Which protocol is primarily used to securely browse websites?",
-        "choice_a": "FTP",
-        "choice_b": "HTTP",
-        "choice_c": "HTTPS",
-        "choice_d": "SMTP",
-        "correct_option": "C",
-        "correct_answer_text": "HTTPS",
-    }
+    return make_normalized_row(
+        "computer_security",
+        "Which protocol is primarily used to securely browse websites?",
+        ["FTP", "HTTP", "HTTPS", "SMTP"],
+        correct_index=2,
+    )
+
+
+@pytest.fixture
+def runner_question_row_missing_trailing_option() -> dict[str, object]:
+    """runner_question_row with its trailing (4th, D/SMTP) option dropped."""
+    return make_normalized_row(
+        "computer_security",
+        "Which protocol is primarily used to securely browse websites?",
+        ["FTP", "HTTP", "HTTPS"],
+        correct_index=2,
+    )
 
 
 @pytest.fixture

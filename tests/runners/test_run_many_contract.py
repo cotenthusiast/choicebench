@@ -5,6 +5,7 @@
 # dicts. PriDe previously overrode run_many() to iterate the argument directly,
 # so it crashed on the real call path while its own tests passed a list.
 
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -23,6 +24,11 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 _PROMPTS_DIR = REPO_ROOT / "prompts"
 
 
+_CHOICES_JSON = json.dumps(
+    [{"text": t, "source_index": i} for i, t in enumerate(["alpha", "bravo", "charlie", "delta"])]
+)
+
+
 def _question_df() -> pd.DataFrame:
     return pd.DataFrame(
         [
@@ -30,10 +36,7 @@ def _question_df() -> pd.DataFrame:
                 "question_id": f"q{i}",
                 "subject": "demo",
                 "question_text": f"Question {i}?",
-                "choice_a": "alpha",
-                "choice_b": "bravo",
-                "choice_c": "charlie",
-                "choice_d": "delta",
+                "choices_json": _CHOICES_JSON,
                 "correct_option": ["A", "B", "C", "D"][i % 4],
                 "correct_answer_text": ["alpha", "bravo", "charlie", "delta"][i % 4],
             }

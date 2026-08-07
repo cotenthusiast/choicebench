@@ -1,5 +1,6 @@
 # tests/runners/test_pride.py
 
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -17,16 +18,18 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 _PROMPTS_DIR = REPO_ROOT / "prompts"
 
 
+_QUESTION_CHOICES_JSON = json.dumps(
+    [{"text": t, "source_index": i} for i, t in enumerate(["alpha", "bravo", "charlie", "delta"])]
+)
+
+
 def _make_question_row(qid: str, correct_option: str) -> dict:
     """A normalized 4-option question row with the given gold letter."""
     return {
         "question_id": qid,
         "subject": "demo",
         "question_text": f"Question {qid}?",
-        "choice_a": "alpha",
-        "choice_b": "bravo",
-        "choice_c": "charlie",
-        "choice_d": "delta",
+        "choices_json": _QUESTION_CHOICES_JSON,
         "correct_option": correct_option,
         "correct_answer_text": {"A": "alpha", "B": "bravo", "C": "charlie", "D": "delta"}[correct_option],
     }
@@ -192,9 +195,9 @@ class TestPriDeRunnerIntegration:
             )
 
     def test_missing_trailing_option_fails_clearly_in_v01(
-            self, runner_question_row, tmp_path: Path,
+            self, runner_question_row_missing_trailing_option, tmp_path: Path,
     ):
-        row = dict(runner_question_row, choice_d="", correct_option="C")
+        row = runner_question_row_missing_trailing_option
         runner = PriDeRunner(
             backend=DummyBackend(),
             method_name="pride",

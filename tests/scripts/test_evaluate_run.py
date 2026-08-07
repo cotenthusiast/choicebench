@@ -31,6 +31,11 @@ def test_json_safe_converts_nonfinite_metric_values_to_null():
     }
 
 
+_ROW_CHOICES_JSON = json.dumps(
+    [{"text": t, "source_index": i} for i, t in enumerate(["alpha", "bravo", "charlie", "delta"])]
+)
+
+
 def _row(method, parse_reason, raw_text, parsed_choice, transport_status="success"):
     return {
         "method_name": method,
@@ -43,10 +48,7 @@ def _row(method, parse_reason, raw_text, parsed_choice, transport_status="succes
         "is_correct": parsed_choice == "C",
         "transport_status": transport_status,
         "correct_option": "C",
-        "choice_a": "alpha",
-        "choice_b": "bravo",
-        "choice_c": "charlie",
-        "choice_d": "delta",
+        "choices_json": _ROW_CHOICES_JSON,
         "question_id": f"{method}_q",
     }
 

@@ -27,10 +27,10 @@ _NORMALIZED_SUFFIX = "_normalized.csv"
 
 
 def n_choices_for_row(row: Mapping[str, Any]) -> int:
-    """Number of real options for a normalized row, in either schema.
+    """Number of real options for a normalized row.
 
     Prefers a persisted ``n_choices`` column; otherwise counts the built
-    choices (works for legacy choice_a..choice_d rows too).
+    choices.
     """
     n = row.get("n_choices")
     if n is not None:
