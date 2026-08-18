@@ -82,12 +82,13 @@ class YourMethodRunner(ExperimentRunner):
 
         Args:
             question_row: Normalized question record. Guaranteed keys:
-                question_id, subject, question_text,
-                choice_a, choice_b, choice_c, choice_d, correct_option,
-                correct_answer_text.
-                v0.1 uses legacy A-D columns. Use self._build_options(row)
-                instead of hardcoding A-D if your method can support rows with
-                missing trailing choices.
+                question_id, subject, question_text, choices_json,
+                correct_index, correct_option, correct_answer_text,
+                n_choices.
+                choices_json holds the ordered option list (variable
+                length, up to 10 options/A-J); use self._build_options(row)
+                instead of hardcoding A-D so your method works on any
+                option count.
             sample_index: Repetition index for this question within the run.
                 The default run_many() passes a zero-based row index.
 

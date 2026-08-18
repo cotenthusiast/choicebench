@@ -2,8 +2,8 @@
 #
 # Onboarding config. Uses DummyBackend (fixed responses, no model weights,
 # no API calls) against a deterministic 10-question synthetic dataset prepared
-# with `choicebench-prepare-toy`, so the pipeline can be exercised without a
-# GPU or API key.
+# with `python scripts/prepare_toy_data.py`, so the pipeline can be exercised
+# without a GPU or API key.
 #
 # Real benchmark data (MMLU, ARC-Challenge) is NOT bundled in this repo —
 # Generated data is not shipped in the package. See

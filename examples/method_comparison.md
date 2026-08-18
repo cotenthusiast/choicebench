@@ -1,6 +1,6 @@
 # Worked example: adding a method and comparing it against the baseline
 
-This walks through adding a new evaluation method — `shuffled_baseline` — and
+This walks through adding a new evaluation method (`shuffled_baseline`) and
 running it against `direct_mcq` on the same questions. Comparing a new method
 against the baseline this way, on the same benchmark and model, is the
 framework's native motion: every method in `src/choicebench/methods/library/`
@@ -9,7 +9,7 @@ exists to be measured against `direct_mcq`, not run in isolation.
 `shuffled_baseline` randomly permutes a question's option order once (seeded,
 so it's reproducible), asks it as a normal direct MCQ prompt, then maps the
 model's answer back to the canonical option ordering before scoring. It's a
-single backend call per question — the same shape as `direct_mcq` — so the
+single backend call per question (the same shape as `direct_mcq`), so the
 only thing that changes between the two methods is whether the options are in
 their original order or a shuffled one.
 
@@ -18,11 +18,11 @@ their original order or a shuffled one.
 Every method is an `ExperimentRunner` subclass. The only method you're
 required to implement is `run_one(question_row, sample_index) -> dict`; the
 base class handles backend-call wrapping (`_call_backend_generate`, which
-never raises — it turns exceptions into a failure `ModelResponse`), building
+never raises; it turns exceptions into a failure `ModelResponse`), building
 the option map from either schema (`_build_options`), and assembling the
 final result row (`_build_result_row`, whose schema is load-bearing for
 `evaluate_run.py`). `run_experiment.py` handles checkpointing, resume, and
-concurrency around whatever `run_one` returns — none of that is this file's
+concurrency around whatever `run_one` returns; none of that is this file's
 concern.
 
 This is the full, unmodified contents of
@@ -40,7 +40,7 @@ repeated samples of the same question but reproducible across runs), then
 issues a single direct-ask prompt against the shuffled order. The parsed
 letter is mapped back from shuffled position to the canonical option
 ordering before scoring. Unlike cyclic_permutation (N calls, majority vote
-across every rotation), this makes exactly one backend call per question —
+across every rotation), this makes exactly one backend call per question:
 it isolates what a single random reordering does to the model's answer,
 rather than averaging it out.
 Reference: n/a (reference/demo method for the extensibility walkthrough;
@@ -87,7 +87,7 @@ class ShuffledBaselineRunner(ExperimentRunner):
         score_result = None
 
         if model_response.is_success():
-            # Parse against shuffled_options — the letters and text the model
+            # Parse against shuffled_options: the letters and text the model
             # actually saw. Parsing against canonical_options here would pair
             # the wrong text with each letter wherever the shuffle moved it.
             shuffled_parse = self._parse(model_response.raw_text, shuffled_options)
@@ -127,7 +127,7 @@ class ShuffledBaselineRunner(ExperimentRunner):
 
         Returns:
             Tuple of (shuffled_options, label_map):
-              - shuffled_options: the same letters, with text permuted — this
+              - shuffled_options: the same letters, with text permuted; this
                 is what gets rendered into the prompt.
               - label_map: shuffled letter -> canonical letter, so a letter
                 parsed from the shuffled prompt can be mapped back to score.
@@ -179,7 +179,7 @@ METHOD_REGISTRY: dict[str, type] = {
 `from choicebench.methods import ShuffledBaselineRunner` also works.
 
 If this method lived in your own package instead of this repo, none of the
-above is needed — skip straight to the config and use
+above is needed: skip straight to the config and use
 `name: my_package.methods:ShuffledBaselineRunner` in YAML.
 
 ## The experiment config
@@ -229,6 +229,11 @@ run:
 ```
 
 ## Running it
+
+This is a preserved transcript from before console-script entry points were
+dropped (see the main README's "Installed workspace policy"); run it today as
+`python scripts/run_experiment.py` and `python scripts/evaluate_run.py`
+respectively: same commands, same output, just invoked as scripts.
 
 ```
 $ choicebench-run --config examples/method_comparison.yaml --run-id method_comparison_demo --yes
@@ -295,37 +300,37 @@ digest, and condition-keyed metrics:
 ```
 
 `DummyBackend` always returns the fixed text `"The answer is A."`, so it
-always parses to letter `A` in whatever prompt it's shown — shuffled or not.
+always parses to letter `A` in whatever prompt it's shown, shuffled or not.
 `direct_mcq` scores 3/10 because `scripts/prepare_toy_data.py` deliberately
 pins exactly 3 of the 10 toy questions' correct answer to canonical option A
 (so a fixed "always say A" response gets exactly those 3 right). Under
 `shuffled_baseline`, the per-question shuffle moves each question's correct
 answer to a different canonical slot, so "always say A" now lands correctly
 only on whichever questions happen to have their correct answer shuffled
-*into* slot A for this seed — 2 different questions, not the same 3. This is
+*into* slot A for this seed: 2 different questions, not the same 3. This is
 the point of the demo: a fixed or positionally-biased response pattern isn't
 fixed *correctness* once you stop guaranteeing the correct answer sits in the
 position the bias favors.
 
 The 10-question toy set is far too small for the accuracy difference itself
-to mean anything (look at the confidence intervals — both `[0.03, 0.66]`-ish
+to mean anything (look at the confidence intervals: both `[0.03, 0.66]`-ish
 and heavily overlapping); what's real and reproducible here is the mechanism,
 not the specific 0.3 vs. 0.2 split. The `mad` drop (46.7 → 20.0) is more
 informative at even this sample size: `direct_mcq`'s "always A" response
 concentrates its predicted-letter mass on a single canonical letter (A),
-which the toy set's authored answer distribution doesn't share — that's a
+which the toy set's authored answer distribution doesn't share; that's a
 large marginal skew. `shuffled_baseline`'s per-question shuffle spreads that
 same "always pick whatever's in slot A" behavior across different canonical
 letters, so the predicted-letter distribution looks less skewed relative to
 the gold distribution, even though nothing about the model's actual behavior
 changed.
 
-Don't over-read `mad` as "less biased," though — it's a marginal
+Don't over-read `mad` as "less biased," though; it's a marginal
 answer-letter-skew indicator (predicted-letter-% vs. correct-letter-% over
 the same scored subset), not a causal order-bias measure. It can't tell you
 whether reordering a *given* question's options would flip that question's
 answer. That's what the `order_sensitivity` metric (`order_rstd`,
-`order_flip_rate`) is for — it currently only populates for `cyclic_logprob`,
+`order_flip_rate`) is for: it currently only populates for `cyclic_logprob`,
 the one bundled method that persists its per-permutation logprob
 distributions (`option_distributions_json`), which is what that metric reads.
 
@@ -336,5 +341,5 @@ distributions (`option_distributions_json`), which is what that metric reads.
   point a copy of `examples/method_comparison.yaml` at `benchmarks: - name:
   mmlu` and a real backend/model instead of `dummy`.
 - To run the same config shape on a Slurm cluster instead of locally, see
-  `examples/hpc/` — `setup_hpc.sh`, `env_hpc.sh`, and `run_choicebench.sbatch`
+  `examples/hpc/`: `setup_hpc.sh`, `env_hpc.sh`, and `run_choicebench.sbatch`
   are editable templates for exactly this.

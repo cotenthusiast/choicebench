@@ -39,16 +39,16 @@ def prepared_toy_dataset():
     """Prepare the deterministic toy dataset once per test session.
 
     Uses the official preparation entry point so tests exercise the same
-    artifact layout users get from ``choicebench-prepare-toy``. The artifact
-    lands in this session's private CHOICEBENCH_HOME workspace, so a clean
-    clone passes ``pytest`` with no manual preparation step and nothing is
-    written into the repository.
+    artifact layout users get from ``python scripts/prepare_toy_data.py``. The
+    artifact lands in this session's private CHOICEBENCH_HOME workspace, so a
+    clean clone passes ``pytest`` with no manual preparation step and nothing
+    is written into the repository.
     """
     from unittest import mock
 
     from choicebench.cli.prepare_toy_data import main as prepare_toy_main
 
-    with mock.patch.object(sys, "argv", ["choicebench-prepare-toy"]):
+    with mock.patch.object(sys, "argv", ["scripts/prepare_toy_data.py"]):
         prepare_toy_main()
 
 

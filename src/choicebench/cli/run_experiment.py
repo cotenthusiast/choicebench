@@ -223,13 +223,17 @@ def load_benchmark_selection(benchmark: BenchmarkConfig, run_seed: int) -> Bench
         artifact = load_prepared_dataset(PROCESSED_DIR, spec)
     except FileNotFoundError as exc:
         if benchmark.name == BENCHMARK_TOY:
-            command = "choicebench-prepare-toy"
+            command = "python scripts/prepare_toy_data.py"
         else:
-            command = f"choicebench-prepare --hf-path {spec.hf_path} --split {spec.split}"
+            command = f"python scripts/prepare_data.py --hf-path {spec.hf_path} --split {spec.split}"
             if spec.hf_subset:
                 command += f" --hf-subset {spec.hf_subset}"
             if spec.source_revision:
                 command += f" --revision {spec.source_revision}"
+            if "permutation_safe_v1" in spec.transforms:
+                command += " --filter-permutation-unsafe"
+            if "unique_question_ids_v1" in spec.transforms:
+                command += " --exclude-duplicate-question-ids"
             if spec.output_name:
                 command += f" --output-name {spec.output_name}"
         raise FileNotFoundError(f"{exc}\nPrepare it with: {command}") from exc

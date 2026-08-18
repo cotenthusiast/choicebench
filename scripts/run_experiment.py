@@ -1,4 +1,4 @@
-"""Source-clone wrapper for the installed ``choicebench-run`` command."""
+"""Entry point: ``python scripts/run_experiment.py``."""
 
 from choicebench.cli.run_experiment import main
 

@@ -111,6 +111,47 @@ def test_filter_flag_respects_explicit_output_name(monkeypatch, tmp_path):
     assert out.with_name("artifact.json").exists()
 
 
+def test_exclude_duplicate_question_ids_removes_duplicate_group(monkeypatch, tmp_path):
+    # Regression for the cais/mmlu 'all' config, which ships a small number of
+    # exact-duplicate rows (same subject/question/choices/answer) across its
+    # per-subject merge. Without this flag, write_prepared_dataset raises
+    # DatasetArtifactError on the duplicate question_id; the flag must remove
+    # every row in the duplicate group so the artifact validates cleanly.
+    mod = _load_prepare_data()
+    monkeypatch.setattr(mod, "PROCESSED_DIR", tmp_path)
+
+    raw_df = pd.DataFrame(
+        [
+            {"subject": "x", "question": "dupe", "choices": "['4','5','6','7']", "answer": 0},
+            {"subject": "x", "question": "dupe", "choices": "['4','5','6','7']", "answer": 0},
+            {"subject": "x", "question": "unique", "choices": "['1','2','3','4']", "answer": 1},
+        ]
+    )
+    monkeypatch.setattr(mod, "download_from_huggingface", lambda *a, **k: raw_df)
+    monkeypatch.setattr(
+        mod,
+        "parse_args",
+        lambda: __import__("argparse").Namespace(
+            hf_path="cais/mmlu",
+            hf_subset="all",
+            split="test",
+            output_name=None,
+            filter_permutation_unsafe=False,
+            revision=None,
+            force=False,
+            exclude_duplicate_question_ids=True,
+        ),
+    )
+
+    mod.main()
+
+    out_csv = next(tmp_path.rglob("normalized.csv"))
+    df = pd.read_csv(out_csv)
+    assert len(df) == 1  # both copies of "dupe" removed; "unique" kept
+    assert df.iloc[0]["question_text"] == "unique"
+    assert df["question_id"].is_unique
+
+
 def test_no_filter_flag_leaves_output_unfiltered(monkeypatch, tmp_path):
     mod = _load_prepare_data()
     monkeypatch.setattr(mod, "PROCESSED_DIR", tmp_path)

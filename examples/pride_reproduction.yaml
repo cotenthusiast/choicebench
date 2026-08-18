@@ -5,20 +5,22 @@
 # examples/pride_reproduction_targets.json for the official numbers this
 # run's metrics should land near.
 #
-# huggyllama/llama-13b is LLaMA-1 (NOT Llama-2) — the paper's "llama-13B".
+# huggyllama/llama-13b is LLaMA-1 (NOT Llama-2): the paper's "llama-13B".
 #
 # PriDe itself is deliberately NOT a method below. PriDe (every alpha/seed)
 # is recomputed offline from the option_distributions_json this run persists
-# for direct_logprob/cyclic_logprob — see examples/pride_from_artifacts.py.
+# for direct_logprob/cyclic_logprob; see examples/pride_from_artifacts.py.
 # Running PriDe here would waste GPU time re-deriving what that script
 # already gets from these two methods' logprobs.
 #
 # Prerequisite - prepare the verified, filtered, unique-ID MMLU artifact first:
-#   choicebench-prepare --hf-path cais/mmlu --hf-subset all --split test \
+#   python scripts/prepare_data.py --hf-path cais/mmlu --hf-subset all --split test \
 #       --filter-permutation-unsafe --exclude-duplicate-question-ids \
 #       --output-name mmlu_filtered
 # Both transforms are recorded in artifact and experiment identity. Excluding
 # duplicate IDs is required for unambiguous row-level checkpoint/resume state.
+# This should produce a 13,564-row artifact (14,042 raw − 426 permutation-unsafe
+# − 52 remaining duplicate rows after that filter; see examples/pride_reproduction.md).
 
 experiment:
   name: pride_reproduction_mmlu_llama13b_0shot
@@ -26,16 +28,18 @@ experiment:
 models:
   - backend: huggingface
     model_name_or_path: huggyllama/llama-13b
-    # revision: <PIN_BEFORE_RUN>  # pin the exact HF commit SHA before submitting the sbatch job
+    # Exact commit used for the published walkthrough's run (runs/20260705_204054),
+    # confirmed still resolvable on the Hub; see examples/pride_reproduction.md.
+    revision: bf57045473f207bb1de1ed035ace226f4d9f9bba
     device: cuda
 
     # Zheng et al. do not prepend BOS for open-source models (Figure 6
-    # caption, arXiv:2309.03882) — the HuggingFaceBackend default is True
+    # caption, arXiv:2309.03882): the HuggingFaceBackend default is True
     # (add BOS), so this must be set explicitly for a faithful reproduction.
     add_bos_token: false
 
-    # direct_logprob/cyclic_logprob never call generate() — they only use
-    # score_options() (single forward pass, no sampling) — so
+    # direct_logprob/cyclic_logprob never call generate(); they only use
+    # score_options() (single forward pass, no sampling), so
     # generation_kwargs below is unused by this run; left at safe defaults.
     generation_kwargs:
       max_new_tokens: 1
@@ -43,7 +47,7 @@ models:
       do_sample: false
 
 # fp16 is HuggingFaceBackend's fixed load() dtype (torch_dtype=torch.float16),
-# not a config knob — see examples/hpc/run_pride_reproduction.sbatch for the
+# not a config knob; see examples/hpc/run_pride_reproduction.sbatch for the
 # VRAM sizing that assumes it.
 
 benchmarks:

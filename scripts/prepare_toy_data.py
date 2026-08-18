@@ -1,4 +1,4 @@
-"""Source-clone wrapper for the installed ``choicebench-prepare-toy`` command."""
+"""Entry point: ``python scripts/prepare_toy_data.py``."""
 
 from choicebench.cli.prepare_toy_data import main
 

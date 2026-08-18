@@ -213,7 +213,9 @@ def validate_normalized_dataset(df: pd.DataFrame, *, source: str = "prepared dat
         examples = sorted(ids.astype(str)[duplicated].unique())[:3]
         raise DatasetArtifactError(
             f"{source} contains duplicate question_id values {examples}; resume and row-level "
-            "provenance require unique IDs. Apply an explicit deduplication transform and re-prepare."
+            "provenance require unique IDs. Re-run prepare_data.py with "
+            "--exclude-duplicate-question-ids to drop every row in a duplicate group "
+            "(e.g. cais/mmlu's 'all' config ships a small number of exact-duplicate rows)."
         )
     has_choices = "choices_json" in df.columns or any(re.fullmatch(r"choice_[a-z]", str(c)) for c in df.columns)
     if not has_choices:

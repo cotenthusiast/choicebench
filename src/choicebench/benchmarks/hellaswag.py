@@ -20,8 +20,8 @@ def normalize_row(row: dict[str, object]) -> dict[str, object]:
       - endings:        list of exactly 4 completion strings
       - label:          int 0–3 indicating the correct completion
 
-    The ctx field becomes question_text; the four endings become choice_a–d.
-    subject is set from activity_label.
+    The ctx field becomes question_text; the four endings become the
+    ordered choices list (choices_json). subject is set from activity_label.
 
     Note: HellaSwag labels are in the "validation" split only — the "test"
     split has no labels. Always prepare with --split validation.

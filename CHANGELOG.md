@@ -2,6 +2,43 @@
 
 Notable changes to ChoiceBench. Newest first.
 
+## Unreleased
+
+Pre-launch documentation/metadata sanitation pass. No functional/behavior
+changes to the framework itself.
+
+- Corrected the documented invocation path throughout README.md, the
+  `examples/` walkthroughs, and `config/toy_experiment.yaml`: this package
+  has no `choicebench-*` console entry points, so every command is now shown
+  as `python scripts/*.py`, matching what `pip install -e .` actually
+  provides. The one historical `choicebench-*` transcript kept in
+  `examples/method_comparison.md` (a real captured run, per that doc's own
+  "no invented output" rule) is now explicitly labeled as predating this
+  change, with the current equivalent commands noted alongside it.
+- Fixed `CITATION.cff`, which still pointed at the retired v0.2.0 release;
+  it now names the current v0.1.3 baseline and adds a `preferred-citation`
+  entry for the paper.
+- Fixed CONTRIBUTING.md's "Adding a new benchmark" instructions, which still
+  described the removed fixed `choice_a`/`choice_b`/`choice_c`/`choice_d`
+  schema; they now describe the actual variable-choice schema
+  (`make_normalized_row()` / `choices_json`), matching README.md.
+- Pinned the exact Hugging Face model revision used for the published PriDe
+  reproduction run in `examples/pride_reproduction.yaml`, replacing the
+  `<PIN_BEFORE_RUN>` placeholder.
+- Linked the paper's arXiv preprint (arXiv:2608.11947) from README.md and
+  PAPER.md, replacing "a link will be added once it is public" now that one
+  exists.
+- Reworded README's Roadmap heading ("Planned v0.2 work" -> "Planned future
+  work") and the prose describing the still-current manifest protocol v2, so
+  neither is confused with the retired v0.2.0 software release.
+- Documented the `--exclude-duplicate-question-ids` `prepare_data.py` flag
+  and the matching `transforms: [unique_question_ids_v1]` config requirement
+  for MMLU, and improved `datasets.py`'s duplicate-`question_id` error
+  message to name that fix directly.
+- Removed `docs/superpowers/plans/`: internal AI-agent implementation-plan
+  documents for work that has since shipped and is already covered by this
+  changelog and commit history.
+
 ## v0.1.3 - 2026-08-03
 
 New trusted baseline release, superseding v0.2.0. v0.2.0 was heavily
@@ -98,7 +135,7 @@ cannot always expose immutable server-side model revisions. Hub acquisition is
 pinned when the Hub provides a commit; exact selected rows are also archived in
 the run directory.
 
-## v0.1.2 — 2026-07-06
+## v0.1.2: 2026-07-06
 
 - Committed the PriDe reproduction's evidence files under
   `examples/pride_reproduction_results/` (the PriDe grid JSON, the
@@ -122,19 +159,19 @@ the run directory.
   reports: strict stem+choices+subject+answer matching on the raw 14,042-row
   split gives 27 pairs (0.39%), while loosening to stem-only matching gives
   174 redundant rows (1.24%), consistent with the 1.2% reported by Gupta et
-  al. (arXiv:2410.20245) — the gap is both matching criterion and counting
+  al. (arXiv:2410.20245); the gap is both matching criterion and counting
   unit, not a discrepancy; also notes the strict-criterion guard as a check
   absent from the MMLU-Redux taxonomy (arXiv:2406.04127).
 - Added `examples/pride_from_artifacts.py`, the offline PriDe recompute for
   the reproduction wired in `examples/pride_reproduction.yaml`: reads the
   completed `direct_logprob` + `cyclic_logprob` result CSVs for a run and
   reconstructs the full PriDe grid (every `--alphas` x `--seeds` cell) purely
-  from their persisted `option_distributions_json` — zero additional GPU
+  from their persisted `option_distributions_json`: zero additional GPU
   inference. Per (alpha, seed): calibration questions (K = floor(alpha * N),
   seeded, uniform without replacement) are answered via Eq. 1 and averaged
   into a global prior via Eq. 7; every other question is answered via Eq. 8
   against that prior. Reuses `pride_math`'s equation functions and
-  `choicebench.metrics`' `accuracy`/`recall_rstd`/`mad` directly — no
+  `choicebench.metrics`' `accuracy`/`recall_rstd`/`mad` directly: no
   duplicated math. Questions present in only one CSV, or that failed in
   either, are dropped from the scored subset (logged), not imputed. Writes a
   JSON grid (per-cell metrics + N/K accounting, per-alpha mean/std over
@@ -144,14 +181,14 @@ the run directory.
 - Added the PriDe (Zheng et al., ICLR 2024, arXiv:2309.03882) single-cell
   reproduction plumbing for MMLU / llama-13B (LLaMA-1) / 0-shot:
   `--filter-permutation-unsafe` on `scripts/prepare_data.py` (excludes
-  meta-referential MMLU options like "A and B", "none of the above" —
-  `choicebench.permutation_filter`), a new `prompts/pride_repro/` template
+  meta-referential MMLU options like "A and B", "none of the above";
+  see `choicebench.permutation_filter`), a new `prompts/pride_repro/` template
   version matching the paper's exact Figure 6 layout with per-question
   `subject` support in `build_direct_mcq_prompt()`, a new `add_bos_token`
   model config field (`HuggingFaceBackend` defaults to adding BOS; the paper
   does not for open-source models), `examples/pride_reproduction.yaml` +
   `examples/hpc/run_pride_reproduction.sbatch` (runs `direct_logprob` +
-  `cyclic_logprob` only — PriDe itself is recomputed offline from their
+  `cyclic_logprob` only: PriDe itself is recomputed offline from their
   persisted distributions in a separate script), and
   `examples/pride_reproduction_targets.json` with the paper's official
   Table 3 numbers for this cell.
@@ -159,22 +196,22 @@ the run directory.
   per-question option shuffle) used as the subject of a new extensibility
   walkthrough, `examples/method_comparison.md`.
 - Added `recall_rstd`, the paper's selection-bias metric (Zheng et al., ICLR
-  2024, §2.2) — standard deviation of per-letter recall, for reproducing
+  2024, §2.2): standard deviation of per-letter recall, for reproducing
   Table 3-style RStd numbers.
 - Added `direct_logprob`, a logprob-based method reproducing the paper's
   "Default" baseline (§2.1): argmax over `score_options()` logprobs instead
   of generate-and-parse. Requires a logprob-capable backend
   (HuggingFace/Dummy).
 
-## v0.1.1 — 2026-07-04
+## v0.1.1: 2026-07-04
 
 Second release. Everything below, through the vLLM-removal entry, landed
-since v0.1.0 (2026-07-01) and ships together here — a variable-option-count
+since v0.1.0 (2026-07-01) and ships together here: a variable-option-count
 rework, a statistical validity audit, and a distribution-readiness pass
 prompted by a blind "cold clone" of the repo onto a fresh HPC/Slurm
 environment following only the README.
 
-### 2026-07-04 — Cold-clone distribution-readiness fixes
+### 2026-07-04: Cold-clone distribution-readiness fixes
 
 A blind cold-clone of the repo onto a fresh HPC/Slurm environment, following
 only the README, surfaced four real bugs and two documentation gaps.
@@ -186,15 +223,15 @@ only the README, surfaced four real bugs and two documentation gaps.
   split-label check alone didn't guarantee disjoint rows. `load_preflight()`
   now excludes eval `question_id`s from the calibration pool before sampling.
 - **Models reloaded from disk on every (benchmark, method) pair.**
-  `build_backend()` — and `HuggingFaceBackend.load()`, which loads the
-  tokenizer and weights — ran fresh per pair instead of once per run. A
+  `build_backend()` (and `HuggingFaceBackend.load()`, which loads the
+  tokenizer and weights) ran fresh per pair instead of once per run. A
   `backend_cache` keyed on model-config identity, threaded through
   `_async_main → run_models_concurrently → _run_model_isolated → _run_model`,
   now builds/loads each model exactly once per run and reuses it for every
   subsequent benchmark/method.
 - **PriDe's modal-k gate exclusion was indistinguishable from a real crash.**
-  `ModalKGateError` — raised when a benchmark's modal-k coverage is below
-  `pride.modal_k_threshold`, an intentional design exclusion — was caught by
+  `ModalKGateError` (raised when a benchmark's modal-k coverage is below
+  `pride.modal_k_threshold`, an intentional design exclusion) was caught by
   the same broad exception handler as actual bugs, landing in the run's
   `failures` list and triggering `sys.exit(1)`. Combined with `set -e` in the
   SLURM template, this silently aborted the pipeline before
@@ -208,7 +245,7 @@ only the README, surfaced four real bugs and two documentation gaps.
 - **`BASH_SOURCE`-based path resolution breaks under real `sbatch`
   execution.** SLURM copies a submitted script to a spool directory before
   running it, so `${BASH_SOURCE[0]}` inside the job resolves to the spool
-  path, not the script's real location — confirmed with a diagnostic job.
+  path, not the script's real location, confirmed with a diagnostic job.
   `examples/hpc/run_choicebench.sbatch`, `scripts/slurm/submit_job.sh`, and
   `scripts/slurm/submit_array.sh` now resolve `REPO_ROOT` via
   `$SLURM_SUBMIT_DIR` instead.
@@ -216,12 +253,12 @@ only the README, surfaced four real bugs and two documentation gaps.
 #### Documented
 
 - README Troubleshooting: `module: command not found` inside a Slurm job
-  even though `module load` works when run interactively — `sbatch`
+  even though `module load` works when run interactively: `sbatch`
   inherits the submitting shell's environment, so a job submitted from a
   one-shot/non-interactive shell that never sourced the cluster's profile
   scripts inherits the absence of `module` too.
 - README Config Reference: a concrete `preflight:` block example
-  (`source` / `split` / `n`) under the `pride` method — previously only
+  (`source` / `split` / `n`) under the `pride` method, previously only
   described in prose, with the actual syntax discoverable only by reading
   `preflight.py` directly.
 - README "Real Run Results" now shows the actual full-grid run (5
@@ -236,7 +273,7 @@ only the README, surfaced four real bugs and two documentation gaps.
   methods) completing in ~13 minutes post-fix, versus timing out entirely
   pre-fix.
 
-### 2026-07-03 — Failure isolation, permutation tie-break, HPC docs
+### 2026-07-03: Failure isolation, permutation tie-break, HPC docs
 
 #### Fixed
 
@@ -250,7 +287,7 @@ only the README, surfaced four real bugs and two documentation gaps.
 - **Cyclic-permutation tie-breaks favored rotation order over the
   documented canonical order.** `_majority_vote`'s docstring promised ties
   break by canonical option ordering; the implementation actually returned
-  whichever vote arrived first by rotation index — reintroducing the exact
+  whichever vote arrived first by rotation index, reintroducing the exact
   positional correlation cyclic permutation exists to cancel, on
   high-option benchmarks (MMLU-Pro, up to 10 options) where N-way ties are
   more likely. Now breaks ties by canonical letter order regardless of
@@ -272,7 +309,7 @@ only the README, surfaced four real bugs and two documentation gaps.
   across the 5 bundled benchmarks; extending it would mean guessing at
   unverified figures for the other 3).
 
-### 2026-07-03 — Remove vLLM logprob scoring entirely
+### 2026-07-03: Remove vLLM logprob scoring entirely
 
 Follow-up to the "Changed (behavior decision)" entry below, which gated vLLM
 out of config-driven logprob runs but left the underlying capability reachable
@@ -281,7 +318,7 @@ via direct Python construction. That escape hatch is now closed.
 #### Removed
 
 - **`VLLMClient.score_options_async()` deleted.** `VLLMClient` is now
-  generate-only, mirroring `TogetherAIClient` exactly — no provider client
+  generate-only, mirroring `TogetherAIClient` exactly: no provider client
   implements logprob scoring; `pride`/`cyclic_logprob` require
   `backend: huggingface` (or `dummy`, for tests), full stop.
 - **Cascading dead code removed**, since it was only reachable through the
@@ -292,7 +329,7 @@ via direct Python construction. That escape hatch is now closed.
     `PriDeRunner._cyclic_rollout_prob_matrix_async()`, and the vLLM branch of
     `PriDeRunner.run_many_async()` (now inherits `ExperimentRunner`'s base
     implementation).
-  - `CyclicLogprobRunner.run_many_async()` (no replacement — this runner has
+  - `CyclicLogprobRunner.run_many_async()` (no replacement: this runner has
     no async path now, since no logprob-capable backend is ever
     async-capable).
   - `tests/runners/test_pride_async.py` (deleted entirely) and the
@@ -302,7 +339,7 @@ via direct Python construction. That escape hatch is now closed.
 
 - Full test suite passing after the removal (599 tests).
 
-### 2026-07-03 — Statistical validity audit
+### 2026-07-03: Statistical validity audit
 
 Prompted by a fresh-eyes review of the metrics/config layer. Full detail in
 commit `65d2b2a`.
@@ -317,20 +354,20 @@ commit `65d2b2a`.
   dependency: `scipy`.
 - **`mad`'s denominator was inconsistent.** The gold-answer percentage was
   computed over *all* rows while the predicted-answer percentage was
-  computed over *scored-only* rows — so MAD was silently inflated by a
+  computed over *scored-only* rows, so MAD was silently inflated by a
   benchmark/method's parse-failure rate. Both percentages (and the
   bootstrap std) now use the same scored-subset denominator.
 
 #### Added
 
 - **`order_sensitivity` metric** (`order_rstd`, `order_flip_rate`). MAD only
-  measures *marginal* answer-letter skew vs. the gold distribution — it
+  measures *marginal* answer-letter skew vs. the gold distribution; it
   doesn't tell you whether moving the same content to a different position
   changes the model's answer. `order_sensitivity` does, using
   `cyclic_logprob`'s per-rotation logprob data. Currently NaN for every
   other method, because none of them persist per-rotation data to disk
   (`cyclic_permutation` computes it internally for its majority vote but
-  discards it before writing the row — a natural follow-up if this metric
+  discards it before writing the row; a natural follow-up if this metric
   should cover more methods).
 
 #### Changed (behavior decision)
@@ -343,16 +380,16 @@ commit `65d2b2a`.
   `api`+`provider: vllm`. The underlying capability
   (`APIBackend.supports_logprobs` / `VLLMClient.score_options_async`) is
   unchanged for direct Python use outside `load_config()` if you want the
-  degraded path anyway — see README, "Logprob methods on vLLM vs
+  degraded path anyway; see README, "Logprob methods on vLLM vs
   HuggingFace."
 
 #### Cleaned up
 
-- **`model_status` was overloaded** — transport success for `direct_mcq`/
+- **`model_status` was overloaded**: transport success for `direct_mcq`/
   `two_stage`, answer-produced for `cyclic_permutation`/`cyclic_logprob`/
   `pride`. Split into two uniform columns: `transport_status` (did the
   backend call return; `None` for logprob-only methods that never call
-  `generate()`) and `answer_status` (was a final answer produced — always
+  `generate()`) and `answer_status` (was a final answer produced: always
   set, uniform across all 5 methods).
 - **`PriDeRunner`'s sync/async paths were near-duplicated** (`run_one` vs.
   `_score_question_async`, ~90 lines each, differing only in how the
@@ -366,10 +403,10 @@ commit `65d2b2a`.
   questions) confirming the new metrics compute correctly and quickly
   (~1.2s) at real scale, not just in unit tests.
 - Cold-clone-to-benchmark-prep pass through the README (fresh venv,
-  `pip install -e .`, toy run, all 5 `prepare_data.py` commands) — all
+  `pip install -e .`, toy run, all 5 `prepare_data.py` commands); all
   clean, no errors.
 
-### 2026-07-02 — Variable-length choices, PriDe modal-k gate, safe run reset
+### 2026-07-02: Variable-length choices, PriDe modal-k gate, safe run reset
 
 #### Added
 
@@ -394,10 +431,10 @@ commit `65d2b2a`.
 
 - README: new Method Compatibility & Known Limitations section explaining
   the modal-k gate, and that lowering the threshold does not enlarge the
-  scored subset — it stays modal-k-only, just shrinks `n_evaluated` vs
+  scored subset; it stays modal-k-only, just shrinks `n_evaluated` vs
   `n_total`.
 
-### 2026-07-01 — HPC examples, MMLU/TruthfulQA normalization fixes
+### 2026-07-01: HPC examples, MMLU/TruthfulQA normalization fixes
 
 #### Fixed
 
@@ -408,7 +445,7 @@ commit `65d2b2a`.
 - **TruthfulQA's HF path moved.** The dataset relocated from `truthful_qa`
   to the namespaced `truthfulqa/truthful_qa` on HuggingFace; the old path
   no longer loads at all. Updated the `@benchmark` registration, docs, and
-  test fixtures — no alias for the old path, since it fails before ever
+  test fixtures; no alias for the old path, since it fails before ever
   reaching our registry lookup.
 
 #### Added

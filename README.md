@@ -5,9 +5,9 @@ ChoiceBench is a lightweight framework for MCQ evaluation-method research on LLM
 [![Tests](https://github.com/cotenthusiast/choicebench/actions/workflows/test.yml/badge.svg)](https://github.com/cotenthusiast/choicebench/actions/workflows/test.yml)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 
-Some non-trunk branches in this repository produce results reported in a paper currently under peer review — see [PAPER.md](PAPER.md) for which branches and their status.
+**Paper:** [Accuracy and Order Sensitivity Diverge Under Label-Free Strategies](https://arxiv.org/abs/2608.11947) (Hanna & Feng). Its central finding: hiding option labels from a model removes positional bias by construction, but doesn't reliably improve accuracy; cyclic permutation, which doesn't eliminate that bias at all, often does better. ChoiceBench is the code and reproducibility repository accompanying this paper; see [PAPER.md](PAPER.md) for which branches produce which results, and [Paper & Citation](#paper--citation) below to cite it.
 
-MCQ evaluation is a well-studied LLM benchmark task, but the scaffolding is always the same: load a benchmark, call a model repeatedly, parse its response, score against the gold answer, save results, and compute metrics. This framework handles all of that so you can focus on the experimental condition — what varies between your runs. In five minutes you can run the toy experiment end-to-end. In an afternoon you can add a new debiasing method or metric and run it against MMLU.
+MCQ evaluation is a well-studied LLM benchmark task, but the scaffolding is always the same: load a benchmark, call a model repeatedly, parse its response, score against the gold answer, save results, and compute metrics. This framework handles all of that so you can focus on the experimental condition: what varies between your runs. In five minutes you can run the toy experiment end-to-end ([Quick Start](#quick-start)). In an afternoon you can add a new debiasing method or metric and run it against MMLU.
 
 ---
 
@@ -21,12 +21,12 @@ reusable framework built for exactly this problem.
 
 **Standout features:**
 
-- **Zero-friction modular extensibility.** Drop in a new evaluation method, register a custom dataset, or add a new prompting intervention by writing one clean Python class — methods, metrics, benchmarks, backends, and clients all register in a few steps, or plug in from an external package with zero changes to this repo.
-- **Configurable async concurrency.** Models run through a bounded async pipeline — each model's in-flight request count is capped by its own configurable `concurrency_limit`, so you can dial concurrency per provider or rate-limit without touching the run logic. Per-model failure isolation means one broken model or plugin can't take down the rest of a run.
-- **Single-command audits.** One `run_experiment.py` invocation runs the full grid — any combination of benchmarks, models, and methods from a single YAML config — instead of juggling per-condition launcher scripts. Every run is checkpointed and safely resumable.
+- **Zero-friction modular extensibility.** Drop in a new evaluation method, register a custom dataset, or add a new prompting intervention by writing one clean Python class: methods, metrics, benchmarks, backends, and clients all register in a few steps, or plug in from an external package with zero changes to this repo.
+- **Configurable async concurrency.** Models run through a bounded async pipeline: each model's in-flight request count is capped by its own configurable `concurrency_limit`, so you can dial concurrency per provider or rate-limit without touching the run logic. Per-model failure isolation means one broken model or plugin can't take down the rest of a run.
+- **Single-command audits.** One `run_experiment.py` invocation runs the full grid (any combination of benchmarks, models, and methods from a single YAML config) instead of juggling per-condition launcher scripts. Every run is checkpointed and safely resumable.
 - **Dynamic variable-option handling.** Parsing and bias calculations scale natively past the standard four-choice (A–D) format up to ten choices (A–J), without manual dataset filtering or breaking on modern high-difficulty benchmarks.
-- **Native support for five canonical benchmarks.** MMLU, ARC-Challenge, MMLU-Pro, HellaSwag, and TruthfulQA are pre-registered and one `prepare_data.py` command away — no custom normalizer to write for the datasets most MCQ research already uses.
-- **A framework-level gate against invalid global calibration.** Any method that needs a single fixed option-count to compute a valid global statistic (PriDe's positional-bias prior is the bundled example) is protected by the modal-k compatibility gate, which blocks the run on a mismatched-option benchmark and reports exactly which questions were excluded — instead of silently producing a meaningless average.
+- **Native support for five canonical benchmarks.** MMLU, ARC-Challenge, MMLU-Pro, HellaSwag, and TruthfulQA are pre-registered and one `prepare_data.py` command away: no custom normalizer to write for the datasets most MCQ research already uses.
+- **A framework-level gate against invalid global calibration.** Any method that needs a single fixed option-count to compute a valid global statistic (PriDe's positional-bias prior is the bundled example) is protected by the modal-k compatibility gate, which blocks the run on a mismatched-option benchmark and reports exactly which questions were excluded, instead of silently producing a meaningless average.
 - **Statistics built for research, not a leaderboard number.** Exact 95% confidence intervals on accuracy, and a marginal-skew metric (MAD) kept deliberately separate from a causal order-bias metric (order-sensitivity).
 
 **vs. lm-evaluation-harness:** lm-eval is designed for model 
@@ -72,14 +72,14 @@ benchmark, seed 42. Cells are accuracy with the 95% CI in brackets.
 `pride` is gated on MMLU-Pro and TruthfulQA by the modal-k compatibility gate,
 exactly as designed: MMLU-Pro's modal option count is k=10, but only 7/10
 questions in this sample share it (70% coverage, below the 95% threshold), and
-TruthfulQA's modal k=4 matches 0/10 questions (0% coverage) — both benchmarks
+TruthfulQA's modal k=4 matches 0/10 questions (0% coverage); both benchmarks
 mix option counts, and PriDe's global positional-bias prior only means
 anything over a single fixed count. The gate refuses the run on those cells
 rather than average over an invalid prior; see [Method Compatibility & Known
 Limitations](#pride-requires-a-fixed-label-set-size-the-modal-k-gate) below.
 
 This is a 10-questions-per-benchmark demo run, not a statistically powered
-benchmark claim — that's why the confidence intervals above are wide. It
+benchmark claim: that's why the confidence intervals above are wide. It
 exists to show the full grid running end-to-end, not to rank models or
 methods.
 
@@ -101,8 +101,8 @@ calibration fractions.
 | PriDe (α=40%) | 46.5 ± 0.3 | 40.4 | +6.1 | 4.4 ± 0.2 | 3.9 | +0.5 |
 | PriDe (α=80%) | 48.1 ± 0.1 | 45.3 | +2.8 | 4.8 ± 0.1 | 2.6 | +2.2 |
 
-The paper's qualitative story reproduces fully — monotone accuracy gains
-with α, RStd collapse at every α, Cyclic Perm as the accuracy ceiling — but
+The paper's qualitative story reproduces fully (monotone accuracy gains
+with α, RStd collapse at every α, Cyclic Perm as the accuracy ceiling), but
 absolute accuracy runs a systematic 1.3–8.4 point high, shrinking as more of
 the scored set gets permutation-debiased treatment. See
 [`examples/pride_reproduction.md`](examples/pride_reproduction.md) for the
@@ -119,13 +119,25 @@ accounting of that deviation with candidate causes.
 git clone https://github.com/cotenthusiast/choicebench && cd choicebench
 python -m venv .venv && source .venv/bin/activate
 pip install -e .
-choicebench-prepare-toy
+python scripts/prepare_toy_data.py
 ```
 
 For local HuggingFace inference, install the optional dependencies instead:
 ```bash
 pip install -e ".[hf]"
 ```
+This pulls `torch`, `transformers`, and `accelerate`. By default `pip` resolves
+`torch` from PyPI, which is the **CUDA build** (~2GB+ of GPU-oriented
+dependencies, including bundled `nvidia-*` wheels), even on a machine with no
+GPU. If you don't have a CUDA GPU, install the CPU-only build instead (~1.6GB
+total, no `nvidia-*` packages):
+```bash
+pip install -e ".[hf]" --extra-index-url https://download.pytorch.org/whl/cpu
+```
+Everything else (`transformers`, `accelerate`, ChoiceBench itself) still
+resolves normally from PyPI; only `torch` is affected. Skip `[hf]` entirely if
+you only need the toy quickstart or API-backed models: the base install has
+no `torch` dependency at all.
 
 For API backends, copy `.env.example` to `.env` and add your keys:
 ```
@@ -141,17 +153,17 @@ VLLM_API_KEY=
 ### Run the toy experiment (no GPU, no API key needed)
 
 ```bash
-choicebench-run --config config/toy_experiment.yaml --run-id toy_experiment --yes
+python scripts/run_experiment.py --config config/toy_experiment.yaml --run-id toy_experiment --yes
 ```
 
-This runs the built-in `DummyBackend` (fixed responses, no model) against a 10-question synthetic dataset. It completes in seconds and exercises the full pipeline: benchmark loading → method execution → checkpointing → result CSV writing.
+This runs the built-in `DummyBackend` (fixed responses, no model) against a 10-question synthetic dataset. It completes in seconds and exercises the full pipeline: benchmark loading → method execution → checkpointing → result CSV writing. `--yes` skips the interactive `Proceed? [y/N]` confirmation prompt `run_experiment.py` otherwise asks before starting any run.
 
 Without `--run-id`, the run is written to a timestamped directory (e.g. `runs/20260628_113755/`) instead; pass `--run-id toy_experiment` so the evaluate step below can find it by name.
 
 ### Evaluate results
 
 ```bash
-choicebench-evaluate --run-id toy_experiment
+python scripts/evaluate_run.py --run-id toy_experiment
 ```
 
 Logs a metrics summary and writes a self-identifying JSON report to
@@ -181,18 +193,32 @@ artifact/selection IDs, model/method IDs, prompt ID, and the exact split.
 
 ### Prepare MMLU or ARC-Challenge
 
-The deterministic toy generator is invoked by `choicebench-prepare-toy`. For example, to prepare MMLU or
+The deterministic toy generator is invoked by `python scripts/prepare_toy_data.py`. For example, to prepare MMLU or
 ARC-Challenge, normalize them once before running experiments:
 
 ```bash
-choicebench-prepare --hf-path cais/mmlu --hf-subset all --split test
-choicebench-prepare --hf-path allenai/ai2_arc --hf-subset ARC-Challenge --split test
+python scripts/prepare_data.py --hf-path cais/mmlu --hf-subset all --split test --exclude-duplicate-question-ids
+python scripts/prepare_data.py --hf-path allenai/ai2_arc --hf-subset ARC-Challenge --split test
 ```
 
+`cais/mmlu`'s `all` config ships a small number of exact-duplicate rows (same
+subject/question/choices/answer) from its per-subject merge: `--exclude-duplicate-question-ids`
+is **required** for MMLU specifically, since ChoiceBench's `question_id` is a
+content hash and rejects a dataset with duplicate IDs (`DatasetArtifactError`)
+rather than silently guessing which copy to keep. No other bundled benchmark
+needs this flag.
+
+Any experiment config's `benchmarks:` entry for `name: mmlu` must declare
+`transforms: [unique_question_ids_v1]` to match: the prepared artifact's
+identity includes which transform(s) produced it, so a config that omits this
+looks for a different (never-prepared) artifact and fails with
+`FileNotFoundError`. See the `transforms:` field in
+[Config Reference](#config-reference) below.
+
 Every HuggingFace dataset needs a registered `@benchmark` normalizer before
-`prepare_data.py` can process it — there is no code-free path (see **Add a
+`prepare_data.py` can process it: there is no code-free path (see **Add a
 benchmark**). For the benchmarks in the table below this is already done, so
-`choicebench-prepare` writes a verified split-addressed artifact using the
+`python scripts/prepare_data.py` writes a verified split-addressed artifact using the
 registered benchmark name automatically, so `--output-name` is unnecessary
 for built-ins. A generic `name: huggingface` config may use `output_name` as a
 logical display/address component, but it still requires a registered
@@ -204,13 +230,13 @@ normalizer. Always prepare every evaluation and calibration split explicitly.
 
 | Benchmark | Name in config | Prepare command |
 |---|---|---|
-| MMLU | `mmlu` | `python scripts/prepare_data.py --hf-path cais/mmlu --hf-subset all` |
+| MMLU | `mmlu` | `python scripts/prepare_data.py --hf-path cais/mmlu --hf-subset all --exclude-duplicate-question-ids` |
 | ARC-Challenge | `arc_challenge` | `python scripts/prepare_data.py --hf-path allenai/ai2_arc --hf-subset ARC-Challenge` |
 | MMLU-Pro | `mmlu_pro` | `python scripts/prepare_data.py --hf-path TIGER-Lab/MMLU-Pro` |
 | HellaSwag | `hellaswag` | `python scripts/prepare_data.py --hf-path Rowan/hellaswag --split validation` |
 | TruthfulQA | `truthful_qa` | `python scripts/prepare_data.py --hf-path truthfulqa/truthful_qa --hf-subset multiple_choice --split validation` |
 
-A HuggingFace MCQ dataset can also be referenced by `hf_path` via `name: huggingface` (instead of by its registry name), but there is **no code-free path** — the dataset still needs a registered `@benchmark` normalizer first (see **Add a benchmark** below). Without one, `prepare_data.py` raises `NotImplementedError`. See `config/experiment_template.yaml` for the full schema.
+A HuggingFace MCQ dataset can also be referenced by `hf_path` via `name: huggingface` (instead of by its registry name), but there is **no code-free path**: the dataset still needs a registered `@benchmark` normalizer first (see **Add a benchmark** below). Without one, `prepare_data.py` raises `NotImplementedError`. See `config/experiment_template.yaml` for the full schema.
 
 ---
 
@@ -243,7 +269,16 @@ benchmarks:                     # a non-empty list (one entry per benchmark)
   - name: mmlu                  # "mmlu" | "arc_challenge" | "mmlu_pro" | "hellaswag" | "truthful_qa" | "toy" | "huggingface"
     split: test                 # split name (benchmark-specific)
     source_revision: null       # optional HF revision/commit; part of artifact identity
-    transforms: []              # e.g. [permutation_safe_v1], must match preparation
+    transforms: [unique_question_ids_v1]  # must match preparation exactly, as a list of
+                                 # transform names: "permutation_safe_v1" (written by
+                                 # --filter-permutation-unsafe) and/or "unique_question_ids_v1"
+                                 # (written by --exclude-duplicate-question-ids). MMLU as
+                                 # documented above is prepared with --exclude-duplicate-question-ids,
+                                 # so any config referencing name: mmlu needs
+                                 # transforms: [unique_question_ids_v1] here, or run_experiment.py
+                                 # raises FileNotFoundError looking for a no-transform artifact
+                                 # that was never prepared. Use transforms: [] only for benchmarks
+                                 # prepared with no flags (e.g. arc_challenge, hellaswag, truthful_qa).
     n_samples: 100              # null = full split; positive int = random subsample
     subject_filter: null        # null | list of MMLU subject strings
 
@@ -255,14 +290,14 @@ methods:
     # params:
     #   fallback_on_parse_failure: true
   # A logprob method like pride can only be listed if EVERY model above is
-  # logprob-capable (huggingface/dummy — no api provider is accepted).
+  # logprob-capable (huggingface/dummy, no api provider is accepted).
   # With the OpenAI api model present, including it would fail config
-  # validation — so it's commented out here:
+  # validation, so it's commented out here:
   # - name: pride
   #   requires_logprobs: true   # schema-validated; rejects non-logprob backends
   #   preflight:                # optional: calibrates PriDe's positional-bias prior
   #     source: benchmark        # "benchmark" (reuse this benchmark's data) or a .csv/.jsonl file path
-  #     split: validation        # must differ from the benchmark's own `split:` above (enforced — raises if equal)
+  #     split: validation        # must differ from the benchmark's own `split:` above (enforced, raises if equal)
   #     n: 100                   # number of calibration questions to sample (deterministic, seeded by run.seed)
 
 metrics:
@@ -280,17 +315,17 @@ run:
   concurrency_limit: 10         # max in-flight requests per API model (rate-limit guard)
   cache_scope: per_run          # "per_run" (default, isolated in runs/<run_id>/cache/) or
                                  # "shared" (runs/-independent, reused across run IDs by
-                                 # model identity + request content — see below)
+                                 # model identity + request content, see below)
 ```
 
 ---
 
-## Extending the Framework — The Plugin System
+## Extending the Framework: The Plugin System
 
 ### Add a new method (3 steps)
 
 1. Copy `src/choicebench/methods/templates/base_method.py` to `src/choicebench/methods/library/my_method.py`
-2. Implement `run_one()` — build prompt → call backend → parse and score → return `_build_result_row(...)`
+2. Implement `run_one()`: build prompt → call backend → parse and score → return `_build_result_row(...)`
 3. Add to `src/choicebench/registry.py`:
    ```python
    from choicebench.methods.library.my_method import MyMethodRunner
@@ -306,12 +341,12 @@ For external methods (not in this repo), skip step 3 and use `name: my_package.m
 2. Implement `compute(results_df)` and add to `BUILTIN_METRICS` in `src/choicebench/metrics/__init__.py`
 
 External: list the import path directly in YAML, e.g.
-`metrics: ["my_package.metrics:MyMetricMetric"]` — no framework files needed.
+`metrics: ["my_package.metrics:MyMetricMetric"]`: no framework files needed.
 
 ### Add a new API client (3 steps)
 
 1. Copy `src/choicebench/clients/templates/base_client_template.py` to `src/choicebench/clients/my_provider_client.py`
-2. Implement `_generate_provider_response()` — call the provider SDK, extract `raw_text`, return a `ModelResponse`
+2. Implement `_generate_provider_response()`: call the provider SDK, extract `raw_text`, return a `ModelResponse`
 3. Register in `src/choicebench/registry.py` and add the API key to `.env`
 
 The retry loop, backoff, semaphore, and request/response validation are all handled by `BaseClient`. You only implement the single raw API call. Within a run, all API models for a (benchmark, method) execute concurrently via `asyncio.gather()`, and the questions in each batch run concurrently bounded by that model's `concurrency_limit` semaphore; only benchmarks and methods iterate serially. The `concurrency_limit` knob is what caps in-flight requests and prevents provider rate-limit (429) errors.
@@ -321,16 +356,16 @@ The retry loop, backoff, semaphore, and request/response validation are all hand
 1. Copy `src/choicebench/backends/templates/base_backend_template.py` to `src/choicebench/backends/my_backend.py`
 2. Implement `generate()` (required) and optionally `score_options()` + `supports_logprobs = True`
 3. Add a branch to `build_backend()` in `scripts/run_experiment.py`
-4. Add the backend key to `_VALID_BACKENDS` in `src/choicebench/config/schema.py`. If it implements `score_options()`, set `supports_logprobs = True` on the class and register it in `_NONAPI_BACKEND_CLASSES` (same file). Logprob capability is decided by a single function, `model_supports_logprobs()`, which reads each backend's own `supports_logprobs` — both config validation and the pre-run gate consult it, so there is no second list to keep in sync.
+4. Add the backend key to `_VALID_BACKENDS` in `src/choicebench/config/schema.py`. If it implements `score_options()`, set `supports_logprobs = True` on the class and register it in `_NONAPI_BACKEND_CLASSES` (same file). Logprob capability is decided by a single function, `model_supports_logprobs()`, which reads each backend's own `supports_logprobs`; both config validation and the pre-run gate consult it, so there is no second list to keep in sync.
 
 ### Add a new benchmark (4 steps)
 
 1. Create `src/choicebench/benchmarks/my_bench.py`
-2. Implement a row-level `normalize_row(row: dict) -> dict` — convert one raw
+2. Implement a row-level `normalize_row(row: dict) -> dict`: convert one raw
    HuggingFace row into the normalized schema by calling
    `make_normalized_row()` from `benchmarks/base.py` (it derives
    `question_id`, `choices_json`, `correct_index`, `correct_option`,
-   `correct_answer_text`, and `n_choices` for you) — and decorate it:
+   `correct_answer_text`, and `n_choices` for you), and decorate it:
    ```python
    from choicebench.benchmarks.base import make_normalized_row
    from choicebench.benchmarks.registry import benchmark
@@ -363,12 +398,12 @@ a matching `--output-name` to `prepare_data.py`).
 
 ### External registration via `"module.path:ClassName"` syntax
 
-Any method or metric can be loaded from an external package — just install it in the same virtualenv and use the full import path in YAML. No framework files need to be touched.
+Any method or metric can be loaded from an external package; just install it in the same virtualenv and use the full import path in YAML. No framework files need to be touched.
 
 ### Worked example
 
 `examples/method_comparison.md` walks through adding a new method
-(`shuffled_baseline`) end-to-end — implementation, registration, a real
+(`shuffled_baseline`) end-to-end: implementation, registration, a real
 experiment config, and a real run against the toy dataset compared with
 `direct_mcq`.
 
@@ -377,26 +412,26 @@ experiment config, and a real run against the toy dataset compared with
 ## Architecture
 
 ```
-config/              — YAML experiment configs
-scripts/             — entry points (run_experiment.py, evaluate_run.py, prepare_data.py, prepare_toy_data.py)
+config/              - YAML experiment configs
+scripts/             - entry points (run_experiment.py, evaluate_run.py, prepare_data.py, prepare_toy_data.py)
 src/choicebench/
-  config/            — schema validation, paths, provider defaults
-  registry.py        — METHOD_REGISTRY and CLIENT_REGISTRY (single registration point)
-  benchmarks/        — benchmark normalizers (MMLU, ARC-Challenge, MMLU-Pro, HellaSwag, TruthfulQA)
-  backends/          — inference backends (HuggingFace, API, Dummy)
-  clients/           — API provider clients (Anthropic, OpenAI, Gemini, Groq, Together, vLLM)
+  config/            - schema validation, paths, provider defaults
+  registry.py        - METHOD_REGISTRY and CLIENT_REGISTRY (single registration point)
+  benchmarks/        - benchmark normalizers (MMLU, ARC-Challenge, MMLU-Pro, HellaSwag, TruthfulQA)
+  backends/          - inference backends (HuggingFace, API, Dummy)
+  clients/           - API provider clients (Anthropic, OpenAI, Gemini, Groq, Together, vLLM)
   methods/
-    base.py          — ExperimentRunner ABC (shared infra: backend calls, result assembly)
-    library/         — built-in method implementations
-    templates/       — copy-paste templates for new methods
+    base.py          - ExperimentRunner ABC (shared infra: backend calls, result assembly)
+    library/         - built-in method implementations
+    templates/       - copy-paste templates for new methods
   metrics/
-    base.py          — BaseMetric ABC
-    library (inline) — built-in metrics (accuracy, MAD)
-    templates/       — copy-paste templates for new metrics
-  infra/             — checkpointing (CheckpointManager) and caching
-  io/                — result readers/writers
-  parsing/           — model output parsing
-  scoring/           — correctness scoring
+    base.py          - BaseMetric ABC
+    library (inline) - built-in metrics (accuracy, MAD)
+    templates/       - copy-paste templates for new metrics
+  infra/             - checkpointing (CheckpointManager) and caching
+  io/                - result readers/writers
+  parsing/           - model output parsing
+  scoring/           - correctness scoring
 ```
 
 **Data flow:** config -> verified prepared artifact -> immutable manifest and
@@ -405,7 +440,7 @@ manifest-driven evaluation.
 
 ### Protocol-v2 identity and provenance
 
-ChoiceBench v0.2 makes every result self-identifying. Preparation maps the
+ChoiceBench's manifest protocol v2 makes every result self-identifying. Preparation maps the
 logical benchmark, source/config, requested split, source revision,
 normalization version, and declared transforms to a distinct directory:
 
@@ -421,9 +456,9 @@ data/processed/<name>/<split>/norm-v2/src_<spec-hash>/
 and a semantic SHA-256 digest of the ordered normalized rows. Loading
 recomputes that digest. A changed CSV, mismatched metadata file, stale generic
 `<name>_normalized.csv`, or wrong split is rejected. Legacy CSVs are never
-silently assigned provenance; re-run `choicebench-prepare` for the exact split.
+silently assigned provenance; re-run `python scripts/prepare_data.py` for the exact split.
 
-Before inference, `choicebench-run` resolves all datasets and calibration
+Before inference, `python scripts/run_experiment.py` resolves all datasets and calibration
 splits, hashes and archives the exact prompt contents, canonicalizes and credential-sanitizes the complete model
 and method configurations, resolves Hugging Face model refs to commits (or
 hashes every file in a local model tree), fingerprints configured external
@@ -483,10 +518,12 @@ inputs are represented by logical names/content digests, not absolute paths):
 Prompt templates are read-only package resources. User data is never written
 inside `site-packages`. `CHOICEBENCH_HOME`, when set, is the workspace root;
 otherwise the current working directory is used. Its `data/`, `runs/`, and
-`reports/` children contain generated artifacts. The supported installed
-commands are `choicebench-prepare`, `choicebench-prepare-toy`,
-`choicebench-run`, and `choicebench-evaluate`; the existing `scripts/*.py`
-entry points remain available from a source clone.
+`reports/` children contain generated artifacts. ChoiceBench is a source
+clone, not an installed distribution: `pip install -e .` gives you a clean
+`import choicebench` for `scripts/*.py`, tests, and examples, but there are no
+`choicebench-*` console commands: use `python scripts/prepare_data.py`,
+`python scripts/prepare_toy_data.py`, `python scripts/run_experiment.py`, and
+`python scripts/evaluate_run.py` directly, as shown throughout this README.
 
 Set `run.prompt_dir` to an external prompt root for a custom bundle. The
 logical version and template contents are identity-bearing; the machine path is
@@ -501,8 +538,8 @@ subject to the same lock and refuses symlinked run directories.
 
 Credential handling is schema-aware: unambiguous credential-named keys
 (`api_key`, `authorization`, `client_secret`, …) are refused outright in
-scientific configuration — rename the parameter if it is ordinary method
-configuration — while secret-shaped but scientific names (`token`,
+scientific configuration (rename the parameter if it is ordinary method
+configuration), while secret-shaped but scientific names (`token`,
 `secret_strength`, …) keep their identity-affecting values. Value-level
 sanitization still covers bearer tokens, URL userinfo, and common signed-query
 schemes in endpoints and error text; it cannot identify an arbitrary secret
@@ -522,7 +559,7 @@ condition completes successfully.
 
 **Response cache:** successful API responses are cached to disk, keyed by a
 hash of the deterministic request content (provider/model/prompt/temperature/
-max_tokens/seed) — nothing about the run ID or ChoiceBench's own source code
+max_tokens/seed); nothing about the run ID or ChoiceBench's own source code
 is part of the key. With the default `run.cache_scope: per_run`, the cache
 lives under `runs/<run_id>/cache/<model_id>/`, so a new run ID always starts
 cold, even for requests byte-identical to ones already cached under a
@@ -547,6 +584,7 @@ digest (see above).
 | `two_stage` | Stage 1: free-form answer; Stage 2: map to option letter | 2, or 3 if fallback is enabled |
 | `pride` | PriDe Eq. 8 logprob debiasing. YAML-driven runs use a uniform prior unless a preflight calibration block is configured (see the `preflight:` example in [Config Reference](#config-reference)). Without preflight, this is logprob argmax only, not calibration-fitted debiasing. Subject to the [modal-k gate](#method-compatibility--known-limitations). | 1 score_options call per eval row; +4K calibration calls per run if K calibration rows are supplied |
 | `cyclic_logprob` | Eq. 1 logprob averaging: score every cyclic permutation via `score_options`, average probability mass back to canonical slots, argmax | N options, normally 4 score_options calls |
+| `direct_logprob` | Zheng et al.'s "Default" baseline: reads next-token log-probabilities of the option-letter tokens via a single `score_options` call and predicts the argmax: no generation, no permutations, no calibration. Requires `requires_logprobs: true` in config, same as `pride`/`cyclic_logprob`. | 1 score_options call |
 
 #### Authoritative answer column per method
 
@@ -560,39 +598,41 @@ metrics (`accuracy`, `mad`) read that column. This is uniform across all methods
 | `two_stage` | `parsed_choice` | parsed from stage-2 (or fallback) generation |
 | `cyclic_logprob` | `parsed_choice` | Eq. 1 argmax over averaged logprobs |
 | `pride` | `parsed_choice` | Eq. 8 debiased argmax (also mirrored in `pride_adjusted_choice`) |
+| `direct_logprob` | `parsed_choice` | argmax over a single call's per-letter logprobs |
 
 `pride` additionally records `pride_adjusted_choice` and `cyclic_logprob` records
-`option_distributions_json`, but these are diagnostics — `parsed_choice` is the
+`option_distributions_json`, but these are diagnostics: `parsed_choice` is the
 single authoritative column for scoring and for any user `groupby`.
 
 Every row also carries two separate status columns, each with a single,
-uniform meaning across all five methods:
+uniform meaning across all six methods:
 
 | Column | Meaning | `"success"` means |
 |---|---|---|
-| `transport_status` | Did the backend call return? | The backend call returned — even if the output was unparseable, so `parsed_choice` may still be `None`. `None` for methods that never call `generate()` (`cyclic_logprob`, `pride` — they only call `score_options`), since there is no transport event to report. |
+| `transport_status` | Did the backend call return? | The backend call returned, even if the output was unparseable, so `parsed_choice` may still be `None`. `None` for methods that never call `generate()` (`cyclic_logprob`, `pride`, `direct_logprob`; they only call `score_options`), since there is no transport event to report. |
 | `answer_status` | Was a final answer produced? | `parsed_choice` ended up set, by whatever method-specific process produces it (single-call parse, majority vote, or logprob argmax/debiasing). Always non-`None`. |
 
 These used to be folded into a single overloaded `model_status` column whose
 meaning silently changed by method (transport success for `direct_mcq`/
-`two_stage`, answer-produced for the other three) — `transport_status` and
+`two_stage`, answer-produced for the other three): `transport_status` and
 `answer_status` replace it so a filter behaves identically regardless of
 method. For a cross-method answer-presence filter, `answer_status == "success"`
 is now equivalent to `parsed_choice.notna()` (or `parse_status == "parse_ok"`).
 
-#### Logprob methods (pride, cyclic_logprob)
+#### Logprob methods (pride, cyclic_logprob, direct_logprob)
 
-`pride` and `cyclic_logprob` read per-letter log-probabilities via
-`score_options`. Only **HuggingFace** (and `dummy`, for tests) implements it —
+`pride`, `cyclic_logprob`, and `direct_logprob` read per-letter log-probabilities via
+`score_options`. Only **HuggingFace** (and `dummy`, for tests) implements it:
 it reads the true full-vocabulary logit for each option label (one forward
 pass). Option labels must be **single tokens** in the model's tokenizer; a
 multi-token label raises a `ValueError` naming the offending letter and
 suggesting the space-prefixed form.
 
 No API provider client (OpenAI, Anthropic, Gemini, Groq, Together, vLLM)
-implements `score_options` — they are all generate-only. **Config-driven runs
-(`config.yaml` + `load_config()`) reject `pride`/`cyclic_logprob` on any `api`
-backend** — use `backend: huggingface` instead.
+implements `score_options`: they are all generate-only. **Config-driven runs
+(`config.yaml` + `load_config()`) reject any method with `requires_logprobs: true`
+(`pride`, `cyclic_logprob`, `direct_logprob`) on an `api` backend**: use
+`backend: huggingface` instead.
 
 Partially-degraded rows are flagged: `n_permutations_failed` / `n_permutations_total`
 record how many permutations fell back to a uniform distribution (for `pride`,
@@ -602,7 +642,7 @@ these are the calibration rollout permutations).
 slug, calibration benchmark, calibration question ids, `calibration_seed`,
 `temperature`, `max_tokens`, and `prompt_version` all match. It does **not**
 capture model weights, so two local checkpoints sharing a basename
-(`org/model` → `org_model`) collide on the sidecar path — use a distinct
+(`org/model` → `org_model`) collide on the sidecar path; use a distinct
 `run_id`/calibration directory for those.
 
 ### Metrics
@@ -610,8 +650,8 @@ capture model weights, so two local checkpoints sharing a basename
 | Name | Description |
 |---|---|
 | `accuracy` | Fraction of questions answered correctly (`accuracy`/`accuracy_conditional`), each with a 95% Clopper-Pearson confidence interval (`*_ci_low`/`*_ci_high`) |
-| `mad` | Mean absolute deviation between the model's letter-selection distribution and the gold answer distribution, both computed over the same scored subset — a marginal answer-letter skew indicator, *not* a measure of causal answer-order bias |
-| `order_sensitivity` | Causal order-bias signal from per-rotation data (`order_rstd`, `order_flip_rate`) — currently only populated for `cyclic_logprob`, since it's the only method that persists per-rotation logprobs; NaN for other methods |
+| `mad` | Mean absolute deviation between the model's letter-selection distribution and the gold answer distribution, both computed over the same scored subset (a marginal answer-letter skew indicator, *not* a measure of causal answer-order bias) |
+| `order_sensitivity` | Causal order-bias signal from per-rotation data (`order_rstd`, `order_flip_rate`): currently only populated for `cyclic_logprob`, since it's the only method that persists per-rotation logprobs; NaN for other methods |
 
 ### Clients (API backends)
 
@@ -622,13 +662,13 @@ capture model weights, so two local checkpoints sharing a basename
 | `gemini` | Google Gemini API (gemini-2.5-flash, gemini-2.5-pro) |
 | `groq` | Groq API (Llama, Mixtral models) |
 | `together` | Together AI (Qwen, Llama, and other open-weight models) |
-| `vllm` | Local vLLM OpenAI-compatible server; configure `base_url`, no hosted API key required. Generate-only, like the other API clients — not accepted for `pride`/`cyclic_logprob`, see [Logprob methods](#logprob-methods-pride-cyclic_logprob) |
+| `vllm` | Local vLLM OpenAI-compatible server; configure `base_url`, no hosted API key required. Generate-only, like the other API clients; not accepted for `pride`/`cyclic_logprob`, see [Logprob methods](#logprob-methods-pride-cyclic_logprob) |
 
 ### Benchmarks
 
 | Name | Source | Notes |
 |---|---|---|
-| `mmlu` | HuggingFace `cais/mmlu` | 57-subject, 14k questions; run `prepare_data.py` first |
+| `mmlu` | HuggingFace `cais/mmlu` | 57-subject, 14k questions; run `prepare_data.py --exclude-duplicate-question-ids` first (see **Supported Benchmarks** above) |
 | `arc_challenge` | HuggingFace `allenai/ai2_arc` | 1172-question subset; run `prepare_data.py` first |
 | `mmlu_pro` | HuggingFace `TIGER-Lab/MMLU-Pro` | All options preserved (up to 10 per question); no rows dropped. Modal option count is 10 at 83.0% coverage, so PriDe fails the default 0.95 modal-k gate (see [Method Compatibility](#method-compatibility--known-limitations)) |
 | `hellaswag` | HuggingFace `Rowan/hellaswag` | Use the `validation` split; test labels are unavailable |
@@ -641,8 +681,8 @@ capture model weights, so two local checkpoints sharing a basename
 Normalized CSVs use a variable-choice schema: a `choices_json` column (an
 ordered list of `{text, source_index}` objects), a `correct_index` into that
 list, a derived `correct_option` letter, and `n_choices`. Render labels
-(A, B, C, …) are always re-derived from choice order — never trusted from the
-source dataset, which is inconsistent past J — while `source_index` preserves
+(A, B, C, …) are always re-derived from choice order (never trusted from the
+source dataset, which is inconsistent past J), while `source_index` preserves
 each option's original position for audit. This supports benchmarks with any
 number of options (e.g. MMLU-Pro's up to 10, A–J).
 
@@ -660,7 +700,7 @@ and are not gated.
 
 PriDe estimates a single global positional-bias prior and applies it to every
 evaluation question (Zheng et al., ICLR 2024, Eq. 8). That calibration is only
-meaningful when the evaluation questions share **one** option count — i.e. a
+meaningful when the evaluation questions share **one** option count, i.e. a
 fixed label set A..k. PriDe cannot meaningfully calibrate one global prior
 across a benchmark whose questions have highly variable choice counts.
 
@@ -670,20 +710,20 @@ by `pride.modal_k_threshold` (default `0.95`):
 - The benchmark's modal choice count *k* is computed from the exact selected
   dataset rows archived in the run manifest snapshot.
 - If at least a `modal_k_threshold` proportion of the loaded questions have
-  exactly *k* options, the run proceeds **on the modal-k subset only** — the
+  exactly *k* options, the run proceeds **on the modal-k subset only**: the
   non-modal-k questions are excluded.
 - Otherwise PriDe refuses to run and raises a clear error naming the benchmark,
   the modal *k*, the actual modal-k proportion, and the configured threshold.
 
-**What lowering `modal_k_threshold` does — and does *not* — do.** Lowering the
+**What lowering `modal_k_threshold` does (and does *not*) do.** Lowering the
 threshold does **not** expand which questions PriDe scores. PriDe always
 evaluates only the modal-k subset, whatever the threshold is set to. Lowering
 the threshold only changes whether the run is *permitted to proceed at all* on a
-more heterogeneous benchmark — at the cost of a smaller `n_evaluated` relative
+more heterogeneous benchmark, at the cost of a smaller `n_evaluated` relative
 to `n_total`. To see exactly what fraction you actually scored, consult the
 per-condition gate report sidecar,
 `runs/<run_id>/artifacts/<condition_id>/modal_k_gate.json`,
-and its `n_evaluated` vs `n_total` accounting — the same figures are mirrored
+and its `n_evaluated` vs `n_total` accounting: the same figures are mirrored
 onto each result row as `gate_n_evaluated` / `gate_n_total`.
 
 **Only PriDe is gated.** `direct_mcq` and `cyclic_permutation` are *not* subject
@@ -702,7 +742,7 @@ bundled benchmarks fail the gate, so PriDe refuses to run on them as-is:
 (≥99% of questions at k=4) and pass the gate. To run PriDe on MMLU-Pro or
 TruthfulQA you must lower `pride.modal_k_threshold`, accepting that PriDe will
 still only score the modal-k subset (9,981 of 12,032 for MMLU-Pro; 219 of 817
-for TruthfulQA) — check the gate report for the exact `n_evaluated`.
+for TruthfulQA); check the gate report for the exact `n_evaluated`.
 
 ---
 
@@ -724,17 +764,17 @@ These two mechanisms apply at different layers, and both are real:
 
 - `CHOICEBENCH_BASE` / `CHOICEBENCH_REPO` / `CHOICEBENCH_PYTHON_MODULE` (plus
   `CHOICEBENCH_VENV`, `PYTHON_BIN`) are **environment variables** read by
-  `setup_hpc.sh` and `env_hpc.sh` (`${VAR:-default}`) — set them before running
+  `setup_hpc.sh` and `env_hpc.sh` (`${VAR:-default}`): set them before running
   either script to control paths, the HF cache location, and which `module
   load` (if any) is used. No template editing is needed for these.
 - `#SBATCH` resource directives (partition, GPU, time, memory, CPUs) inside
-  `run_choicebench.sbatch` are **not** environment-variable-driven — `sbatch`
+  `run_choicebench.sbatch` are **not** environment-variable-driven: `sbatch`
   parses `#SBATCH` lines as literal text before the script body ever runs, so
   exporting a shell variable cannot change them. To change these, edit the
   `#SBATCH` lines in `run_choicebench.sbatch` directly for your site (e.g.
   uncomment and set `#SBATCH --partition=...` / `#SBATCH --gres=gpu:1`).
 
-`run_choicebench.sbatch` automatically `source`s `env_hpc.sh` itself — you do
+`run_choicebench.sbatch` automatically `source`s `env_hpc.sh` itself; you do
 not need to source it manually before `sbatch`. It also reads
 `CHOICEBENCH_CONFIG` and `CHOICEBENCH_RUN_ID` env vars (falling back to the
 toy config / an auto-generated run id) if you want to point it at a real
@@ -755,7 +795,7 @@ HPC environment works unchanged.
 
 There are also compact submission helpers in `scripts/slurm/` for users who
 already have a virtualenv and know the resources they want.
-`scripts/slurm/submit_job.sh` does **not** read `CHOICEBENCH_*` env vars — its
+`scripts/slurm/submit_job.sh` does **not** read `CHOICEBENCH_*` env vars: its
 virtualenv path (`VENV_DIR`) and its `#SBATCH` resources are hardcoded in the
 script and must be edited directly for your cluster:
 
@@ -790,12 +830,12 @@ weights in `fp16` on CUDA/auto (`fp32` on CPU) onto the device(s) given by
 model doesn't fit, either switch to a smaller `model_name_or_path`, set
 `device: auto` to shard across all visible GPUs, reduce
 `generation_kwargs.max_new_tokens`, or move the model to a node/partition with
-more GPU memory; v0.2 has no built-in quantization fallback.
+more GPU memory; ChoiceBench has no built-in quantization fallback.
 
 **A model works everywhere except this run, and it's a `ProviderConfigurationError`.**
 API clients (`src/choicebench/clients/`) raise
-`choicebench.clients.types.ProviderConfigurationError` — not retried, unlike
-transient errors — when the provider rejects the request as unfixable by
+`choicebench.clients.types.ProviderConfigurationError` (not retried, unlike
+transient errors) when the provider rejects the request as unfixable by
 retrying: a missing/empty API key, an invalid key, or a malformed request
 (HTTP 400/401/404/422). Check that the corresponding `*_API_KEY` is set in
 `.env` (see **Installation**) and actually valid for the `provider` named in
@@ -813,7 +853,7 @@ while another process holds the run lock.
 `module load` works fine when you run it by hand.** `module` is a bash
 function defined by your cluster's profile scripts, which only get sourced in
 an interactive/login shell. `sbatch` inherits the environment of the shell
-that invoked it — so if the job was submitted from a shell that never sourced
+that invoked it, so if the job was submitted from a shell that never sourced
 those profile scripts (a single `ssh host "sbatch job.sh"` command, CI,
 cron, or any other non-interactive automation), `module` was never defined
 there, and the identical `module load` line inside the submitted script fails
@@ -828,18 +868,34 @@ instead.
 
 ## Roadmap
 
-Planned v0.2 work:
+Planned future work:
 
-- **Mixed-option PriDe calibration** — a single PriDe run that calibrates across questions with *different* option counts (rather than gating to the modal k, as it does today).
-- **Parallel orchestration across benchmark/method jobs** — ChoiceBench runs API models concurrently (`asyncio.gather`) and questions concurrently under each model's `concurrency_limit`; benchmarks and methods still iterate serially.
-- **Inspect AI adapter** — run ChoiceBench methods inside [Inspect](https://inspect.ai) workflows.
+- **Mixed-option PriDe calibration**: a single PriDe run that calibrates across questions with *different* option counts (rather than gating to the modal k, as it does today).
+- **Parallel orchestration across benchmark/method jobs**: ChoiceBench runs API models concurrently (`asyncio.gather`) and questions concurrently under each model's `concurrency_limit`; benchmarks and methods still iterate serially.
+- **Inspect AI adapter**: run ChoiceBench methods inside [Inspect](https://inspect.ai) workflows.
 - **Broader benchmark adapters and stronger script-level integration tests.**
 
 ---
 
-## Citation
+## Paper & Citation
 
-If you use ChoiceBench in your research, please cite:
+ChoiceBench is the code and reproducibility repository accompanying:
+
+> Karl Hanna and Chen Feng. **Accuracy and Order Sensitivity Diverge Under Label-Free Strategies.** arXiv:2608.11947, 2026.
+> [https://arxiv.org/abs/2608.11947](https://arxiv.org/abs/2608.11947)
+
+If you use the paper's findings, please cite:
+
+```bibtex
+@article{hanna2026accuracy,
+  title         = {Accuracy and Order Sensitivity Diverge Under Label-Free Strategies},
+  author        = {Hanna, Karl and Feng, Chen},
+  journal       = {arXiv preprint arXiv:2608.11947},
+  year          = {2026}
+}
+```
+
+If you use the ChoiceBench framework itself, please also cite the software:
 
 ```bibtex
 @software{choicebench2026,
@@ -847,7 +903,7 @@ If you use ChoiceBench in your research, please cite:
   title     = {ChoiceBench: A lightweight framework for MCQ evaluation-method research},
   year      = {2026},
   url       = {https://github.com/cotenthusiast/choicebench},
-  version   = {0.2.0},
+  version   = {0.1.3},
   license   = {MIT}
 }
 ```

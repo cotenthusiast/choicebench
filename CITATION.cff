@@ -1,5 +1,5 @@
 cff-version: 1.2.0
-message: "If you use ChoiceBench in your research, please cite it."
+message: "If you use ChoiceBench in your research, please cite it. If you use the paper's findings, please cite the preferred citation."
 type: software
 title: "ChoiceBench: A lightweight framework for MCQ evaluation-method research"
 authors:
@@ -8,8 +8,22 @@ authors:
 repository-code: "https://github.com/cotenthusiast/choicebench"
 url: "https://github.com/cotenthusiast/choicebench"
 license: MIT
-version: "0.2.0"
-date-released: "2026-07-12"
+version: "0.1.3"
+date-released: "2026-08-03"
+preferred-citation:
+  type: article
+  title: "Accuracy and Order Sensitivity Diverge Under Label-Free Strategies"
+  authors:
+    - family-names: "Hanna"
+      given-names: "Karl"
+    - family-names: "Feng"
+      given-names: "Chen"
+  year: 2026
+  identifiers:
+    - type: other
+      value: "arXiv:2608.11947"
+      description: "arXiv preprint"
+  url: "https://arxiv.org/abs/2608.11947"
 keywords:
   - "large language models"
   - "multiple choice questions"

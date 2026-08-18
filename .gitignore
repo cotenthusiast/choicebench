@@ -59,3 +59,4 @@ audits/
 # commit-by-commit history already documents what changed and why)
 SIMPLIFICATION_PLAN.md
 CLEANUP_CANDIDATES.md
+FUTURE_IDEAS.md
