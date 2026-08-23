@@ -60,3 +60,6 @@ audits/
 SIMPLIFICATION_PLAN.md
 CLEANUP_CANDIDATES.md
 FUTURE_IDEAS.md
+
+# Ownership Guide: local-only teaching document for the repo owner
+docs/OWNERSHIP_GUIDE.md
