@@ -580,6 +580,7 @@ digest (see above).
 | Name | Description | Calls per question |
 |---|---|---|
 | `direct_mcq` | Single-pass: prompt → parse → score | 1 |
+| `shuffled_baseline` | One seeded per-question shuffle of the option texts; parses and scores in shuffled space, then un-maps the picked label back to canonical via an explicit positional bijection | 1 |
 | `cyclic_permutation` | Runs one cyclic permutation per available option, takes majority vote | N options, normally 4 |
 | `two_stage` | Stage 1: free-form answer; Stage 2: map to option letter | 2, or 3 if fallback is enabled |
 | `pride` | PriDe Eq. 8 logprob debiasing. YAML-driven runs use a uniform prior unless a preflight calibration block is configured (see the `preflight:` example in [Config Reference](#config-reference)). Without preflight, this is logprob argmax only, not calibration-fitted debiasing. Subject to the [modal-k gate](#method-compatibility--known-limitations). | 1 score_options call per eval row; +4K calibration calls per run if K calibration rows are supplied |
@@ -594,6 +595,7 @@ metrics (`accuracy`, `mad`) read that column. This is uniform across all methods
 | Method | Authoritative answer column | How it's produced |
 |---|---|---|
 | `direct_mcq` | `parsed_choice` | parsed from the single `raw_text` generation |
+| `shuffled_baseline` | `parsed_choice` | parsed in shuffled space, positionally un-mapped to canonical |
 | `cyclic_permutation` | `parsed_choice` | majority vote across rotations |
 | `two_stage` | `parsed_choice` | parsed from stage-2 (or fallback) generation |
 | `cyclic_logprob` | `parsed_choice` | Eq. 1 argmax over averaged logprobs |
@@ -605,7 +607,7 @@ metrics (`accuracy`, `mad`) read that column. This is uniform across all methods
 single authoritative column for scoring and for any user `groupby`.
 
 Every row also carries two separate status columns, each with a single,
-uniform meaning across all six methods:
+uniform meaning across all seven methods:
 
 | Column | Meaning | `"success"` means |
 |---|---|---|
@@ -651,6 +653,7 @@ capture model weights, so two local checkpoints sharing a basename
 |---|---|
 | `accuracy` | Fraction of questions answered correctly (`accuracy`/`accuracy_conditional`), each with a 95% Clopper-Pearson confidence interval (`*_ci_low`/`*_ci_high`) |
 | `mad` | Mean absolute deviation between the model's letter-selection distribution and the gold answer distribution, both computed over the same scored subset (a marginal answer-letter skew indicator, *not* a measure of causal answer-order bias) |
+| `recall_rstd` | Standard deviation of per-letter recall — for each letter L, recall_L = P(predicted == L \| gold == L, scored) — across the label space, on a 0–100 scale (Zheng et al., ICLR 2024 §2.2). Marginal/correlational selection-bias indicator: it sees each question's natural gold letter only. Same scored-subset semantics as `mad`; letters with zero scored gold questions are excluded from the RStd |
 | `order_sensitivity` | Causal order-bias signal from per-rotation data (`order_rstd`, `order_flip_rate`): currently only populated for `cyclic_logprob`, since it's the only method that persists per-rotation logprobs; NaN for other methods |
 
 ### Clients (API backends)
@@ -743,6 +746,61 @@ bundled benchmarks fail the gate, so PriDe refuses to run on them as-is:
 TruthfulQA you must lower `pride.modal_k_threshold`, accepting that PriDe will
 still only score the modal-k subset (9,981 of 12,032 for MMLU-Pro; 219 of 817
 for TruthfulQA); check the gate report for the exact `n_evaluated`.
+
+### Accepted limitations (audited; documented by design)
+
+The following behaviors were confirmed during a structured audit and accepted
+for this release cycle. They are recorded here so interpretation of results
+can account for them.
+
+**Truncated generations are parsed like any other output.** A response cut off
+by `max_output_tokens` is not automatically unscorable: a model may emit its
+conclusion before continuing, and a blanket "truncation ⇒ unscorable" rule
+would discard valid answers. The parser resolves the answer from explicit
+selection evidence (most recent selection wins), so a truncated response that
+already stated an answer scores normally, and one truncated mid-reasoning
+typically parses as missing. Truncation provenance is preserved per row:
+OpenAI Responses-API status maps to `finish_reason`
+(`incomplete`+`max_output_tokens` → `"length"`, other reasons verbatim;
+`completed` stays `"completed"` rather than being rewritten to Chat
+Completions' `"stop"`), and HuggingFace/Together expose their native
+equivalents. Filter on `finish_reason` when truncation could confound your
+comparison.
+
+**Parser token boundaries are ASCII-oriented.** The letter/extraction regexes
+treat ASCII letters, digits, whitespace, and a small punctuation set as word
+boundaries. Exotic Unicode adjacency (e.g. a label glued to non-ASCII
+punctuation with no space) may fail to parse; only curly-quote normalization
+is applied beyond ASCII.
+
+**`question_id`s are hash-based over a delimiter-joined payload.** The id is
+`sha256("{subject}|{question}|{choice0}|...")[:16]`. A question whose *text*
+contains the `|` delimiter can in principle collide with another such
+question's payload string; realized collisions are fail-closed (duplicate-id
+rejection at preparation), and structured identity fields never enter the
+payload. Changing the scheme would break every existing normalized artifact,
+so it is kept and documented instead.
+
+**No in-flight request de-duplication.** Identical concurrent requests (e.g.
+the same prompt issued by two conditions) are each sent and billed. This is a
+cost property only — responses are cached at the backend layer where
+providers support it — not a correctness one.
+
+**File locking assumes POSIX `flock`.** Run-level mutual exclusion uses
+`flock`, which Linux/MacOS local filesystems honor but some networked
+filesystems (notably certain NFS configurations) do not. On clusters where
+`runs/` lives on NFS, keep working directories on node-local storage or
+verify your site's locking semantics before running concurrent jobs over the
+same run directory.
+
+**Legacy prepared artifacts may contain literal `'nan'` options.**
+Preparation now rejects null gold options and drops null distractors under an
+explicit tested policy, so new artifacts can never stringify a pandas null
+into the option text `"nan"`. Artifacts prepared under normalization v2
+before this policy remain loadable (digests still verify); loading one
+containing literal `'nan'` option texts emits a loud warning naming the
+affected rows rather than silently accepting or rejecting them. Regenerate
+such artifacts when convenient.
 
 ---
 

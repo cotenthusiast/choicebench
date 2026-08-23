@@ -403,19 +403,33 @@ hand-typed).
 **Candidate causes for that scoring-surface offset, none confirmed, stated
 honestly:**
 
-- **Option-ID token convention.** Reading `HuggingFaceBackend.score_options()`
+- **Option-ID token convention — RESOLVED, hypothesis eliminated**
+  (local tokenizer audit, no GPU required). Reading
+  `HuggingFaceBackend.score_options()`
   (`src/choicebench/backends/hf_backend.py`): it encodes the bare label
-  string (`tokenizer.encode("A", add_special_tokens=False)`), not a
-  space-prefixed form (`" A"`). LLaMA-1's SentencePiece tokenizer has
-  distinct token IDs for a leading-space "▁A" and a bare mid-word "A"; which
-  one `encode("A", ...)` returns depends on SentencePiece's own
-  dummy-prefix handling, not on anything this codebase controls per-call.
-  The prompt template (`prompts/pride_repro/direct_mcq.txt`) ends the string
-  at `Answer:` with no trailing space, so whether the scored token ID
-  matches what the model would actually assign highest probability to as
-  its *next* token is an open question this walkthrough does not resolve;
-  it only confirms, by reading the code, that no explicit space-prefixing
-  is applied.
+  string (`tokenizer.encode("A", add_special_tokens=False)`). This
+  walkthrough previously left open whether SentencePiece's dummy-prefix
+  handling makes that differ from the space-prefixed form a model would
+  naturally produce after `"Answer:"`. The pinned checkpoint's cached
+  `tokenizer.json` answers it directly: the LLaMA-1 fast tokenizer's
+  normalizer applies an **unconditional `Prepend("▁")`**, so:
+
+  | input string | normalized | pieces | token ids |
+  |---|---|---|---|
+  | `"A"`–`"D"` (bare) | `▁A`…`▁D` | one token each | 319 / 350 / 315 / 360 |
+  | `" A"`–`" D"` (space) | `▁▁A`…`▁▁D` | two tokens (`▁▁`, letter) | 259 + 29909/29933/29907/29928 |
+
+  Two consequences. First, the bare label **already encodes to the same
+  space-prefixed piece** that mid-sentence text produces (`"Answer: A"`
+  tokenizes with `▁A` following `Answer:`), so what `score_options()`
+  scores is exactly the natural continuation surface — the
+  bare-vs-space mismatch cannot be contributing to the offset.
+  Second, the originally proposed follow-up experiment of re-scoring with
+  the space-prefixed labels `" A"`–`" D"` is not expressible through this
+  API at all for this tokenizer: those strings encode to two tokens and
+  are rejected by `score_options()`'s single-token constraint.
+  The offset candidates narrow to checkpoint-mirror provenance, fp16
+  numerics (the GPU spot-check below), and paper-side differences.
 - **Prompt whitespace at the `Answer:` position**: the same fact as above,
   from the template side: zero trailing whitespace after the colon.
 - **Checkpoint mirror provenance**: `huggyllama/llama-13b` pinned at
@@ -429,9 +443,10 @@ honestly:**
   8-point accuracy swing.
 
 No single-variable experiment isolates which of these (if any) is
-responsible. The cheapest next step is a ~30-GPU-minute rerun of
-`direct_logprob` alone with the option labels space-prefixed
-(`" A"`–`" D"`) instead of bare, to see whether the offset moves.
+responsible. The option-ID token convention — previously the cheapest to
+test — has been eliminated by the local tokenizer audit above; the
+remaining candidates require either GPU access (the fp16 spot-check below)
+or paper-side information, so no zero-cost decisive experiment remains.
 
 **Other underspecified choices, for completeness**: none of these are
 likely candidates for the 8-point offset above, but they're all places
@@ -466,8 +481,11 @@ in this reproduction, visibly absorbing whatever is producing the mismatch.
   copy the config, point it at another backbone or benchmark from Table 3,
   and rerun `examples/pride_from_artifacts.py` unchanged against the new
   run's artifacts.
-- **The space-prefix follow-up run** proposed above: cheapest single
-  experiment that could move the +8.4 point Default offset.
+- ~~**The space-prefix follow-up run** proposed above~~ **Eliminated by the
+  local tokenizer audit above**: bare labels already encode to the
+  space-prefixed pieces, and the space-prefixed strings cannot be scored at
+  all through `score_options()` for this tokenizer. The offset question now
+  needs either GPU experiments (fp16 spot-check) or paper-side information.
 - **File the loader duplicate-`question_id` warning** as a known issue:
   `prepare_data.py`/benchmark loading should warn (not silently pass through)
   when a prepared benchmark CSV contains duplicate `question_id`s, so this

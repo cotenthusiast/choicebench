@@ -4,6 +4,92 @@ Notable changes to ChoiceBench. Newest first.
 
 ## Unreleased
 
+Remediation pass from a structured adversarial audit of the framework
+(parser semantics, reproducibility plumbing, dataset hygiene, provenance,
+docs-as-spec consistency). Historical impact on previously published numbers
+has not been assessed.
+
+### Fixed
+
+- **Duplicate option texts no longer corrupt `cyclic_permutation` votes.**
+  The permutation constructor now emits an explicit positional bijection
+  (`Rotation.mapping` + `slot_to_canonical`) and the inverse is positional
+  and text-blind; text-scan un-permutation (`_unpermute_choice`) is deleted.
+  Majority-vote and tie-break semantics are unchanged for distinct-text
+  questions.
+- **Parser answer resolution redesigned around selection evidence.** Explicit
+  answer-selection constructions outrank mere option references ("Option C
+  refers to … my pick is B" now resolves to B); the most recent explicit
+  selection governs; compound selections ("Answer: A or B") are ambiguous and
+  unscorable rather than coerced to the first letter; tier-4 option-text
+  matching only accepts structurally answer-like outputs (bare option,
+  quoted/bold/tagged, "Answer: X", copula/appositive heads) instead of any
+  mention; simple well-formed wrappers (`**B**`, `<answer>A</answer>`,
+  curly quotes) are normalized conservatively. No response-length heuristics.
+- **HF sampled decoding is seed-reproducible.** `run.seed` is forwarded into
+  HuggingFace backend defaults and consumed internally via `torch`
+  seeding when (and only when) `do_sample` is set; greedy decoding never
+  touches RNG state, and the seed parameter is never forwarded into
+  `transformers.generate()`. No cross-hardware bitwise-determinism claim is
+  made.
+- **OpenAI Responses-API status is preserved as finish-reason provenance.**
+  Provider truth is kept verbatim (`completed`, `failed`, …) with the single
+  semantic normalization `incomplete` + `max_output_tokens` → `length`;
+  legacy responses without status map to `None`. Provenance-only: scoring and
+  parsing are unchanged.
+- **All four direct-MCQ prompt builders pass `subject` uniformly**
+  (`direct_mcq`, `pride`, `shuffled_baseline`, `two_stage` fallback), so
+  prompt bundles containing `{subject}` (e.g. `pride_repro`) render instead
+  of raising mid-run KeyError after calibration spend. v1 prompts are
+  byte-identical.
+- **MMLU-Pro null options are rejected/dropped at preparation time** under an
+  explicit tested policy: null distractors are dropped with gold-index
+  remapping; a null gold option rejects the item loudly. New preparations can
+  never emit literal `"nan"` option texts. Existing norm-v2 artifacts remain
+  loadable; loading one containing literal `"nan"` options now warns loudly
+  naming the affected rows (`scan_null_option_rows` utility available for
+  artifact scans).
+- **Stale checkpoints are garbage-collected** when a condition is skipped as
+  verified-complete during resume (previously they lingered and could later
+  shadow committed results).
+- **The legacy offline-PriDe example loader isolates the requested run**:
+  filenames must match the run ID as the leading underscore-delimited field
+  plus the filtered method as the next field, instead of substring matching
+  that also ingested sibling runs whose IDs merely contained the requested ID.
+- **Evaluator summary logs render plain floats** instead of numpy scalar
+  reprs (`np.float64(…)`).
+- **Pathological benchmark rows are loud**: ARC duplicate choice labels and
+  TruthfulQA multiple-gold rows keep their documented first-wins resolution
+  but now log a warning at preparation time.
+
+### Documentation
+
+- README metrics table now lists every built-in metric (`recall_rstd` was
+  missing) and methods table lists every registered method
+  (`shuffled_baseline` was missing).
+- Corrected the experiment template's stale vLLM logprob claim (API providers
+  are generate-only; config-driven runs reject logprob methods on `api`)
+  and completed the provider seed-support note (only Together forwards
+  request `seed`; other API providers ignore it; HF consumes `run.seed` for
+  sampled decoding).
+- Documented accepted, audited limitations in README (truncation
+  interpretation, ASCII parser token boundaries, hash-based `question_id`
+  delimiter caveats, absence of in-flight request de-duplication, POSIX
+  `flock`/NFS deployment caveat).
+- Correction to the v0.1.3 entry below: the sdist/wheel packaging regression
+  tests it cites were removed from the tree before release and did not ship;
+  a local build + out-of-tree import smoke test has been restored to make the
+  release story true again.
+
+### Pre-fix evidence protocol
+
+Every behavior fix above is guarded by a regression test that demonstrably
+failed on pre-fix trunk (`tests/remediation/test_prefix_counterexamples.py`,
+strict-xfail flip protocol), plus permanent guards encoding behavior that
+must hold both before and after each fix.
+
+### Earlier: documentation/metadata sanitation
+
 Pre-launch documentation/metadata sanitation pass. No functional/behavior
 changes to the framework itself.
 

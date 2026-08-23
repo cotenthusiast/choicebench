@@ -48,13 +48,17 @@ models:
   #   generation_kwargs:
   #     max_new_tokens: 512
   #     temperature: 0.0
-  #   # Note: seed is not supported by the Anthropic API and is silently ignored.
+  #   # Note: request `seed` is only forwarded by the Together provider.
+  #   # The other API providers (anthropic, openai, gemini, groq, vllm)
+  #   # silently ignore it — sampled decoding on those providers is not
+  #   # seed-reproducible (HuggingFace backends do consume run.seed for
+  #   # sampled decoding).
 
   # vLLM example — start the server first, then run ChoiceBench as usual:
   #   vllm serve meta-llama/Llama-3.1-8B-Instruct --port 8000
   # vLLM requires no additional Python packages; it runs as a separate server.
-  # Unlike other API backends, vLLM supports logprob methods (e.g. pride)
-  # because it exposes per-token log probabilities via its OpenAI-compatible API.
+  # Like every API provider, vLLM is generate-only: logprob methods (pride,
+  # cyclic_logprob, direct_logprob) require backend: huggingface.
   # - model_name_or_path: meta-llama/Llama-3.1-8B-Instruct  # must match the model loaded in your vLLM server
   #   provider: vllm
   #   backend: api
@@ -171,7 +175,8 @@ methods:
   #   requires_logprobs: true
 
   # Logprob cyclic permutation — Zheng et al. Eq. (1) averaging.
-  # Requires a backend that exposes per-token logprobs (vLLM or HuggingFace).
+  # Requires a HuggingFace backend (the only one exposing per-token
+  # option-label logprobs; API providers are generate-only).
   # More principled than cyclic_permutation (majority vote) because it uses the
   # full logprob distribution rather than a single argmax per permutation.
   # - name: cyclic_logprob
