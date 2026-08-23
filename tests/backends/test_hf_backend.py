@@ -170,3 +170,92 @@ def test_generate_passes_add_special_tokens_false_when_bos_disabled():
     backend.generate("prompt")
 
     assert tokenizer.add_special_tokens == False  # noqa: E712
+
+
+# ---------------------------------------------------------------------------
+# F3 regression: run.seed plumbing is sampling-gated, stream-dependent, and
+# never forwarded to transformers.
+# ---------------------------------------------------------------------------
+
+class _RandSeededTorch(_FakeTorch):
+    """Deterministic fake RNG: manual_seed resets a tiny integer stream."""
+
+    def __init__(self):
+        super().__init__()
+        self._state = None
+        self._draws = 0
+
+    def manual_seed(self, seed):
+        super().manual_seed(seed)
+        self._state = seed
+        self._draws = 0
+
+    def rand(self, k):
+        assert self._state is not None, "sampling draw before manual_seed"
+        self._state = (self._state * 31 + 7) % 997
+        self._draws += 1
+        return [self._state % 2]
+
+
+class _BranchingModel:
+    """Picks one of two canned generations from the fake RNG draw."""
+
+    def __init__(self, torch_ref):
+        self._torch = torch_ref
+        self.generate_kwargs = None
+
+    def generate(self, **kwargs):
+        self.generate_kwargs = kwargs
+        # Mirror transformers semantics: greedy decoding does not sample, so
+        # the RNG is never consulted on that path.
+        if not kwargs.get("do_sample"):
+            return [[101, 102, 103, 200]]
+        pick = self._torch.rand(1)[0]
+        return [[101, 102, 103, 200 + pick]]
+
+
+class _IdEchoTokenizer(_FakeTokenizer):
+    def decode(self, generated_ids, skip_special_tokens):
+        return f"branch{generated_ids[-1] - 200}"
+
+
+def _seeded_backend(do_sample):
+    torch = _RandSeededTorch()
+    backend = HuggingFaceBackend(
+        "fake-model", "cpu", max_new_tokens=4,
+        temperature=0.7, do_sample=do_sample, seed=123,
+    )
+    backend._loaded = True
+    backend._tokenizer = _IdEchoTokenizer()
+    backend._model = _BranchingModel(torch)
+    backend._torch = torch
+    return backend, torch
+
+
+def test_sampled_generation_is_seed_stream_dependent():
+    backend_a, _ = _seeded_backend(do_sample=True)
+    backend_b, _ = _seeded_backend(do_sample=True)
+    assert backend_a.generate("p") == backend_b.generate("p")   # same seed, same output
+
+
+def test_different_seeds_can_diverge_the_rng_stream():
+    backend_a, _ = _seeded_backend(do_sample=True)
+    text_123 = backend_a.generate("p")
+    backend_c, _ = _seeded_backend(do_sample=True)
+    backend_c._default_generation_kwargs["seed"] = 124
+    text_124 = backend_c.generate("p")
+    assert {text_123, text_124} == {"branch0", "branch1"}
+    assert text_123 != text_124
+
+
+def test_greedy_generation_never_touches_rng_state():
+    backend, torch = _seeded_backend(do_sample=False)
+    text = backend.generate("p")
+    assert text == "branch0"          # greedy path ignores the branch RNG
+    assert torch.seed is None         # no manual_seed call at all
+
+
+def test_seed_never_reaches_transformers_generate_kwargs():
+    backend, _ = _seeded_backend(do_sample=True)
+    backend.generate("p")
+    assert "seed" not in backend._model.generate_kwargs

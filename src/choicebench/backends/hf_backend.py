@@ -145,9 +145,14 @@ class HuggingFaceBackend(BaseBackend):
         max_new_tokens = merged.get("max_new_tokens", _DEFAULT_MAX_NEW_TOKENS)
         temperature = merged.get("temperature", _DEFAULT_TEMPERATURE)
         do_sample = merged.get("do_sample", _DEFAULT_DO_SAMPLE)
+        # Internal control parameter: consumed here and never forwarded to
+        # transformers (generate_kwargs below is an explicit allowlist).
         seed = merged.get("seed")
 
-        if seed is not None:
+        # Authoritative experiment seed applies ONLY to sampled decoding;
+        # greedy paths must not touch RNG state at all (byte-identical to the
+        # pre-seeding implementation).
+        if do_sample and seed is not None:
             self._torch.manual_seed(seed)
 
         inputs = self._tokenizer(

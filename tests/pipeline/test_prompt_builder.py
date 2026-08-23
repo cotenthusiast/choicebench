@@ -5,9 +5,11 @@ from pathlib import Path
 import pytest
 
 from choicebench.pipeline.prompt_builder import (
+    Rotation,
     build_direct_mcq_prompt,
     build_free_text_prompt,
     build_option_matching_prompt,
+    build_rotations,
     load_prompt_templates,
 )
 
@@ -122,3 +124,53 @@ class TestBuildDirectMcqPromptSubject:
             build_direct_mcq_prompt(
                 self._PRIDE_REPRO_TEMPLATES["direct_mcq"], "Q?", {"A": "one", "B": "two"}
             )
+
+
+class TestBuildRotations:
+    """F1 invariant: displayed option position -> exactly one canonical option
+    position, produced by the same operation that renders the mapping."""
+
+    def test_rotation_count_and_first_is_identity(self):
+        options = {"A": "one", "B": "two", "C": "three", "D": "four"}
+        rots = build_rotations(options)
+        assert len(rots) == 4
+        assert all(isinstance(r, Rotation) for r in rots)
+        assert rots[0].mapping == options
+        assert rots[0].slot_to_canonical == (0, 1, 2, 3)
+
+    def test_slot_to_canonical_follows_shift_formula(self):
+        n = 5
+        options = {chr(65 + i): f"t{i}" for i in range(n)}
+        for i, rot in enumerate(build_rotations(options)):
+            assert rot.slot_to_canonical == tuple((i + j) % n for j in range(n))
+
+    def test_slot_map_is_a_bijection_for_every_rotation(self):
+        import itertools
+
+        for n in (2, 3, 4, 7, 10):
+            options = {chr(65 + i): f"t{i}" for i in range(n)}
+            for rot in build_rotations(options):
+                assert sorted(rot.slot_to_canonical) == list(range(n))
+
+    def test_render_then_inverse_round_trips_every_slot(self):
+        """Rendering slot j's text and inverting through the slot map must
+        recover canonical slot slot_to_canonical[j] — with NO reference to
+        option text values (the inverse is positional)."""
+        options = {"A": "dup", "B": "dup", "C": "solo", "D": "other"}
+        letters = list(options)
+        for rot in build_rotations(options):
+            for j, letter in enumerate(letters):
+                # Positional inverse of displayed slot j:
+                recovered = letters[rot.slot_to_canonical[j]]
+                # The rendered text at slot j is exactly the canonical text
+                # of the recovered slot (holds even for duplicate texts).
+                assert rot.mapping[letter] == options[recovered]
+
+    def test_duplicate_texts_do_not_alias_slots(self):
+        """The motivating F1 case: two slots share identical text; their slot
+        maps must still point at distinct canonical positions."""
+        options = {"A": "x", "B": "dup", "C": "dup", "D": "y"}
+        rots = build_rotations(options)
+        identity = rots[0]
+        assert identity.slot_to_canonical[1] == 1
+        assert identity.slot_to_canonical[2] == 2

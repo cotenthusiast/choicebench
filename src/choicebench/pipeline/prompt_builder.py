@@ -1,5 +1,6 @@
 # src/choicebench/pipeline/prompt_builder.py
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -133,24 +134,40 @@ def build_option_matching_prompt(
     )
 
 
-def generate_permutations(options: dict[str, str]) -> list[dict[str, str]]:
-    """Generate cyclic permutations of the canonical option ordering.
+@dataclass(frozen=True)
+class Rotation:
+    """One cyclic rotation plus its explicit positional bijection.
 
-    Each permutation maps canonical letters (A, B, C, D) to cyclically
-    shifted answer texts. The number of permutations equals the number
-    of options.
+    ``mapping`` renders display letter -> option text (what the model sees).
+    ``slot_to_canonical[j]`` is the canonical index displayed at display
+    position ``j`` under this rotation — the single source of the inverse
+    mapping. Invariant: displayed option position -> exactly one canonical
+    option position, independent of option text; the inverse of a parsed
+    display letter is ``canonical_letters[slot_to_canonical[display_index]]``.
+    """
 
-    Args:
-        options: Canonical letter-to-text mapping.
+    mapping: dict[str, str]
+    slot_to_canonical: tuple[int, ...]
 
-    Returns:
-        List of permuted option mappings.
+
+def build_rotations(options: dict[str, str]) -> list[Rotation]:
+    """Generate every cyclic rotation of the canonical ordering.
+
+    Each rotation carries both the rendered letter->text mapping and its
+    positional bijection back to canonical slots, produced by the same
+    operation so rendering and inverse logic can never drift apart (F1 fix:
+    the inverse is positional and never consults option text). The number of
+    rotations equals the number of options.
     """
     keys = list(options.keys())
     values = list(options.values())
+    n = len(keys)
     return [
-        dict(zip(keys, values[i:] + values[:i]))
-        for i in range(len(options))
+        Rotation(
+            mapping=dict(zip(keys, values[i:] + values[:i])),
+            slot_to_canonical=tuple((i + j) % n for j in range(n)),
+        )
+        for i in range(n)
     ]
 
 

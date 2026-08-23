@@ -197,6 +197,9 @@ def build_backend(
             "max_new_tokens": model_config.generation_kwargs.max_new_tokens,
             "temperature": model_config.generation_kwargs.temperature,
             "do_sample": model_config.generation_kwargs.do_sample,
+            # Authoritative experiment seed (F3): consumed by the backend's
+            # sampling path only; greedy decoding never touches RNG state.
+            "seed": run_seed,
         }
         if model_config.revision is not None:
             hf_kwargs["revision"] = model_config.revision
@@ -532,6 +535,23 @@ def _check_existing_result(
         result_artifact_path(existing_result).unlink(missing_ok=True)
         return False
     else:
+        # P5-1 hygiene: a verified completed result means any persisted
+        # checkpoint for this condition is stale (the normal completion
+        # path deletes its own checkpoint); leaving it behind would make a
+        # later corrupt-result resume discard good committed results in
+        # favor of outdated checkpoint state.
+        checkpoint_path = output_dir / condition["checkpoint_path"]
+        if checkpoint_path.exists():
+            try:
+                checkpoint_path.unlink(missing_ok=True)
+                logger.info(
+                    "Removed stale checkpoint for completed condition %s",
+                    condition["condition_id"],
+                )
+            except OSError as exc:
+                logger.warning(
+                    "Failed to delete stale checkpoint %s: %s", checkpoint_path, exc
+                )
         logger.info("Verified completed result; skipping condition %s", condition["condition_id"])
         return True
 

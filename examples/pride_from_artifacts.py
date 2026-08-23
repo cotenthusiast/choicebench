@@ -137,10 +137,26 @@ def _read_all_run_results(
     for csv_path in sorted(input_dir.glob("*.csv")):
         filename = csv_path.stem
 
-        if run_id and run_id not in filename:
-            continue
-        if method_name and method_name not in filename:
-            continue
+        # P9-1: filenames are "{run_id}_{method}_{model}_{benchmark}.csv".
+        # A bare substring match ingests sibling runs whose IDs merely
+        # CONTAIN the requested ID (e.g. "<id>_dedup"), silently mixing two
+        # runs' rows. Require run_id as a prefix and, when a method filter
+        # is given, require it to be the very next underscore-delimited
+        # field — that boundary is what distinguishes a sibling whose own
+        # run_id extends the requested one. (With no method filter the
+        # residual ambiguity between a run and its extensions is inherent
+        # to the legacy flat-filename scheme; prefer passing method_name.)
+        if run_id:
+            if not filename.startswith(str(run_id) + "_"):
+                continue
+            rest = filename[len(run_id) + 1:]
+            if method_name and not (
+                rest == method_name or rest.startswith(method_name + "_")
+            ):
+                continue
+        else:
+            if method_name and method_name not in filename:
+                continue
         if model_name and model_name not in filename:
             continue
 

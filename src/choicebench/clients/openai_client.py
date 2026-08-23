@@ -18,6 +18,27 @@ from choicebench.clients.types import (
 )
 
 
+def _openai_finish_reason(response) -> str | None:
+    """Provenance-only mapping of Responses-API lifecycle to finish_reason.
+
+    Preserves exact provider truth; the single normalized case is
+    max-output-token exhaustion -> 'length' (semantically identical to the
+    Chat Completions 'length' used by the other clients).
+    """
+    status = getattr(response, "status", None)
+    if status is None:
+        return None
+    if status == "incomplete":
+        details = getattr(response, "incomplete_details", None)
+        reason = getattr(details, "reason", None)
+        if reason == "max_output_tokens":
+            return "length"
+        if reason:
+            return str(reason)
+        return "incomplete"
+    return str(status)
+
+
 class OpenAIClient(BaseClient):
     """Async client for the OpenAI API."""
 
@@ -65,11 +86,13 @@ class OpenAIClient(BaseClient):
             raise ProviderCallError(message) from exc
 
     @staticmethod
-    def _extract_response(response) -> tuple[str, UsageInfo | None]:
-        """Parse an OpenAI Responses API response into (raw_text, usage)."""
+    def _extract_response(response) -> tuple[str, str | None, UsageInfo | None]:
+        """Parse an OpenAI Responses API response into (raw_text, finish_reason, usage)."""
         raw_text = getattr(response, "output_text", None)
         if raw_text is None or raw_text.strip() == "":
             raise ProviderResponseError("client response is empty")
+
+        finish_reason = _openai_finish_reason(response)
 
         usage = None
         usage_raw = getattr(response, "usage", None)
@@ -88,7 +111,7 @@ class OpenAIClient(BaseClient):
                 ),
             )
 
-        return raw_text, usage
+        return raw_text, finish_reason, usage
 
     async def _generate_provider_response(
         self,
@@ -104,7 +127,7 @@ class OpenAIClient(BaseClient):
             create_kwargs["max_output_tokens"] = request.max_tokens
 
         response = await self._call_openai(create_kwargs)
-        raw_text, usage = self._extract_response(response)
+        raw_text, finish_reason, usage = self._extract_response(response)
 
         return ModelResponse(
             provider=request.provider,
@@ -112,7 +135,7 @@ class OpenAIClient(BaseClient):
             status=SUCCESS_STATUS,
             latency_seconds=0.0,
             raw_text=raw_text,
-            finish_reason=None,
+            finish_reason=finish_reason,
             usage=usage,
             error=None,
             timestamp_utc=None,

@@ -32,7 +32,7 @@ from choicebench.parsing.types import PARSE_OK, ParseResult
 from choicebench.pipeline.prompt_builder import (
     build_direct_mcq_prompt,
     build_permuted_prompt,
-    generate_permutations,
+    build_rotations,
 )
 from choicebench.methods.base import ExperimentRunner
 from choicebench.methods.library.pride_math import (
@@ -362,10 +362,10 @@ class PriDeRunner(ExperimentRunner):
         """
         canon = self._build_options(question_row)
         letters = list(canon.keys())
-        permutations = generate_permutations(canon)
+        rotations = build_rotations(canon)
         prompts = [
-            build_permuted_prompt(question_row, perm, self._prompts["direct_mcq"])
-            for perm in permutations
+            build_permuted_prompt(question_row, rot.mapping, self._prompts["direct_mcq"])
+            for rot in rotations
         ]
 
         uni = np.ones(len(letters), dtype=np.float64) / len(letters)
@@ -502,6 +502,7 @@ class PriDeRunner(ExperimentRunner):
             template=self._prompts["direct_mcq"],
             question=question_row["question_text"],
             options=self._build_options(question_row),
+            subject=question_row["subject"],
         )
 
     def _require_modal_k_options(self, question_row: Any) -> None:

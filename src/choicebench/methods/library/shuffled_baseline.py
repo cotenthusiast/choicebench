@@ -49,6 +49,7 @@ class ShuffledBaselineRunner(ExperimentRunner):
             template=self._prompts["direct_mcq"],
             question=question_row["question_text"],
             options=shuffled_options,
+            subject=question_row["subject"],
         )
         model_response = self._call_backend_generate(prompt)
 

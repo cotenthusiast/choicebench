@@ -21,8 +21,9 @@ from typing import Any, Sequence
 
 from choicebench.parsing.types import ParseResult, PARSE_OK, PARSE_MISSING
 from choicebench.pipeline.prompt_builder import (
+    Rotation,
     build_permuted_prompt,
-    generate_permutations,
+    build_rotations,
 )
 from choicebench.methods.base import ExperimentRunner
 
@@ -47,30 +48,32 @@ class PermutationRunner(ExperimentRunner):
             parse, and score fields.
         """
         canonical_options = self._build_options(question_row)
-        permutations = self._generate_permutations(canonical_options)
+        canonical_letters = list(canonical_options.keys())
+        rotations = self._generate_rotations(canonical_options)
 
-        # Build prompts for each permutation
+        # Build prompts for each rotation
         prompts = [
-            self._build_permuted_prompt(question_row, perm, self._prompts["direct_mcq"])
-            for perm in permutations
+            self._build_permuted_prompt(question_row, rot.mapping, self._prompts["direct_mcq"])
+            for rot in rotations
         ]
 
-        # One backend call per permutation (sequential — backend calls are
+        # One backend call per rotation (sequential — backend calls are
         # compute-bound local forward passes or already-blocking API calls).
         responses = [
             self._call_backend_generate(prompt)
             for prompt in prompts
         ]
 
-        # Parse each response and un-permute back to canonical ordering
+        # Parse each response and map back via the rotation's positional
+        # bijection (text-independent — F1 fix).
         canonical_choices: list[str | None] = []
-        for response, permutation in zip(responses, permutations):
+        for response, rotation in zip(responses, rotations):
             if response.is_success():
-                parsed = self._parse(response.raw_text, permutation)
+                parsed = self._parse(response.raw_text, rotation.mapping)
                 if parsed.final_choice is not None:
                     canonical_choices.append(
-                        self._unpermute_choice(
-                            parsed.final_choice, permutation, canonical_options
+                        self._canonical_letter(
+                            parsed.final_choice, rotation, canonical_letters
                         )
                     )
                 else:
@@ -120,18 +123,18 @@ class PermutationRunner(ExperimentRunner):
         """
         rows = question_rows.to_dict(orient="records")
         canonical_options_per_q = [self._build_options(row) for row in rows]
-        permutations_per_q = [
-            self._generate_permutations(opts) for opts in canonical_options_per_q
+        rotations_per_q = [
+            self._generate_rotations(opts) for opts in canonical_options_per_q
         ]
 
-        # Flatten: build one prompt per (question, permutation) pair.
+        # Flatten: build one prompt per (question, rotation) pair.
         all_prompts: list[str] = []
-        # prompt_map[i] = (question_index, permutation_index)
+        # prompt_map[i] = (question_index, rotation_index)
         prompt_map: list[tuple[int, int]] = []
-        for q_idx, (row, perms) in enumerate(zip(rows, permutations_per_q)):
-            for p_idx, perm in enumerate(perms):
+        for q_idx, (row, rots) in enumerate(zip(rows, rotations_per_q)):
+            for p_idx, rot in enumerate(rots):
                 all_prompts.append(
-                    self._build_permuted_prompt(row, perm, self._prompts["direct_mcq"])
+                    self._build_permuted_prompt(row, rot.mapping, self._prompts["direct_mcq"])
                 )
                 prompt_map.append((q_idx, p_idx))
 
@@ -139,21 +142,22 @@ class PermutationRunner(ExperimentRunner):
 
         # Group responses back per question and run majority vote.
         results = []
-        for q_idx, (row, perms) in enumerate(zip(rows, permutations_per_q)):
+        for q_idx, (row, rots) in enumerate(zip(rows, rotations_per_q)):
             canonical_options = canonical_options_per_q[q_idx]
+            canonical_letters = list(canonical_options.keys())
             q_flat_indices = [i for i, (qi, _) in enumerate(prompt_map) if qi == q_idx]
 
             canonical_choices: list[str | None] = []
             for flat_i in q_flat_indices:
                 p_idx = prompt_map[flat_i][1]
                 response = all_responses[flat_i]
-                perm = perms[p_idx]
+                rot = rots[p_idx]
                 if response.is_success():
-                    parsed = self._parse(response.raw_text, perm)
+                    parsed = self._parse(response.raw_text, rot.mapping)
                     if parsed.final_choice is not None:
                         canonical_choices.append(
-                            self._unpermute_choice(
-                                parsed.final_choice, perm, canonical_options
+                            self._canonical_letter(
+                                parsed.final_choice, rot, canonical_letters
                             )
                         )
                     else:
@@ -187,15 +191,15 @@ class PermutationRunner(ExperimentRunner):
         return results
 
     @staticmethod
-    def _generate_permutations(
+    def _generate_rotations(
             options: dict[str, str],
-    ) -> list[dict[str, str]]:
-        """Thin delegate to pipeline.prompt_builder.generate_permutations().
+    ) -> list[Rotation]:
+        """Thin delegate to pipeline.prompt_builder.build_rotations().
 
-        Kept as a staticmethod here since CyclicLogprobRunner and PriDeRunner
-        call it as PermutationRunner._generate_permutations(...).
+        Each Rotation carries the rendered mapping plus its positional
+        bijection, produced by the same operation (F1 fix).
         """
-        return generate_permutations(options)
+        return build_rotations(options)
 
     @staticmethod
     def _build_permuted_prompt(
@@ -207,27 +211,18 @@ class PermutationRunner(ExperimentRunner):
         return build_permuted_prompt(question_row, permuted_options, template)
 
     @staticmethod
-    def _unpermute_choice(
+    def _canonical_letter(
             parsed_letter: str,
-            permuted_options: dict[str, str],
-            canonical_options: dict[str, str],
-    ) -> str | None:
-        """Map a parsed letter from permuted ordering back to canonical.
+            rotation: Rotation,
+            canonical_letters: list[str],
+    ) -> str:
+        """Positional inverse: display slot -> its single canonical position.
 
-        Args:
-            parsed_letter: Letter the model selected (in permuted space).
-            permuted_options: The permuted mapping used for that call.
-            canonical_options: The original canonical mapping.
-
-        Returns:
-            Canonical letter corresponding to the selected answer text,
-            or None if no match is found.
+        Text-independent by construction (F1 fix): duplicate option texts can
+        no longer redirect a parsed answer to an earlier twin.
         """
-        selected_text = permuted_options[parsed_letter]
-        for key, value in canonical_options.items():
-            if value == selected_text:
-                return key
-        return None
+        display_index = canonical_letters.index(parsed_letter)
+        return canonical_letters[rotation.slot_to_canonical[display_index]]
 
     @staticmethod
     def _majority_vote(

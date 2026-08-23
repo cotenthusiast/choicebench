@@ -34,8 +34,8 @@
     {
       "name": "conflicting_letters",
       "raw_text": "A or C",
-      "expected_status": "parse_ok",
-      "expected_choice": "C"
+      "expected_status": "parse_ambiguous",
+      "expected_choice": null
     },
     {
       "name": "option_text_instead_of_letter",

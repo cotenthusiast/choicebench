@@ -1,7 +1,11 @@
 # src/choicebench/benchmarks/truthful_qa.py
 
+import logging
+
 from choicebench.benchmarks.base import make_normalized_row
 from choicebench.benchmarks.registry import benchmark
+
+logger = logging.getLogger(__name__)
 
 _SUBJECT = "truthful_qa"
 
@@ -43,6 +47,17 @@ def normalize_row(row: dict[str, object]) -> dict[str, object]:
     mc1 = row["mc1_targets"]
     choices = [str(c) for c in mc1["choices"]]
     labels = list(mc1["labels"])
+
+    # P3-F5: the spec allows exactly one gold label; a pathological source
+    # row with several would resolve first-wins. Keep that resolution but
+    # make it loud.
+    gold_count = sum(1 for lbl in labels if int(lbl) == 1)
+    if gold_count != 1:
+        logger.warning(
+            "TruthfulQA mc1 row has %d gold (label==1) choices (spec: exactly "
+            "one); correct_index resolves to the first occurrence.",
+            gold_count,
+        )
 
     correct_index = next(i for i, lbl in enumerate(labels) if int(lbl) == 1)
 

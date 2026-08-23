@@ -19,71 +19,79 @@ from choicebench.scoring.types import SCORE_CORRECT
 from tests.runners.conftest import MockBackend
 
 
-class TestGeneratePermutations:
-    """Tests for PermutationRunner._generate_permutations."""
+class TestGenerateRotations:
+    """Tests for PermutationRunner._generate_rotations (Rotation objects)."""
 
-    def test_returns_four_permutations(self, canonical_options):
-        """Should produce exactly 4 cyclic permutations for 4 options."""
-        perms = PermutationRunner._generate_permutations(canonical_options)
-        assert len(perms) == 4
+    def test_returns_four_rotations(self, canonical_options):
+        """Should produce exactly 4 cyclic rotations for 4 options."""
+        rots = PermutationRunner._generate_rotations(canonical_options)
+        assert len(rots) == 4
 
-    def test_first_permutation_is_original(self, canonical_options):
-        """First permutation should be identical to the canonical ordering."""
-        perms = PermutationRunner._generate_permutations(canonical_options)
-        assert perms[0] == canonical_options
+    def test_first_rotation_is_original(self, canonical_options):
+        """First rotation's mapping should be identical to the canonical ordering."""
+        rots = PermutationRunner._generate_rotations(canonical_options)
+        assert rots[0].mapping == canonical_options
+        assert rots[0].slot_to_canonical == (0, 1, 2, 3)
 
     def test_keys_preserved(self, canonical_options):
-        """All permutations should have the same keys A, B, C, D."""
-        perms = PermutationRunner._generate_permutations(canonical_options)
-        for perm in perms:
-            assert list(perm.keys()) == ["A", "B", "C", "D"]
+        """All rotations should have the same keys A, B, C, D."""
+        rots = PermutationRunner._generate_rotations(canonical_options)
+        for rot in rots:
+            assert list(rot.mapping.keys()) == ["A", "B", "C", "D"]
 
     def test_values_rotated(self, canonical_options):
-        """Each permutation should contain the same set of values."""
-        perms = PermutationRunner._generate_permutations(canonical_options)
+        """Each rotation should contain the same set of values."""
+        rots = PermutationRunner._generate_rotations(canonical_options)
         original_values = set(canonical_options.values())
-        for perm in perms:
-            assert set(perm.values()) == original_values
+        for rot in rots:
+            assert set(rot.mapping.values()) == original_values
 
-    def test_all_permutations_distinct(self, canonical_options):
-        """All 4 permutations should be different from each other."""
-        perms = PermutationRunner._generate_permutations(canonical_options)
-        perm_tuples = [tuple(p.values()) for p in perms]
+    def test_all_rotations_distinct(self, canonical_options):
+        """All 4 rotations should be different from each other."""
+        rots = PermutationRunner._generate_rotations(canonical_options)
+        perm_tuples = [tuple(r.mapping.values()) for r in rots]
         assert len(set(perm_tuples)) == 4
 
-    def test_second_permutation_shifted_by_one(self, canonical_options):
-        """Second permutation should shift values by one position."""
-        perms = PermutationRunner._generate_permutations(canonical_options)
-        assert perms[1]["A"] == canonical_options["B"]
-        assert perms[1]["B"] == canonical_options["C"]
-        assert perms[1]["C"] == canonical_options["D"]
-        assert perms[1]["D"] == canonical_options["A"]
+    def test_second_rotation_shifted_by_one(self, canonical_options):
+        """Second rotation should shift values by one position."""
+        rots = PermutationRunner._generate_rotations(canonical_options)
+        assert rots[1].mapping["A"] == canonical_options["B"]
+        assert rots[1].mapping["B"] == canonical_options["C"]
+        assert rots[1].mapping["C"] == canonical_options["D"]
+        assert rots[1].mapping["D"] == canonical_options["A"]
 
-    def test_returns_three_permutations_for_three_options(self):
+    def test_slot_to_canonical_matches_shift_formula(self, canonical_options):
+        """F1 invariant: slot j of rotation i displays canonical index (i+j) % n."""
+        n = len(canonical_options)
+        rots = PermutationRunner._generate_rotations(canonical_options)
+        for i, rot in enumerate(rots):
+            assert rot.slot_to_canonical == tuple((i + j) % n for j in range(n))
+
+    def test_returns_three_rotations_for_three_options(self):
         canonical = {"A": "FTP", "B": "HTTP", "C": "HTTPS"}
 
-        perms = PermutationRunner._generate_permutations(canonical)
+        rots = PermutationRunner._generate_rotations(canonical)
 
-        assert len(perms) == 3
-        assert list(perms[0]) == ["A", "B", "C"]
-        assert perms[1] == {"A": "HTTP", "B": "HTTPS", "C": "FTP"}
+        assert len(rots) == 3
+        assert list(rots[0].mapping) == ["A", "B", "C"]
+        assert rots[1].mapping == {"A": "HTTP", "B": "HTTPS", "C": "FTP"}
 
     @pytest.mark.parametrize("n", [2, 5, 6, 10])
     def test_rotation_count_equals_choice_count_not_fixed_or_factorial(self, n):
         options = {label: f"text_{i}" for i, label in enumerate(letters_for(n))}
-        perms = PermutationRunner._generate_permutations(options)
+        rots = PermutationRunner._generate_rotations(options)
 
         # Exactly n rotations — not a hardcoded 4 ...
-        assert len(perms) == n
+        assert len(rots) == n
         # ... and not the full factorial n! set of orderings.
         if n > 2:
-            assert len(perms) < math.factorial(n)
+            assert len(rots) < math.factorial(n)
         # Every rotation is a distinct cyclic shift of the option texts.
         values = list(options.values())
-        assert [list(p.values()) for p in perms] == [
+        assert [list(r.mapping.values()) for r in rots] == [
             values[i:] + values[:i] for i in range(n)
         ]
-        assert len({tuple(p.values()) for p in perms}) == n
+        assert len({tuple(r.mapping.values()) for r in rots}) == n
 
 
 class TestBuildPermutedPrompt:
@@ -91,7 +99,7 @@ class TestBuildPermutedPrompt:
 
     def test_prompt_contains_permuted_options(self, runner_question_row, canonical_options):
         """Prompt should include the permuted option texts."""
-        perms = PermutationRunner._generate_permutations(canonical_options)
+        perms = [r.mapping for r in PermutationRunner._generate_rotations(canonical_options)]
         prompt = PermutationRunner._build_permuted_prompt(
             runner_question_row, perms[1], _TEMPLATES["direct_mcq"]
         )
@@ -120,36 +128,50 @@ class TestBuildPermutedPrompt:
         assert "D." not in prompt
 
 
-class TestUnpermuteChoice:
-    """Tests for PermutationRunner._unpermute_choice."""
+class TestCanonicalLetter:
+    """Tests for PermutationRunner._canonical_letter (positional, text-blind inverse)."""
 
-    def test_identity_permutation(self, canonical_options):
-        """Unpermuting from canonical ordering should return the same letter."""
-        result = PermutationRunner._unpermute_choice("C", canonical_options, canonical_options)
-        assert result == "C"
+    def test_identity_rotation(self, canonical_options):
+        """Under the identity rotation a parsed letter maps to itself."""
+        rot = PermutationRunner._generate_rotations(canonical_options)[0]
+        letters = list(canonical_options)
+        assert PermutationRunner._canonical_letter("C", rot, letters) == "C"
 
-    def test_shifted_permutation(self, canonical_options):
-        """Unpermuting from a shifted ordering should map back correctly."""
-        perms = PermutationRunner._generate_permutations(canonical_options)
-        # In permutation 1: A->HTTP, B->HTTPS, C->SMTP, D->FTP
+    def test_shifted_rotation(self, canonical_options):
+        """A letter parsed under rotation 1 maps back through the slot map."""
+        rots = PermutationRunner._generate_rotations(canonical_options)
+        letters = list(canonical_options)
+        # In rotation 1: A->HTTP, B->HTTPS, C->SMTP, D->FTP
         # If model picks B (HTTPS), canonical HTTPS is C
-        result = PermutationRunner._unpermute_choice("B", perms[1], canonical_options)
+        result = PermutationRunner._canonical_letter("B", rots[1], letters)
         assert result == "C"
 
-    def test_all_letters_unpermute_correctly(self, canonical_options):
-        """Every letter in every permutation should map back to a valid canonical letter."""
-        perms = PermutationRunner._generate_permutations(canonical_options)
-        for perm in perms:
-            for letter in ["A", "B", "C", "D"]:
-                result = PermutationRunner._unpermute_choice(letter, perm, canonical_options)
-                assert result in {"A", "B", "C", "D"}
+    def test_all_letters_map_correctly_in_every_rotation(self, canonical_options):
+        """Every letter in every rotation maps to the canonical letter whose
+        text it displayed — via position, never via text lookup."""
+        rots = PermutationRunner._generate_rotations(canonical_options)
+        letters = list(canonical_options)
+        for i, rot in enumerate(rots):
+            for j, letter in enumerate(letters):
+                expected = letters[rot.slot_to_canonical[j]]
+                result = PermutationRunner._canonical_letter(letter, rot, letters)
+                assert result == expected
+                assert canonical_options[result] == rot.mapping[letter]
 
-    def test_no_match_returns_none(self):
-        """If the selected text doesn't exist in canonical options, return None."""
-        permuted = {"A": "FTP", "B": "HTTP", "C": "NONEXISTENT", "D": "SMTP"}
-        canonical = {"A": "FTP", "B": "HTTP", "C": "HTTPS", "D": "SMTP"}
-        result = PermutationRunner._unpermute_choice("C", permuted, canonical)
-        assert result is None
+    def test_duplicate_option_text_resolves_positionally(self):
+        """F1 regression: with duplicated option texts the parsed display slot
+        maps to ITS OWN canonical position — an earlier textual twin can no
+        longer capture the vote."""
+        canonical = {"A": "x", "B": "dup", "C": "dup", "D": "y"}
+        letters = list(canonical)
+        rotations = PermutationRunner._generate_rotations(canonical)
+        # Identity rotation: picking C (gold) must return C, not its twin B.
+        assert PermutationRunner._canonical_letter("C", rotations[0], letters) == "C"
+        assert PermutationRunner._canonical_letter("B", rotations[0], letters) == "B"
+        # Rotation 1 (values shifted by one): slot displaying "dup" still
+        # resolves to that slot's own canonical source.
+        assert PermutationRunner._canonical_letter(
+            "A", rotations[1], letters) == letters[rotations[1].slot_to_canonical[0]]
 
 
 class TestMajorityVote:
@@ -217,7 +239,7 @@ class TestPermutationRunnerRunOne:
         # Correct answer is C (HTTPS). For each permutation, figure out
         # which letter maps to HTTPS and return that letter.
         canonical = {"A": "FTP", "B": "HTTP", "C": "HTTPS", "D": "SMTP"}
-        perms = PermutationRunner._generate_permutations(canonical)
+        perms = [r.mapping for r in PermutationRunner._generate_rotations(canonical)]
 
         responses = []
         for perm in perms:
@@ -246,7 +268,7 @@ class TestPermutationRunnerRunOne:
     def test_majority_correct(self, runner_question_row):
         """Three correct, one wrong — majority vote should give correct answer."""
         canonical = {"A": "FTP", "B": "HTTP", "C": "HTTPS", "D": "SMTP"}
-        perms = PermutationRunner._generate_permutations(canonical)
+        perms = [r.mapping for r in PermutationRunner._generate_rotations(canonical)]
 
         responses = []
         for i, perm in enumerate(perms):
@@ -313,7 +335,7 @@ class TestPermutationRunnerRunOne:
     ):
         row = runner_question_row_missing_trailing_option
         canonical = {"A": "FTP", "B": "HTTP", "C": "HTTPS"}
-        perms = PermutationRunner._generate_permutations(canonical)
+        perms = [r.mapping for r in PermutationRunner._generate_rotations(canonical)]
         # Respond with whichever letter holds "HTTPS" in each rotation, so all
         # three permutations unanimously vote for canonical C — this exercises
         # the "exactly 3 calls for a 3-option question" behavior without
@@ -389,7 +411,7 @@ class TestPermutationRunnerRunOne:
         still produces a valid answer, the row must not be answer_status=failure
         while carrying a valid scored parsed_choice."""
         canonical = {"A": "FTP", "B": "HTTP", "C": "HTTPS", "D": "SMTP"}
-        perms = PermutationRunner._generate_permutations(canonical)
+        perms = [r.mapping for r in PermutationRunner._generate_rotations(canonical)]
         responses = []
         for i, perm in enumerate(perms):
             if i == 0:

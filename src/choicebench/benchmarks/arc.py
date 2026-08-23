@@ -1,7 +1,11 @@
 # src/choicebench/benchmarks/arc.py
 
+import logging
+
 from choicebench.benchmarks.base import make_normalized_row
 from choicebench.benchmarks.registry import benchmark
+
+logger = logging.getLogger(__name__)
 
 _ARC_SUBJECT = "arc_challenge"
 _NUM_TO_LETTER = {"1": "A", "2": "B", "3": "C", "4": "D", "5": "E"}
@@ -43,6 +47,15 @@ def normalize_row(row: dict[str, object]) -> dict[str, object]:
 
     answer_key = str(row["answerKey"]).strip().upper()
     answer_key = _NUM_TO_LETTER.get(answer_key, answer_key)
+
+    # P3-F4: pathological sources can repeat a label; .index() then resolves
+    # the gold first-wins. Keep that resolution but make it loud.
+    if len(set(norm_labels)) != len(norm_labels):
+        logger.warning(
+            "ARC row %s has duplicate choice labels %s; gold '%s' resolves to "
+            "the first occurrence.",
+            row.get("id", "<unknown>"), norm_labels, answer_key,
+        )
 
     correct_index = norm_labels.index(answer_key)
 

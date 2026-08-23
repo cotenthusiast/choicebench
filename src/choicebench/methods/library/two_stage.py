@@ -109,6 +109,7 @@ class TwoStageRunner(ExperimentRunner):
                 template=self._prompts["direct_mcq"],
                 question=question_row["question_text"],
                 options=self._build_options(question_row),
+                subject=question_row["subject"],
             )
             fallback_response = self._call_backend_generate(fallback_prompt)
             if fallback_response.is_success():
@@ -205,6 +206,7 @@ class TwoStageRunner(ExperimentRunner):
                         template=self._prompts["direct_mcq"],
                         question=row["question_text"],
                         options=self._build_options(row),
+                        subject=row["subject"],
                     )
             else:
                 parsed_by_idx[i] = None

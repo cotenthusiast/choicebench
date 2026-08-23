@@ -383,10 +383,16 @@ def main() -> None:
     # --- Print summary ---
     logger.info("── Eval complete ────────────────────────────────")
     for condition_id, item in report["conditions"].items():
+        # D5: metric values may be numpy scalars whose reprs render as
+        # "np.float64(...)" noise in the summary line; cast to plain floats.
+        metrics_display = {
+            key: float(value) if isinstance(value, float) else value
+            for key, value in item["metrics"].items()
+        }
         logger.info(
             "  [%s | %s | %s | %s]  %s%s",
             condition_id, item["method_name"], item["model_name"], item["benchmark_name"],
-            item["metrics"], "" if item["status"] == "completed" else f"  (status: {item['status']})",
+            metrics_display, "" if item["status"] == "completed" else f"  (status: {item['status']})",
         )
     if report["run_status"] != "complete":
         counts = report["condition_counts"]

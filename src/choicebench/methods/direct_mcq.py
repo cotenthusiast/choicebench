@@ -68,6 +68,7 @@ class DirectMCQRunner(ExperimentRunner):
             template=self._prompts["direct_mcq"],
             question=question_row["question_text"],
             options=self._build_options(question_row),
+            subject=question_row["subject"],
         )
 
     def _build_batch_prompt(self, question_row: Any) -> str:

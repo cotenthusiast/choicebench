@@ -243,11 +243,15 @@ def test_huggingface_backend_receives_generation_kwargs(monkeypatch):
         run_seed=1,
     )
 
+    # F3 (ratified): run.seed is the authoritative HF sampling seed and is
+    # forwarded into the backend's default generation kwargs; the backend
+    # consumes it internally (never forwards it to transformers).
     assert backend.generation_kwargs == {
         "add_bos_token": True,
         "max_new_tokens": 17,
         "temperature": 0.25,
         "do_sample": True,
+        "seed": 1,
     }
 
 

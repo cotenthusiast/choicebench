@@ -85,7 +85,7 @@ class TestCyclicLogprobRunnerRunOne:
         """When the correct option (C=HTTPS) has the highest logprob, is_correct=True."""
         # correct_option is "C". Give C the highest logprob in every permutation.
         canon = {"A": "FTP", "B": "HTTP", "C": "HTTPS", "D": "SMTP"}
-        perms = PermutationRunner._generate_permutations(canon)
+        perms = [r.mapping for r in PermutationRunner._generate_rotations(canon)]
 
         score_responses = []
         for perm in perms:

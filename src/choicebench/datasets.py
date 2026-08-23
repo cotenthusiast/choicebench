@@ -6,6 +6,7 @@ import json
 import hashlib
 import re
 import unicodedata
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -220,6 +221,47 @@ def validate_normalized_dataset(df: pd.DataFrame, *, source: str = "prepared dat
     has_choices = "choices_json" in df.columns or any(re.fullmatch(r"choice_[a-z]", str(c)) for c in df.columns)
     if not has_choices:
         raise DatasetArtifactError(f"{source} has no choices_json or choice_a-style option columns.")
+    # F5 (ratified): literal 'nan' option texts are a legacy-artifact defect
+    # (pandas null stringification at preparation time). Existing norm-v2
+    # artifacts must stay loadable, so this is a loud warning rather than a
+    # rejection; new preparations reject nulls upstream instead.
+    suspect = scan_null_option_rows(df)
+    if suspect:
+        warnings.warn(
+            f"{source} contains {len(suspect)} row(s) with a literal 'nan' option text; "
+            "this artifact was prepared before the null-option policy and should be "
+            f"regenerated (first affected question_ids: {[r['question_id'] for r in suspect[:3]]}).",
+            stacklevel=2,
+        )
+
+
+def scan_null_option_rows(df: pd.DataFrame) -> list[dict[str, Any]]:
+    """Report rows whose persisted option texts are the pandas NA token 'nan'.
+
+    Returns one entry per affected row: {"question_id", "kind"} where kind is
+    "gold" when the correct answer text itself is 'nan', else "distractor".
+    Rows with multiple 'nan' options appear once with the more severe kind.
+    """
+    findings: list[dict[str, Any]] = []
+    if "choices_json" not in df.columns:
+        return findings
+    for _, row in df.iterrows():
+        try:
+            records = json.loads(row["choices_json"])
+        except (TypeError, ValueError):
+            continue
+        texts = [str(rec.get("text", "")) for rec in records]
+        nan_hits = [t for t in texts if re.fullmatch(r"nan", t.strip(), re.IGNORECASE)]
+        if not nan_hits:
+            continue
+        gold_text = str(row.get("correct_answer_text", ""))
+        kind = (
+            "gold"
+            if re.fullmatch(r"nan", gold_text.strip(), re.IGNORECASE)
+            else "distractor"
+        )
+        findings.append({"question_id": str(row["question_id"]), "kind": kind})
+    return findings
 
 
 def write_prepared_dataset(
