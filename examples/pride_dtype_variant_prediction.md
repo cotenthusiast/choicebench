@@ -81,6 +81,26 @@ after the fact.
 
 ## Result
 
-_(Not yet run. Fill in after the variant completes — actual accuracy, rstd,
-and per-row diff of which questions flipped, with an honest comparison
-against the prediction above.)_
+Run 2026-08-27, Kelvin2 SLURM job 9708132 (k2-gpu-a100mig, gpu114,
+gpu:3g.40gb:1), 17m34s wall clock, all 13,564 questions, current-pipeline
+scoring only (`examples/pride_scoring_variant_run.py --dtype bfloat16`).
+Raw output: `examples/pride_reproduction_results/dtype_bf16_results.csv`.
+Compared against the same script's fp16 current-pipeline numbers from the
+same session (job 9708113): accuracy 42.89%, rstd 14.375 — not the original
+July run's persisted numbers, to keep the comparison paired on identical
+code/data, differing from the original run only in having been reloaded
+today.
+
+**Accuracy**: bf16 = 42.71% vs fp16 = 42.89%. Change: **-0.18pp** — within
+the predicted -0.5 to +1.0pp band, smaller in magnitude than expected.
+
+**RStd**: bf16 = 14.658 vs fp16 = 14.375. Change: **+0.28** — within the
+predicted "stays roughly 13-16" band, no material change.
+
+## Verdict: prediction CONFIRMED
+
+Dtype is not a driver of the Default-cell gap. Both accuracy and RStd moved
+by less than the predicted bound, in the direction/magnitude expected from
+near-tie rounding noise, not a systematic effect. This closes ~0% of the
++8.35pp/-3.05 gap, exactly as anticipated — ruled out with a real run, not
+just the a-priori argument in the prediction above.

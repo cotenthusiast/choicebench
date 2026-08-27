@@ -1,0 +1,62 @@
+{
+    "provenance": "Phase 4b scoring-mechanism variant (see examples/pride_scoring_variant_prediction.md and examples/pride_dtype_variant_prediction.md). Kelvin2 SLURM jobs 9708113 (scoring variant) and 9708132 (dtype variant), k2-gpu-a100mig, gpu114, huggyllama/llama-13b@bf57045473f207bb1de1ed035ace226f4d9f9bba, all 13,564 questions from the original run's direct_logprob population (runs/20260705_204054_dedup). Raw per-row output CSVs are gitignored (runs/* convention) and kept only in the local run workspace; this file holds the aggregate numbers referenced in the prediction docs' Result sections.",
+    "scoring_variant_job_9708113": {
+        "wall_clock_seconds": 1047,
+        "current_pipeline_fresh": {
+            "accuracy_pct": 42.8929519315836,
+            "rstd": 14.375326117152685,
+            "recall_A": 49.07466496490108,
+            "recall_B": 40.40284360189573,
+            "recall_C": 61.33295030163745,
+            "recall_D": 21.858382311782815
+        },
+        "reference_method_reimplementation": {
+            "accuracy_pct": 43.02565614862872,
+            "rstd": 14.397661277320019,
+            "recall_A": 48.21314613911933,
+            "recall_B": 41.11374407582938,
+            "recall_C": 61.850043091065785,
+            "recall_D": 21.942345368038062
+        },
+        "disagreement": {
+            "n_flipped": 143,
+            "pct_flipped": 1.0542612798584488,
+            "current_right_reference_wrong": 34,
+            "current_wrong_reference_right": 52,
+            "both_wrong_different_letter": 57
+        },
+        "nospace_token_mass_share_of_combined_per_letter_prob": {
+            "overall_mean": 0.03381,
+            "overall_median": 0.03185,
+            "overall_p90": 0.05460,
+            "overall_p99": 0.08507,
+            "overall_max": 0.18712,
+            "pct_letter_slots_gt_0.1": 0.3391,
+            "pct_letter_slots_gt_0.3": 0.0,
+            "n_letter_slots": 54256
+        },
+        "gap_closed_vs_paper_target": {
+            "accuracy_gap_before_pp": 8.35,
+            "accuracy_gap_after_pp": 8.43,
+            "rstd_gap_before": -3.05,
+            "rstd_gap_after": -3.00,
+            "verdict": "closes ~0% of the gap; direction is not even consistently favorable"
+        }
+    },
+    "dtype_variant_job_9708132": {
+        "wall_clock_seconds": 1054,
+        "bf16_current_pipeline": {
+            "accuracy_pct": 42.70864051902093,
+            "rstd": 14.65838259338061,
+            "recall_A": 50.22335673261008,
+            "recall_B": 40.87677725118483,
+            "recall_C": 60.384946854352194,
+            "recall_D": 20.626924153372517
+        },
+        "vs_fp16_same_session_baseline": {
+            "accuracy_delta_pp": -0.1843114125627,
+            "rstd_delta": 0.283056476,
+            "verdict": "within pre-registered prediction band; dtype confirmed not a driver of the gap"
+        }
+    }
+}

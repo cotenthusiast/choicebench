@@ -86,6 +86,43 @@ rationalized after the fact.
 
 ## Result
 
-_(Not yet run. Fill in after the variant completes: actual accuracy, rstd,
-per-letter no-space mass share distribution, and how much of the 8.35pp/-3.05
-gap it closes, with an honest comparison against the prediction above.)_
+Run 2026-08-27, Kelvin2 SLURM job 9708113 (k2-gpu-a100mig, gpu114,
+gpu:3g.40gb:1), 17m27s wall clock, all 13,564 questions, one forward pass per
+question, both scores computed from the same logits (paired comparison).
+Script: `examples/pride_scoring_variant_run.py`. Raw output:
+`examples/pride_reproduction_results/scoring_variant_results.csv`.
+
+**Accuracy**: current pipeline (fresh) = 42.89%, reference-method
+reimplementation = 43.03%. Change: **+0.14pp** — a tiny *increase*, not the
+predicted 4-6pp *decrease*.
+
+**RStd**: current pipeline (fresh) = 14.375, reference-method
+reimplementation = 14.398. Change: **+0.02** — essentially no change, nowhere
+near the predicted move to 15-17.
+
+**Disagreement**: 143/13,564 (1.05%) of predictions flip between the two
+methods (34 current-right→reference-wrong, 52 current-wrong→reference-right,
+57 both-wrong-but-different-letter) — small and, if anything, net favorable
+to the reference method, consistent with its very slightly higher accuracy.
+
+**Per-letter no-space mass share (Task 1e)**: median 3.2%, mean 3.4% of each
+letter's combined probability across all 54,256 (letter, question) pairs;
+p99 = 8.5%; **max observed anywhere in the dataset = 18.7%** — it never once
+exceeds 30%, let alone approaches parity with the space-prefixed form. Only
+0.34% of letter-slots exceed even a 10% share.
+
+## Verdict: prediction WRONG, clean null result
+
+My pre-registered prediction (accuracy down to 37-41%, RStd up to 15-17, a
+"non-trivial right tail" of 10-30% competitive cases) did not hold on any
+axis. The actual mechanism exists exactly as read from source — the
+reference implementation does sum two token forms in a restricted 8-way
+softmax, verified again here via 13,564 real forward passes, not just the
+earlier synthetic check — but its magnitude is far too small to matter: the
+no-space token essentially never carries competitive mass in this
+model/checkpoint at this answer position. My prior reasoning (that the
+paper's whole selection-bias story implied a large, letter-asymmetric second
+token) was a plausible-sounding story that turned out to be wrong once
+tested. **This scoring-mechanism difference closes roughly 0% of the
++8.35pp/-3.05 RStd Default-cell gap.** Ruling it out, not just deprioritizing
+it.
