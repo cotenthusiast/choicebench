@@ -106,8 +106,10 @@ with α, RStd collapse at every α, Cyclic Perm as the accuracy ceiling), but
 absolute accuracy runs a systematic 1.3–8.4 point high, shrinking as more of
 the scored set gets permutation-debiased treatment. See
 [`examples/pride_reproduction.md`](examples/pride_reproduction.md) for the
-full walkthrough: real commands and output, the exact config, and an honest
-accounting of that deviation with candidate causes.
+full walkthrough: real commands and output, and the exact config.
+[`PRIDE.md`](PRIDE.md) documents the follow-up investigation into that
+deviation: seven candidate causes tested with quantified evidence, all ruled
+out or negligible — the gap remains largely unexplained.
 
 ---
 
