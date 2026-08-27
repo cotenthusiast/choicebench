@@ -87,6 +87,54 @@ independent of whether it fully explains the gap.
 
 ## Result
 
-_(Not yet run. Fill in after the variant completes — actual aggregate and
-subset-level accuracy/RStd, flip rate and direction, with an honest
-comparison against the prediction above.)_
+Run 2026-08-27, Kelvin2 SLURM job 9708414 (k2-gpu-a100mig, gpu114,
+gpu:3g.40gb:1), 101.8s wall clock for 809×2 forward passes. Smoke-tested
+first (job 9708410, 10 rows). Consistency check: all 809 `pred_original`
+values matched job 9708113's `pred_current` for the same question_ids
+exactly (0 mismatches) — confirms fidelity before trusting `pred_stripped`.
+Script: `examples/pride_whitespace_variant_run.py`. Raw output:
+`examples/pride_reproduction_results/ws_variant_results.csv`.
+
+**Aggregate (all 13,564 rows, baseline vs whitespace-corrected)**:
+
+| | accuracy | RStd |
+|---|---|---|
+| baseline (job 9708113) | 42.8930% | 14.3753 |
+| whitespace-corrected | 42.8708% | 14.4244 |
+| **Δ** | **-0.022pp** | **+0.049** |
+
+Gap vs paper target: 8.29pp→8.27pp accuracy, -3.02→-2.98 RStd (using this
+session's fresh baseline, which differs from the original persisted 42.95/
+14.35 by run-to-run fp16 float noise of ~0.06pp, not a new discrepancy).
+**Aggregate effect is negligible, as predicted** (<0.5pp/units bound).
+
+**Affected subset (809 rows), original vs stripped prompt**:
+
+| | accuracy | RStd (n≈200/letter, noisy) |
+|---|---|---|
+| original | 50.56% | 11.94 |
+| stripped | 50.19% | 13.80 |
+| **Δ** | **-0.37pp** | **+1.86** |
+
+**Flip rate**: 72/809 = **8.90%** of the affected subset changes its
+predicted letter between the original and stripped prompt — real and
+non-trivial at the individual-question level, right at the edge of (but
+within) the predicted <10% bound. Critically, the flips are **not
+directional**: 21 originally-right→now-wrong, 18 originally-wrong→now-right,
+33 both-wrong-but-different-letter. This is close to a coin flip, not a
+systematic push toward or away from correctness.
+
+## Verdict: prediction CONFIRMED, mechanism real but non-systematic
+
+Every number landed inside the predicted bounds, unlike the scoring-variant
+session where the prediction was wrong. The whitespace difference does have
+real "teeth" at the individual-question level (8.9% flip rate is not
+nothing), but the flips are symmetric/undirected rather than systematically
+inflating our accuracy or suppressing our RStd — so even setting aside the
+5.96% prevalence cap, this mechanism has no *systematic* component that
+could explain a multi-point, one-directional gap. It behaves like ordinary
+prompt-perturbation noise, not a selection-bias-shaped effect.
+
+**This closes approximately 0% of the +8.35pp/-3.05 gap** (aggregate Δ of
+-0.02pp / +0.05, an order of magnitude too small to matter) — third
+consecutive ruled-out/negligible candidate.

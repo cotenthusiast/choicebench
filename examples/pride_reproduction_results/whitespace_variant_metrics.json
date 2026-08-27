@@ -1,0 +1,30 @@
+{
+    "provenance": "Phase 4c whitespace causal-effect variant (see examples/pride_whitespace_variant_prediction.md). Kelvin2 SLURM jobs 9708410 (smoke test, 10 rows) and 9708414 (full 809-row run), k2-gpu-a100mig, gpu114, huggyllama/llama-13b@bf57045473f207bb1de1ed035ace226f4d9f9bba. 809 affected rows (5.96% of the 13,564-question population) re-scored under original and .strip()'d question stems; the other 12,755 unaffected rows reuse job 9708113's pred_current unchanged (byte-identical prompts). Raw per-row output CSVs are gitignored (runs/* convention) and kept only in the local run workspace.",
+    "consistency_check": {
+        "n_mismatches_pred_original_vs_job_9708113_pred_current": 0,
+        "n_checked": 809
+    },
+    "full_population_13564": {
+        "baseline_job_9708113": {"accuracy_pct": 42.8929519315836, "rstd": 14.375326117152685},
+        "whitespace_corrected": {"accuracy_pct": 42.87083559207606, "rstd": 14.424390626},
+        "delta_accuracy_pp": -0.022117369507519413,
+        "delta_rstd": 0.04906450871321333,
+        "gap_vs_paper_target_before": {"accuracy_pp": 8.29, "rstd": -3.02},
+        "gap_vs_paper_target_after": {"accuracy_pp": 8.27, "rstd": -2.98}
+    },
+    "affected_subset_809": {
+        "accuracy_original_pct": 50.55624227441285,
+        "accuracy_stripped_pct": 50.185414091470946,
+        "delta_accuracy_pp": -0.3708281829419036,
+        "rstd_original": 11.936257329581492,
+        "rstd_stripped": 13.799086080190515,
+        "n_flips": 72,
+        "pct_flips": 8.899876390605685,
+        "flip_direction": {
+            "orig_right_strip_wrong": 21,
+            "orig_wrong_strip_right": 18,
+            "both_wrong_different_letter": 33
+        }
+    },
+    "verdict": "prediction confirmed within bounds on every axis; flip rate (8.9%) is real but symmetric/non-directional, not a systematic bias; aggregate effect closes ~0% of the +8.35pp/-3.05 gap"
+}
