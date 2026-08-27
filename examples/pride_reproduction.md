@@ -400,53 +400,20 @@ than the paper implies: recall peaks at C (61.4%) and collapses at D
 (computed via the same `compute_default_row` the grid table above uses, not
 hand-typed).
 
-**Candidate causes for that scoring-surface offset, none confirmed, stated
-honestly:**
-
-- **Option-ID token convention — RESOLVED, hypothesis eliminated**
-  (local tokenizer audit, no GPU required). Reading
-  `HuggingFaceBackend.score_options()`
-  (`src/choicebench/backends/hf_backend.py`): it encodes the bare label
-  string (`tokenizer.encode("A", add_special_tokens=False)`). This
-  walkthrough previously left open whether SentencePiece's dummy-prefix
-  handling makes that differ from the space-prefixed form a model would
-  naturally produce after `"Answer:"`. The pinned checkpoint's cached
-  `tokenizer.json` answers it directly: the LLaMA-1 fast tokenizer's
-  normalizer applies an **unconditional `Prepend("▁")`**, so:
-
-  | input string | normalized | pieces | token ids |
-  |---|---|---|---|
-  | `"A"`–`"D"` (bare) | `▁A`…`▁D` | one token each | 319 / 350 / 315 / 360 |
-  | `" A"`–`" D"` (space) | `▁▁A`…`▁▁D` | two tokens (`▁▁`, letter) | 259 + 29909/29933/29907/29928 |
-
-  Two consequences. First, the bare label **already encodes to the same
-  space-prefixed piece** that mid-sentence text produces (`"Answer: A"`
-  tokenizes with `▁A` following `Answer:`), so what `score_options()`
-  scores is exactly the natural continuation surface — the
-  bare-vs-space mismatch cannot be contributing to the offset.
-  Second, the originally proposed follow-up experiment of re-scoring with
-  the space-prefixed labels `" A"`–`" D"` is not expressible through this
-  API at all for this tokenizer: those strings encode to two tokens and
-  are rejected by `score_options()`'s single-token constraint.
-  The offset candidates narrow to checkpoint-mirror provenance, fp16
-  numerics (the GPU spot-check below), and paper-side differences.
-- **Prompt whitespace at the `Answer:` position**: the same fact as above,
-  from the template side: zero trailing whitespace after the colon.
-- **Checkpoint mirror provenance**: `huggyllama/llama-13b` pinned at
-  `bf57045473f207bb1de1ed035ace226f4d9f9bba`; this is a community re-upload
-  of LLaMA-1 weights, not the paper's own checkpoint, and re-uploads have
-  occasionally differed in tokenizer config or weight conversion from the
-  original release.
-- **fp16 numerics on H100**: `HuggingFaceBackend.load()` hardcodes
-  `torch_dtype=torch.float16`; minor precision differences vs. whatever the
-  paper used are possible but the least likely of these four to produce an
-  8-point accuracy swing.
-
-No single-variable experiment isolates which of these (if any) is
-responsible. The option-ID token convention — previously the cheapest to
-test — has been eliminated by the local tokenizer audit above; the
-remaining candidates require either GPU access (the fp16 spot-check below)
-or paper-side information, so no zero-cost decisive experiment remains.
+**Candidate causes for that scoring-surface offset: see
+[`PRIDE.md`](../PRIDE.md) for the full, closed-out investigation.** This
+section previously tracked an open, untested list of four candidates
+(option-ID token convention, prompt whitespace, checkpoint-mirror
+provenance, fp16 numerics). That investigation has since run to completion
+across three follow-up sessions: seven candidates tested with quantified
+evidence (population/template, parse-rate, truncation, dtype, the
+scoring-mechanism's two-token-form marginalization, `.strip()` whitespace,
+and dataset-label version drift), all ruled out or negligible — none moves
+accuracy or RStd by more than ±0.5pp/units. Two candidates (checkpoint
+identity, library-version drift since 2023) remain deliberately
+deprioritized rather than tested, for reasons given there. **The +8.4-point
+offset above remains almost entirely unexplained.** `PRIDE.md` links out to
+every prediction file, job ID, and exact number behind that statement.
 
 **Other underspecified choices, for completeness**: none of these are
 likely candidates for the 8-point offset above, but they're all places
@@ -484,8 +451,11 @@ in this reproduction, visibly absorbing whatever is producing the mismatch.
 - ~~**The space-prefix follow-up run** proposed above~~ **Eliminated by the
   local tokenizer audit above**: bare labels already encode to the
   space-prefixed pieces, and the space-prefixed strings cannot be scored at
-  all through `score_options()` for this tokenizer. The offset question now
-  needs either GPU experiments (fp16 spot-check) or paper-side information.
+  all through `score_options()` for this tokenizer. ~~The offset question
+  now needs either GPU experiments (fp16 spot-check) or paper-side
+  information.~~ **Done — see [`PRIDE.md`](../PRIDE.md)**: the fp16
+  spot-check and five further candidates have since been tested; the offset
+  remains unexplained.
 - **File the loader duplicate-`question_id` warning** as a known issue:
   `prepare_data.py`/benchmark loading should warn (not silently pass through)
   when a prepared benchmark CSV contains duplicate `question_id`s, so this
