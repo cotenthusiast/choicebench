@@ -503,6 +503,76 @@ def test_load_benchmark_applies_subject_filter(monkeypatch):
     assert questions["question_id"].tolist() == ["q1"]
 
 
+def test_load_benchmark_sampling_per_group_draws_exact_n_per_group(monkeypatch):
+    from choicebench.config.schema import SamplingConfig
+
+    rows = (
+        [{"question_id": f"m{i}", "subject": "math"} for i in range(5)]
+        + [{"question_id": f"h{i}", "subject": "history"} for i in range(5)]
+    )
+    artifact = types.SimpleNamespace(
+        dataframe=pd.DataFrame(rows), artifact_id="ds", content_digest="digest",
+    )
+    run_exp = _load_run_experiment()
+    monkeypatch.setattr(run_exp, "load_prepared_dataset", lambda *a, **k: artifact)
+
+    questions = run_exp.load_benchmark_selection(
+        BenchmarkConfig(
+            name="toy",
+            sampling=SamplingConfig(strategy="per_group", group_field="subject", n_per_group=2),
+        ),
+        run_seed=42,
+    ).questions
+
+    assert len(questions) == 4
+    counts = questions["subject"].value_counts().to_dict()
+    assert counts == {"math": 2, "history": 2}
+    assert questions["question_id"].nunique() == 4
+
+
+def test_load_benchmark_sampling_per_group_is_deterministic(monkeypatch):
+    from choicebench.config.schema import SamplingConfig
+
+    rows = [{"question_id": f"m{i}", "subject": "math"} for i in range(20)]
+    artifact = types.SimpleNamespace(
+        dataframe=pd.DataFrame(rows), artifact_id="ds", content_digest="digest",
+    )
+    run_exp = _load_run_experiment()
+    monkeypatch.setattr(run_exp, "load_prepared_dataset", lambda *a, **k: artifact)
+
+    cfg = BenchmarkConfig(
+        name="toy",
+        sampling=SamplingConfig(strategy="per_group", group_field="subject", n_per_group=5),
+    )
+    ids_a = sorted(run_exp.load_benchmark_selection(cfg, run_seed=42).questions["question_id"])
+    ids_b = sorted(run_exp.load_benchmark_selection(cfg, run_seed=42).questions["question_id"])
+    assert ids_a == ids_b
+
+
+def test_load_benchmark_sampling_per_group_raises_on_undersized_group(monkeypatch):
+    from choicebench.config.schema import SamplingConfig
+
+    rows = (
+        [{"question_id": f"m{i}", "subject": "math"} for i in range(5)]
+        + [{"question_id": "h0", "subject": "history"}]  # only 1 row, need 2
+    )
+    artifact = types.SimpleNamespace(
+        dataframe=pd.DataFrame(rows), artifact_id="ds", content_digest="digest",
+    )
+    run_exp = _load_run_experiment()
+    monkeypatch.setattr(run_exp, "load_prepared_dataset", lambda *a, **k: artifact)
+
+    with pytest.raises(ValueError, match="fewer rows") as exc_info:
+        run_exp.load_benchmark_selection(
+            BenchmarkConfig(
+                name="toy",
+                sampling=SamplingConfig(strategy="per_group", group_field="subject", n_per_group=2),
+            ),
+            run_seed=42,
+        )
+    assert "history" in str(exc_info.value)
+
+
 def test_load_benchmark_subject_filter_rejects_empty_result(monkeypatch):
     run_exp = _load_run_experiment()
     artifact = types.SimpleNamespace(

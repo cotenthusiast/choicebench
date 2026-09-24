@@ -89,11 +89,27 @@ class ModelConfig:
     revision: str | None = None
 
 
+@dataclass(frozen=True)
+class SamplingConfig:
+    """Deterministic stratified/per-group benchmark sampling.
+
+    Mutually exclusive with BenchmarkConfig.n_samples's flat global sample.
+    Currently supports one strategy: "per_group", which draws exactly
+    n_per_group rows from every distinct value of group_field (e.g. MMLU's
+    "subject" column) — raising rather than silently under-sampling if any
+    group has fewer than n_per_group rows.
+    """
+    strategy: str
+    group_field: str
+    n_per_group: int
+
+
 @dataclass
 class BenchmarkConfig:
     name: str
     split: str = "test"
     n_samples: int | None = None
+    sampling: SamplingConfig | None = None
     subject_filter: list[str] | None = None
     hf_path: str | None = None       # e.g. "cais/mmlu"
     hf_subset: str | None = None     # e.g. "all" or "ARC-Challenge"
@@ -270,12 +286,29 @@ def _build_models(raw: dict) -> list[ModelConfig]:
     return models
 
 
+_SAMPLING_STRATEGIES = {"per_group"}
+
+
+def _build_sampling_entry(raw: Any, where: str) -> SamplingConfig:
+    if not isinstance(raw, Mapping):
+        raise ConfigError(f"{where} must be a YAML mapping; got {raw!r}.")
+    _reject_unknown(raw, {"strategy", "group_field", "n_per_group"}, where)
+    strategy = _nonempty(_require(raw, "strategy", where), f"{where}.strategy")
+    if strategy not in _SAMPLING_STRATEGIES:
+        raise ConfigError(
+            f"{where}.strategy must be one of {sorted(_SAMPLING_STRATEGIES)}; got {strategy!r}."
+        )
+    group_field = _nonempty(_require(raw, "group_field", where), f"{where}.group_field")
+    n_per_group = _strict_int(_require(raw, "n_per_group", where), f"{where}.n_per_group", minimum=1)
+    return SamplingConfig(strategy=strategy, group_field=group_field, n_per_group=n_per_group)
+
+
 def _build_benchmark_entry(raw: dict, index: int) -> BenchmarkConfig:
     where = f"benchmarks[{index}]"
     if not isinstance(raw, Mapping):
         raise ConfigError(f"{where} must be a YAML mapping; got {raw!r}.")
     _reject_unknown(raw, {
-        "name", "split", "n_samples", "subject_filter", "hf_path", "hf_subset",
+        "name", "split", "n_samples", "sampling", "subject_filter", "hf_path", "hf_subset",
         "output_name", "source_revision", "transforms",
     }, where)
     name = _nonempty(_require(raw, "name", where), f"{where}.name")
@@ -287,6 +320,12 @@ def _build_benchmark_entry(raw: dict, index: int) -> BenchmarkConfig:
     n_samples = raw.get("n_samples")
     if n_samples is not None:
         n_samples = _strict_int(n_samples, f"{where}.n_samples", minimum=1)
+    sampling_raw = raw.get("sampling")
+    if sampling_raw is not None and n_samples is not None:
+        raise ConfigError(
+            f"{where}: n_samples and sampling are mutually exclusive; set only one."
+        )
+    sampling = _build_sampling_entry(sampling_raw, f"{where}.sampling") if sampling_raw is not None else None
     if name == BENCHMARK_HUGGINGFACE and not raw.get("hf_path"):
         raise ConfigError(f"{where}.hf_path is required when name is 'huggingface'.")
     transforms = raw.get("transforms", [])
@@ -305,6 +344,7 @@ def _build_benchmark_entry(raw: dict, index: int) -> BenchmarkConfig:
         name=name,
         split=_nonempty(raw.get("split", "test"), f"{where}.split"),
         n_samples=n_samples,
+        sampling=sampling,
         subject_filter=subject_filter,
         hf_path=raw.get("hf_path"),
         hf_subset=raw.get("hf_subset"),

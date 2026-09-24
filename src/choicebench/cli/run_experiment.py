@@ -214,6 +214,31 @@ def build_backend(
         raise ValueError(f"Unsupported backend type: {backend_type!r}")
 
 
+def _apply_group_sampling(questions, sampling, run_seed: int):
+    """Draw exactly sampling.n_per_group rows from every distinct group.
+
+    Raises rather than silently under-sampling if any group has fewer rows
+    than requested -- a group with too few real questions is a benchmark
+    data problem the caller needs to know about, not something to paper
+    over with a smaller-than-configured sample.
+    """
+    if sampling.group_field not in questions.columns:
+        raise ValueError(
+            f"sampling.group_field={sampling.group_field!r} is not a column in "
+            f"this benchmark's data (columns: {list(questions.columns)})."
+        )
+    counts = questions[sampling.group_field].value_counts()
+    undersized = counts[counts < sampling.n_per_group]
+    if not undersized.empty:
+        raise ValueError(
+            f"sampling.n_per_group={sampling.n_per_group} but group(s) have fewer rows "
+            f"than that: {undersized.to_dict()}."
+        )
+    return questions.groupby(
+        sampling.group_field, group_keys=False
+    ).sample(n=sampling.n_per_group, random_state=run_seed)
+
+
 def load_benchmark_selection(benchmark: BenchmarkConfig, run_seed: int) -> BenchmarkSelection:
     """Load benchmark questions as a DataFrame, applying filters and sample cap."""
     if benchmark.name == BENCHMARK_HUGGINGFACE and get_by_hf_path(benchmark.hf_path, benchmark.hf_subset) is None:
@@ -262,6 +287,8 @@ def load_benchmark_selection(benchmark: BenchmarkConfig, run_seed: int) -> Bench
             n=benchmark.n_samples,
             random_state=run_seed,
         )
+    elif benchmark.sampling is not None:
+        questions = _apply_group_sampling(questions, benchmark.sampling, run_seed)
     identities = tuple(dataset_sample_identities(questions))
     selection_id = short_id("sel", {
         "artifact_id": artifact.artifact_id,
@@ -269,6 +296,10 @@ def load_benchmark_selection(benchmark: BenchmarkConfig, run_seed: int) -> Bench
         "sample_identities": identities,
         "seed": run_seed,
         "n_samples": benchmark.n_samples,
+        "sampling": (
+            (benchmark.sampling.strategy, benchmark.sampling.group_field, benchmark.sampling.n_per_group)
+            if benchmark.sampling else None
+        ),
         "subject_filter": sorted(benchmark.subject_filter or []),
     })
     return BenchmarkSelection(benchmark, artifact, questions, selection_id, identities)

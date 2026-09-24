@@ -282,6 +282,16 @@ benchmarks:                     # a non-empty list (one entry per benchmark)
                                  # that was never prepared. Use transforms: [] only for benchmarks
                                  # prepared with no flags (e.g. arc_challenge, hellaswag, truthful_qa).
     n_samples: 100              # null = full split; positive int = random subsample
+    # Mutually exclusive with n_samples: draws exactly n_per_group rows from
+    # every distinct value of group_field instead of one flat global sample
+    # (e.g. exactly 20 questions from every MMLU subject rather than 1140
+    # random rows that might miss some subjects entirely). Raises rather
+    # than silently under-sampling if any group has fewer rows than
+    # n_per_group. "per_group" is currently the only supported strategy.
+    # sampling:
+    #   strategy: per_group
+    #   group_field: subject
+    #   n_per_group: 20
     subject_filter: null        # null | list of MMLU subject strings
 
 methods:

@@ -239,6 +239,68 @@ def test_n_samples_must_be_positive(tmp_path):
         load_config(_write_config(tmp_path, data))
 
 
+def test_sampling_per_group_parses(tmp_path):
+    data = _valid_config()
+    del data["benchmarks"][0]["n_samples"]
+    data["benchmarks"][0]["sampling"] = {
+        "strategy": "per_group", "group_field": "subject", "n_per_group": 20,
+    }
+    config = load_config(_write_config(tmp_path, data))
+    sampling = config.benchmarks[0].sampling
+    assert sampling is not None
+    assert sampling.strategy == "per_group"
+    assert sampling.group_field == "subject"
+    assert sampling.n_per_group == 20
+
+
+def test_sampling_and_n_samples_are_mutually_exclusive(tmp_path):
+    data = _valid_config()
+    data["benchmarks"][0]["sampling"] = {
+        "strategy": "per_group", "group_field": "subject", "n_per_group": 20,
+    }
+    with pytest.raises(ConfigError, match="n_samples and sampling are mutually exclusive"):
+        load_config(_write_config(tmp_path, data))
+
+
+def test_sampling_unknown_strategy_raises(tmp_path):
+    data = _valid_config()
+    del data["benchmarks"][0]["n_samples"]
+    data["benchmarks"][0]["sampling"] = {
+        "strategy": "not_a_real_strategy", "group_field": "subject", "n_per_group": 20,
+    }
+    with pytest.raises(ConfigError, match="sampling.strategy must be one of"):
+        load_config(_write_config(tmp_path, data))
+
+
+def test_sampling_n_per_group_must_be_positive(tmp_path):
+    data = _valid_config()
+    del data["benchmarks"][0]["n_samples"]
+    data["benchmarks"][0]["sampling"] = {
+        "strategy": "per_group", "group_field": "subject", "n_per_group": 0,
+    }
+    with pytest.raises(ConfigError, match="n_per_group must be a positive integer"):
+        load_config(_write_config(tmp_path, data))
+
+
+def test_sampling_missing_group_field_raises(tmp_path):
+    data = _valid_config()
+    del data["benchmarks"][0]["n_samples"]
+    data["benchmarks"][0]["sampling"] = {"strategy": "per_group", "n_per_group": 20}
+    with pytest.raises(ConfigError, match="group_field"):
+        load_config(_write_config(tmp_path, data))
+
+
+def test_sampling_rejects_unknown_field(tmp_path):
+    data = _valid_config()
+    del data["benchmarks"][0]["n_samples"]
+    data["benchmarks"][0]["sampling"] = {
+        "strategy": "per_group", "group_field": "subject", "n_per_group": 20,
+        "typo_field": 1,
+    }
+    with pytest.raises(ConfigError, match="Unknown field"):
+        load_config(_write_config(tmp_path, data))
+
+
 @pytest.mark.parametrize("field,value", [
     ("checkpoint_every_n", 0), ("checkpoint_every_n", -1),
     ("checkpoint_every_n", True), ("concurrency_limit", 0),
