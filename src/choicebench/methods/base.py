@@ -58,6 +58,7 @@ class ExperimentRunner(ABC):
             seed: int | None = SEED,
             perturbation_name: str | None = None,
             model_label: str | None = None,
+            benchmark_name: str = "",
     ) -> None:
         self.backend = backend
         self.method_name = method_name
@@ -69,6 +70,7 @@ class ExperimentRunner(ABC):
         self.seed = seed
         self.perturbation_name = perturbation_name
         self.model_label = model_label
+        self.benchmark_name = benchmark_name
         self._prompts = load_prompt_templates(prompt_version, prompts_dir)
 
     @abstractmethod
@@ -212,6 +214,7 @@ class ExperimentRunner(ABC):
         return {
             # --- trace metadata ---
             "run_id": self.run_id,
+            "benchmark_name": self.benchmark_name,
             "question_id": question_row["question_id"],
             "split_name": self.split_name,
             "subject": question_row["subject"],
