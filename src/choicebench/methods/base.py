@@ -158,7 +158,17 @@ class ExperimentRunner(ABC):
         )
 
     def _call_backend_generate(self, prompt: str) -> ModelResponse:
-        """Call backend.generate() and wrap the result in a ModelResponse.
+        """Call the backend and wrap the result in a ModelResponse.
+
+        An async-capable backend (APIBackend/BatchAPIBackend) never supports
+        the plain sync generate() call -- it always raises. Route those
+        through generate_single_async() via asyncio.run() instead, so any
+        sync, run_one-style runner method (this is shared base-class
+        behavior) works correctly when called directly against a real API
+        backend, not just through run_many_async(). generate_single_async()
+        already returns a well-formed success/failure ModelResponse itself
+        (BaseClient.generate() never raises for provider-level errors), so
+        no additional try/except is needed on this branch.
 
         Args:
             prompt: The prompt string to send to the backend.
@@ -167,6 +177,8 @@ class ExperimentRunner(ABC):
             A ModelResponse reflecting success (raw_text set) or failure
             (error set), matching the shape _build_result_row expects.
         """
+        if self.backend.is_async_capable():
+            return asyncio.run(self.backend.generate_single_async(prompt))
         try:
             raw_text = self.backend.generate(prompt)
         except Exception as exc:

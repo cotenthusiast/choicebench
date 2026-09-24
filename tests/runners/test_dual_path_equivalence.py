@@ -80,6 +80,15 @@ class _DeterministicAsyncBackend(APIBackend):
         self.prompts_received.append(prompt)
         return self._responder(prompt)
 
+    async def generate_single_async(self, prompt: str) -> ModelResponse:
+        """_call_backend_generate() routes any is_async_capable() backend
+        (this one included, by APIBackend inheritance) through here now
+        rather than generate() -- keep both paths backed by the same
+        deterministic responder so the dual-path equivalence check still
+        compares two REAL execution paths, not one dead one."""
+        self.prompts_received.append(prompt)
+        return _response_for(prompt, self._responder(prompt))
+
     async def generate_batch(self, prompts: list[str]) -> list[ModelResponse]:
         self.batch_calls += 1
         self.prompts_received.extend(prompts)
