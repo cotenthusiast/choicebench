@@ -17,14 +17,18 @@ Backend requirements: generate only (2 calls per question, or 3 with fallback)
 Logprob support required: no
 """
 
+import json
 from typing import Any, Sequence
 
+from choicebench.parsing.types import ParseResult, PARSE_OK, PARSE_MISSING
 from choicebench.pipeline.prompt_builder import (
     build_direct_mcq_prompt,
     build_free_text_prompt,
     build_option_matching_prompt,
+    build_rotations,
 )
 from choicebench.methods.base import ExperimentRunner
+from choicebench.scoring.tiebreak import majority_vote_with_tiebreak
 
 
 class TwoStageRunner(ExperimentRunner):
@@ -136,6 +140,86 @@ class TwoStageRunner(ExperimentRunner):
         result["fallback_used"] = fallback_used
 
         return result
+
+    def run_stage2_rotations(
+            self, question_row: Any, free_text_answer: str, sample_index: int,
+    ) -> dict:
+        """Rerun ONLY stage 2 (option matching) under every cyclic rotation
+        of the options, reusing a fixed, already-elicited stage-1 free-text
+        answer -- no new stage-1 call is made.
+
+        This is what makes two_stage_v1's flip-rate computable: it isolates
+        whether the stage-2 match itself is order-sensitive, holding the
+        free-text answer (stage 1's order-independent output) constant.
+
+        Args:
+            question_row: Normalized question record.
+            free_text_answer: A previously-saved stage-1 free-text response
+                for this question (from a prior two_stage run), reused as-is.
+            sample_index: Repetition index for this question within the run.
+
+        Returns:
+            Flat result dictionary: the majority-voted answer across
+            rotations, plus per_rotation_choices_json (one canonical letter,
+            or null, per rotation, in rotation order).
+        """
+        canonical_options = self._build_options(question_row)
+        canonical_letters = list(canonical_options.keys())
+        rotations = build_rotations(canonical_options)
+
+        prompts = [
+            build_option_matching_prompt(
+                template=self._prompts["option_matching"],
+                question=question_row["question_text"],
+                free_text=free_text_answer,
+                options=rotation.mapping,
+            )
+            for rotation in rotations
+        ]
+        responses = [self._call_backend_generate(prompt) for prompt in prompts]
+
+        canonical_choices: list[str | None] = []
+        for response, rotation in zip(responses, rotations):
+            if response.is_success():
+                parsed = self._parse(response.raw_text, rotation.mapping)
+                if parsed.final_choice is not None:
+                    display_index = canonical_letters.index(parsed.final_choice)
+                    canonical_choices.append(
+                        canonical_letters[rotation.slot_to_canonical[display_index]]
+                    )
+                else:
+                    canonical_choices.append(None)
+            else:
+                canonical_choices.append(None)
+
+        voted_letter = majority_vote_with_tiebreak(
+            canonical_choices,
+            label_to_source_index=self._build_label_to_source_index(question_row),
+            seed=self.seed, benchmark_id=self.benchmark_name,
+            question_id=question_row["question_id"], method_name=self.method_name,
+        )
+        voted_parse = ParseResult(
+            final_choice=voted_letter,
+            status=PARSE_OK if voted_letter else PARSE_MISSING,
+            raw_text=None,
+            normalized_text="",
+            reason="stage2_rotation_majority_vote",
+        )
+        score_result = None
+        if voted_letter:
+            score_result = self._score(voted_parse, question_row["correct_option"])
+
+        row = self._build_result_row(
+            question_row=question_row,
+            prompt=prompts[0],
+            sample_index=sample_index,
+            model_response=responses[0],
+            parsed_result=voted_parse,
+            score_result=score_result,
+        )
+        row["free_text_response"] = free_text_answer
+        row["per_rotation_choices_json"] = json.dumps(canonical_choices)
+        return row
 
     async def _run_phases(
         self, rows: list[dict]
