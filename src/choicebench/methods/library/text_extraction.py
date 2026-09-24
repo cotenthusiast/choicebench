@@ -103,14 +103,17 @@ class TextExtractionRunner(ExperimentRunner):
         responses = [self._call_backend_generate(prompt) for prompt in prompts]
 
         canonical_choices: list[str | None] = []
+        per_rotation_raw_text: list[str | None] = []
         for response in responses:
             if response.is_success():
                 parsed_result, _ = self._match_and_score(
                     free_text=response.raw_text, question_row=question_row,
                 )
                 canonical_choices.append(parsed_result.final_choice)
+                per_rotation_raw_text.append(response.raw_text)
             else:
                 canonical_choices.append(None)
+                per_rotation_raw_text.append(None)
 
         voted_letter = majority_vote_with_tiebreak(
             canonical_choices,
@@ -138,6 +141,7 @@ class TextExtractionRunner(ExperimentRunner):
             score_result=score_result,
         )
         row["per_rotation_choices_json"] = json.dumps(canonical_choices)
+        row["per_rotation_raw_text_json"] = json.dumps(per_rotation_raw_text)
         return row
 
     def _build_prompt(self, question_row: Any) -> str:

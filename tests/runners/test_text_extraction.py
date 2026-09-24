@@ -150,3 +150,21 @@ class TestRunRotations:
         assert result["run_id"] == "test_run_001"
         assert result["method_name"] == "text_extraction"
         assert result["split_name"] == "test"
+
+    def test_persists_raw_text_per_rotation_for_downstream_reuse(self, runner_question_row):
+        """visible_llm_matcher's own rotation rerun needs each rotation's
+        actual extracted TEXT (not just the collapsed canonical letter) to
+        feed its own Stage-2 LLM match under that same rotation."""
+        backend = MockBackend(responses=["HTTPS", "FTP", "HTTPS", "HTTPS"])
+        result = _make_runner(backend).run_rotations(runner_question_row, sample_index=0)
+        per_rotation_text = json.loads(result["per_rotation_raw_text_json"])
+        assert per_rotation_text == ["HTTPS", "FTP", "HTTPS", "HTTPS"]
+
+    def test_raw_text_is_null_for_a_failed_rotation(self, runner_question_row):
+        from choicebench.clients.types import ProviderTimeoutError
+        backend = MockBackend(
+            responses=[ProviderTimeoutError("timed out"), "FTP", "HTTPS", "HTTPS"]
+        )
+        result = _make_runner(backend).run_rotations(runner_question_row, sample_index=0)
+        per_rotation_text = json.loads(result["per_rotation_raw_text_json"])
+        assert per_rotation_text == [None, "FTP", "HTTPS", "HTTPS"]

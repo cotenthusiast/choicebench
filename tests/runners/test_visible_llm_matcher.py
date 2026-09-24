@@ -1,7 +1,9 @@
 # tests/runners/test_visible_llm_matcher.py
 
+import json
 from pathlib import Path
 
+from choicebench.methods.library.permutation import PermutationRunner
 from choicebench.methods.library.visible_llm_matcher import VisibleLLMMatcherRunner
 from choicebench.scoring.types import SCORE_CORRECT, SCORE_INCORRECT, SCORE_UNSCORABLE
 
@@ -81,3 +83,70 @@ class TestVisibleLLMMatcherRunOne:
         row = _row_with_extracted_text(runner_question_row, "HTTPS")
         result = _make_runner(backend).run_one(row, sample_index=0)
         assert result["reused_extracted_text"] == "HTTPS"
+
+
+class TestRunMatchingRotations:
+    """Reruns ONLY the Stage-2 LLM match under every cyclic rotation of the
+    options, reusing text_extraction's OWN per-rotation extracted text (one
+    entry per rotation, already elicited under that exact rotation) --
+    never re-eliciting Stage 1."""
+
+    def test_makes_one_call_per_non_null_rotation_text(self, runner_question_row):
+        backend = MockBackend(responses=["C", "A", "B", "D"])
+        per_rotation_text = ["HTTPS", "FTP", "HTTP", "SMTP"]
+        _make_runner(backend).run_matching_rotations(
+            runner_question_row, per_rotation_text, sample_index=0
+        )
+        assert len(backend.requests_received) == 4
+
+    def test_skips_a_rotation_with_no_extracted_text_no_call_made(self, runner_question_row):
+        """A rotation where text_extraction's own Stage-1 call failed has
+        nothing to match -- skip it (no call, no vote), don't crash."""
+        backend = MockBackend(responses=["C", "B", "D"])
+        per_rotation_text = ["HTTPS", None, "HTTP", "SMTP"]
+        result = _make_runner(backend).run_matching_rotations(
+            runner_question_row, per_rotation_text, sample_index=0
+        )
+        assert len(backend.requests_received) == 3
+        per_rotation_choices = json.loads(result["per_rotation_choices_json"])
+        assert per_rotation_choices[1] is None
+
+    def test_persists_one_canonical_choice_per_rotation(self, runner_question_row):
+        canonical = {"A": "FTP", "B": "HTTP", "C": "HTTPS", "D": "SMTP"}
+        perms = [r.mapping for r in PermutationRunner._generate_rotations(canonical)]
+        responses = []
+        for perm in perms:
+            for letter, text in perm.items():
+                if text == "HTTPS":
+                    responses.append(letter)
+                    break
+
+        backend = MockBackend(responses=responses)
+        per_rotation_text = ["HTTPS"] * 4
+        result = _make_runner(backend).run_matching_rotations(
+            runner_question_row, per_rotation_text, sample_index=0
+        )
+
+        per_rotation_choices = json.loads(result["per_rotation_choices_json"])
+        assert per_rotation_choices == ["C", "C", "C", "C"]
+        assert result["parsed_choice"] == "C"
+        assert result["is_correct"] is True
+
+    def test_all_rotations_null_text_yields_no_parsed_choice(self, runner_question_row):
+        backend = MockBackend(responses=[])
+        result = _make_runner(backend).run_matching_rotations(
+            runner_question_row, [None, None, None, None], sample_index=0
+        )
+        assert len(backend.requests_received) == 0
+        assert result["parsed_choice"] is None
+        per_rotation_choices = json.loads(result["per_rotation_choices_json"])
+        assert per_rotation_choices == [None, None, None, None]
+
+    def test_result_row_has_metadata(self, runner_question_row):
+        backend = MockBackend(responses=["C", "C", "C", "C"])
+        result = _make_runner(backend).run_matching_rotations(
+            runner_question_row, ["HTTPS"] * 4, sample_index=0
+        )
+        assert result["run_id"] == "test_run_001"
+        assert result["method_name"] == "visible_llm_matcher"
+        assert result["split_name"] == "test"
