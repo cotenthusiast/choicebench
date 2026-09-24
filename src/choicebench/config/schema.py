@@ -79,6 +79,11 @@ class ModelConfig:
     # "inherit run.concurrency_limit", resolved when the backend is built.
     concurrency_limit: int | None = None
     base_url: str | None = None  # vLLM server address; ignored for all other providers
+    # Generic upstream-routing controls, consumed by any client that
+    # supports them (currently: openrouter); ignored by providers that
+    # don't accept them.
+    upstream_provider: str | None = None
+    allow_fallbacks: bool = True
     # HuggingFaceBackend only: whether the tokenizer prepends a BOS token
     # (transformers' add_special_tokens, applied to both generate() and
     # score_options()). Default True preserves prior behavior (most
@@ -250,6 +255,7 @@ def _build_models(raw: dict) -> list[ModelConfig]:
         _reject_unknown(entry, {
             "backend", "model_name_or_path", "provider", "device", "generation_kwargs",
             "concurrency_limit", "base_url", "add_bos_token", "revision",
+            "upstream_provider", "allow_fallbacks",
         }, f"models[{i}]")
         backend = _nonempty(_require(entry, "backend", f"models[{i}]"), f"models[{i}].backend")
         if backend not in _VALID_BACKENDS:
@@ -276,6 +282,11 @@ def _build_models(raw: dict) -> list[ModelConfig]:
                     else None
                 ),
                 base_url=entry.get("base_url"),
+                upstream_provider=(
+                    _nonempty(entry["upstream_provider"], f"models[{i}].upstream_provider")
+                    if entry.get("upstream_provider") is not None else None
+                ),
+                allow_fallbacks=_strict_bool(entry.get("allow_fallbacks", True), f"models[{i}].allow_fallbacks"),
                 add_bos_token=_strict_bool(entry.get("add_bos_token", True), f"models[{i}].add_bos_token"),
                 revision=(
                     _nonempty(entry["revision"], f"models[{i}].revision")

@@ -239,6 +239,38 @@ def test_n_samples_must_be_positive(tmp_path):
         load_config(_write_config(tmp_path, data))
 
 
+def test_openrouter_upstream_provider_and_allow_fallbacks_parse(tmp_path):
+    data = _valid_config()
+    data["models"] = [{
+        "backend": "api", "model_name_or_path": "meta-llama/llama-3.1-8b-instruct",
+        "provider": "openrouter", "upstream_provider": "deepinfra", "allow_fallbacks": False,
+    }]
+    config = load_config(_write_config(tmp_path, data))
+    model = config.models[0]
+    assert model.upstream_provider == "deepinfra"
+    assert model.allow_fallbacks is False
+
+
+def test_allow_fallbacks_defaults_to_true(tmp_path):
+    data = _valid_config()
+    data["models"] = [{
+        "backend": "api", "model_name_or_path": "gpt-4.1-mini", "provider": "openai",
+    }]
+    config = load_config(_write_config(tmp_path, data))
+    assert config.models[0].allow_fallbacks is True
+    assert config.models[0].upstream_provider is None
+
+
+def test_allow_fallbacks_must_be_boolean(tmp_path):
+    data = _valid_config()
+    data["models"] = [{
+        "backend": "api", "model_name_or_path": "m", "provider": "openrouter",
+        "allow_fallbacks": "false",
+    }]
+    with pytest.raises(ConfigError, match="allow_fallbacks must be true or false"):
+        load_config(_write_config(tmp_path, data))
+
+
 def test_sampling_per_group_parses(tmp_path):
     data = _valid_config()
     del data["benchmarks"][0]["n_samples"]
