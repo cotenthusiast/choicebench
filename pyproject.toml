@@ -29,6 +29,9 @@ hf = [
     "transformers",
     "accelerate",
 ]
+matching = [
+    "sentence-transformers",
+]
 dev = [
     "pytest>=7.0",
     "pytest-asyncio",
