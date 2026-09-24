@@ -1,0 +1,5 @@
+Answer the following question based on your knowledge.
+
+Question: {question}
+
+First, briefly reason step by step about the question. Then, on a new line, state your answer as: Answer: <your answer>

@@ -25,6 +25,12 @@ METHOD_REGISTRY: dict[str, type] = {
     "pride": PriDeRunner,
     "shuffled_baseline": ShuffledBaselineRunner,
     "direct_logprob": DirectLogprobRunner,
+    # Paper-specific (eacl-2026-revision): reasoning-enabled variants reuse the
+    # existing runner classes unchanged. The only difference from direct_mcq/
+    # two_stage is prompt content (prompt_version: v1_reasoning) + generation
+    # settings in config -- no new runner behavior.
+    "reasoning_mcq": DirectMCQRunner,
+    "reasoning_two_stage": TwoStageRunner,
 }
 
 CLIENT_REGISTRY: dict[str, type] = {

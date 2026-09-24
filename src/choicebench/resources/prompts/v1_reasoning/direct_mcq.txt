@@ -1,0 +1,8 @@
+Answer the following multiple-choice question.
+
+Question: {question}
+
+Options:
+{options}
+
+First, briefly reason step by step about which option is correct. Then, on a new line, state your final answer as: Final answer: X
