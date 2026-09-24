@@ -57,6 +57,14 @@ def load_prompt_templates(version: str, prompts_dir: Path | None = None) -> dict
             )
         templates[name] = path.read_text(encoding="utf-8")
 
+    # Methods introduced after the original 3 (e.g. independent_hypothesis)
+    # may need their own named template. Load any additional .txt files
+    # present opportunistically, keyed by filename stem -- never required,
+    # so bundles that don't use them are completely unaffected.
+    for path in sorted(version_dir.glob("*.txt")):
+        if path.stem not in templates:
+            templates[path.stem] = path.read_text(encoding="utf-8")
+
     return templates
 
 
