@@ -17,6 +17,7 @@ Logprob support required: no
 """
 
 import collections
+import json
 from typing import Any, Sequence
 
 from choicebench.parsing.types import ParseResult, PARSE_OK, PARSE_MISSING
@@ -118,6 +119,10 @@ class PermutationRunner(ExperimentRunner):
             parsed_result=voted_parse,
             score_result=score_result,
         )
+        # Per-rotation canonical choices (rotation order), not just the
+        # majority-voted winner -- required for baseline/cyclic flip-rate,
+        # which needs to see every rotation's own answer to detect a flip.
+        row["per_rotation_choices_json"] = json.dumps(canonical_choices)
         return row
 
     async def run_many_async(self, question_rows: Sequence[Any]) -> list[dict]:
@@ -197,6 +202,7 @@ class PermutationRunner(ExperimentRunner):
                 parsed_result=voted_parse,
                 score_result=score_result,
             )
+            result_row["per_rotation_choices_json"] = json.dumps(canonical_choices)
             results.append(result_row)
 
         return results
