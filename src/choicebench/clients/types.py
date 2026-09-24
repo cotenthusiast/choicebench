@@ -9,6 +9,18 @@ SUCCESS_STATUS = "success"
 FAILURE_STATUS = "failure"
 VALID_STATUS = {SUCCESS_STATUS, FAILURE_STATUS}
 
+# Normalized provider Batch API job states (BatchAPIBackend / *Client.poll_batch()).
+# Every provider's own status vocabulary (OpenAI: validating/in_progress/finalizing/
+# completed/failed/expired/cancelling/cancelled; Anthropic: in_progress/ended;
+# Together/DeepInfra: VALIDATING/IN_PROGRESS/COMPLETED/FAILED/EXPIRED/CANCELLED)
+# is collapsed to these three by each client's own poll_batch() implementation --
+# the orchestration layer (BatchAPIBackend) only ever needs to know "keep waiting",
+# "go fetch results", or "stop, something terminal-but-not-success happened".
+BATCH_IN_PROGRESS = "batch_in_progress"
+BATCH_COMPLETED = "batch_completed"
+BATCH_FAILED = "batch_failed"
+VALID_BATCH_STATUS = {BATCH_IN_PROGRESS, BATCH_COMPLETED, BATCH_FAILED}
+
 
 class ValidationError(Exception):
     """Base exception for validation failures in client request/response types."""
