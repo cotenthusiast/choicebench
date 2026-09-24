@@ -14,6 +14,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 _PROMPTS_DIR = REPO_ROOT / "prompts"
 _TEMPLATES = load_prompt_templates("v1", _PROMPTS_DIR)
 from choicebench.clients.types import ProviderTimeoutError
+from choicebench.scoring.tiebreak import resolve_tie
 from choicebench.scoring.types import SCORE_CORRECT
 
 from tests.runners.conftest import MockBackend
@@ -175,60 +176,102 @@ class TestCanonicalLetter:
 
 
 class TestMajorityVote:
-    """Tests for PermutationRunner._majority_vote."""
+    """Tests for PermutationRunner._majority_vote.
 
-    def test_unanimous(self, canonical_options):
+    Ties are broken via the shared canonical tie-break utility
+    (choicebench.scoring.tiebreak.resolve_tie) over stable option identity
+    (source_index), not display letter, vote order, or rotation position.
+    """
+
+    @pytest.fixture
+    def label_to_source_index(self) -> dict[str, int]:
+        # Deliberately non-identity, so a test that accidentally used the
+        # letter's alphabetical position instead of its real source_index
+        # would be caught.
+        return {"A": 30, "B": 10, "C": 40, "D": 20}
+
+    @pytest.fixture
+    def vote_kwargs(self, label_to_source_index):
+        return dict(
+            label_to_source_index=label_to_source_index,
+            seed=42, benchmark_id="mmlu", question_id="q1", method_name="cyclic",
+        )
+
+    def test_unanimous(self, canonical_options, vote_kwargs):
         """All votes agree — should return that letter."""
-        assert PermutationRunner._majority_vote(["C", "C", "C", "C"], canonical_options) == "C"
+        assert PermutationRunner._majority_vote(["C", "C", "C", "C"], canonical_options, **vote_kwargs) == "C"
 
-    def test_clear_majority(self, canonical_options):
+    def test_clear_majority(self, canonical_options, vote_kwargs):
         """Three-to-one — should return the majority."""
-        assert PermutationRunner._majority_vote(["A", "C", "C", "C"], canonical_options) == "C"
+        assert PermutationRunner._majority_vote(["A", "C", "C", "C"], canonical_options, **vote_kwargs) == "C"
 
-    def test_tie_uses_canonically_earliest_letter(self, canonical_options):
-        """Two-to-two tie — should return the canonically-earliest tied letter."""
-        result = PermutationRunner._majority_vote(["A", "B", "A", "B"], canonical_options)
-        assert result == "A"
+    def test_tie_is_a_member_of_the_tied_set(self, canonical_options, vote_kwargs):
+        """Two-to-two tie — result must be one of the tied letters."""
+        result = PermutationRunner._majority_vote(["A", "B", "A", "B"], canonical_options, **vote_kwargs)
+        assert result in ("A", "B")
 
-    def test_all_none(self, canonical_options):
+    def test_tie_matches_shared_tiebreak_utility_directly(self, canonical_options, vote_kwargs, label_to_source_index):
+        """The winner must be exactly what resolve_tie() itself returns for
+        this tied set -- not merely "a plausible letter" -- pinning the
+        integration, not just the invariant."""
+        result = PermutationRunner._majority_vote(["A", "B", "A", "B"], canonical_options, **vote_kwargs)
+        expected_id = resolve_tie(
+            seed=42, benchmark_id="mmlu", question_id="q1", method_name="cyclic",
+            tied_canonical_ids=[label_to_source_index["A"], label_to_source_index["B"]],
+        )
+        expected_letter = {v: k for k, v in label_to_source_index.items()}[expected_id]
+        assert result == expected_letter
+
+    def test_all_none(self, canonical_options, vote_kwargs):
         """All votes failed — should return None."""
-        assert PermutationRunner._majority_vote([None, None, None, None], canonical_options) is None
+        assert PermutationRunner._majority_vote([None, None, None, None], canonical_options, **vote_kwargs) is None
 
-    def test_empty_list(self, canonical_options):
+    def test_empty_list(self, canonical_options, vote_kwargs):
         """Empty list — should return None."""
-        assert PermutationRunner._majority_vote([], canonical_options) is None
+        assert PermutationRunner._majority_vote([], canonical_options, **vote_kwargs) is None
 
-    def test_some_none(self, canonical_options):
+    def test_some_none(self, canonical_options, vote_kwargs):
         """Mix of valid and None — should vote among valid only."""
-        result = PermutationRunner._majority_vote([None, "B", "B", None], canonical_options)
+        result = PermutationRunner._majority_vote([None, "B", "B", None], canonical_options, **vote_kwargs)
         assert result == "B"
 
-    def test_single_valid_vote(self, canonical_options):
+    def test_single_valid_vote(self, canonical_options, vote_kwargs):
         """Only one non-None — should return that vote."""
-        result = PermutationRunner._majority_vote([None, None, "D", None], canonical_options)
+        result = PermutationRunner._majority_vote([None, None, "D", None], canonical_options, **vote_kwargs)
         assert result == "D"
 
-    def test_tie_with_none_first(self, canonical_options):
-        """First vote is None, tie among valid — should return canonically-earliest tied letter."""
-        result = PermutationRunner._majority_vote([None, "A", "B", "A"], canonical_options)
-        assert result == "A"
-
-    def test_tie_across_non_adjacent_rotation_positions(self, canonical_options):
-        """Regression test: tie-break must use canonical letter order, not vote/rotation
-        order. Votes arrive as [C, A] (C from rotation 0, A from rotation 1) — a tie
-        between A and C where C was cast first. The canonically-earlier letter (A)
-        must win regardless of which rotation produced its vote first; the old
-        implementation returned cleaned[0] ("C") here, reintroducing positional
-        correlation into a method whose purpose is to cancel it.
+    def test_tie_break_is_invariant_to_vote_arrival_order(self, canonical_options, vote_kwargs):
+        """Regression test: the tie-break must depend only on which letters are
+        tied, never on the order votes arrived in (i.e. which rotation cast
+        which vote first). [C, A] and [A, C] -- same tied set, same result.
         """
-        result = PermutationRunner._majority_vote(["C", "A"], canonical_options)
-        assert result == "A"
+        result_forward = PermutationRunner._majority_vote(["C", "A"], canonical_options, **vote_kwargs)
+        result_reversed = PermutationRunner._majority_vote(["A", "C"], canonical_options, **vote_kwargs)
+        assert result_forward == result_reversed
 
-    def test_tie_break_ignores_rotation_order_for_three_way_tie(self, canonical_options):
-        """Three-way tie arriving in reverse canonical order — canonically-earliest
-        letter (A) must still win, not the first-encountered vote (D)."""
-        result = PermutationRunner._majority_vote(["D", "C", "A"], canonical_options)
-        assert result == "A"
+    def test_tie_break_is_invariant_to_three_way_arrival_order(self, canonical_options, vote_kwargs):
+        """Three-way tie arriving in different orders must resolve identically."""
+        result_a = PermutationRunner._majority_vote(["D", "C", "A"], canonical_options, **vote_kwargs)
+        result_b = PermutationRunner._majority_vote(["A", "C", "D"], canonical_options, **vote_kwargs)
+        assert result_a == result_b
+
+    def test_tie_break_depends_only_on_source_index_not_letter(self, canonical_options, label_to_source_index):
+        """If two different label->source_index mappings happen to assign the
+        SAME source_index set to a tied pair, they must resolve to the same
+        underlying identity -- i.e. the tie-break genuinely keys off
+        source_index, not the letters incidentally spelling the tie.
+        """
+        remapped = {"A": label_to_source_index["B"], "B": label_to_source_index["A"],
+                    "C": label_to_source_index["C"], "D": label_to_source_index["D"]}
+        kwargs_original = dict(label_to_source_index=label_to_source_index,
+                                seed=42, benchmark_id="mmlu", question_id="q1", method_name="cyclic")
+        kwargs_remapped = dict(label_to_source_index=remapped,
+                                seed=42, benchmark_id="mmlu", question_id="q1", method_name="cyclic")
+        winner_original = PermutationRunner._majority_vote(["A", "B"], canonical_options, **kwargs_original)
+        winner_remapped = PermutationRunner._majority_vote(["A", "B"], canonical_options, **kwargs_remapped)
+        # A/B swapped identities -> whichever letter now holds the original
+        # winning source_index must win under the remapped call too.
+        assert label_to_source_index[winner_original] == remapped[winner_remapped]
 
 
 class TestPermutationRunnerRunOne:

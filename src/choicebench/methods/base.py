@@ -20,6 +20,7 @@ from choicebench.parsing.parser import parse_model_answer
 from choicebench.parsing.types import ParseResult
 from choicebench.pipeline.options import (
     build_choices,
+    build_label_to_source_index,
     build_option_map,
     correct_option_for_row,
     serialize_choices,
@@ -333,6 +334,16 @@ class ExperimentRunner(ABC):
             Mapping from canonical answer letters to their text.
         """
         return build_option_map(question_row)
+
+    @staticmethod
+    def _build_label_to_source_index(question_row: Any) -> dict[str, int]:
+        """Extract the option letter-to-canonical-identity mapping.
+
+        ``source_index`` is stable under any permutation/rotation of the
+        displayed options -- used as the canonical option identity input to
+        the shared tie-break utility (``choicebench.scoring.tiebreak``).
+        """
+        return build_label_to_source_index(question_row)
 
     @staticmethod
     def _question_choice_fields(question_row: Any) -> dict[str, Any]:

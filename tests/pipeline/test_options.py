@@ -7,6 +7,7 @@ import pytest
 from choicebench.benchmarks.base import make_normalized_row
 from choicebench.pipeline.options import (
     build_choices,
+    build_label_to_source_index,
     build_option_map,
     correct_option_for_row,
     serialize_choices,
@@ -38,6 +39,22 @@ def test_labels_derived_from_order_not_source_index():
     assert [c["label"] for c in choices] == ["A", "B", "C"]
     assert [c["source_index"] for c in choices] == [7, 2, 5]
     assert build_option_map(row) == {"A": "x", "B": "y", "C": "z"}
+
+
+def test_build_label_to_source_index_uses_stable_identity_not_render_order():
+    choices_json = json.dumps([
+        {"text": "x", "source_index": 7},
+        {"text": "y", "source_index": 2},
+        {"text": "z", "source_index": 5},
+    ])
+    row = {"question_id": "q", "choices_json": choices_json, "correct_option": "B"}
+    assert build_label_to_source_index(row) == {"A": 7, "B": 2, "C": 5}
+
+
+def test_build_label_to_source_index_drops_missing_options_same_as_option_map():
+    row = make_normalized_row("cat", "q", ["o0", None, "o2"], correct_index=0)
+    label_to_id = build_label_to_source_index(row)
+    assert set(label_to_id) == set(build_option_map(row))
 
 
 def test_correct_option_derived_from_correct_index_when_letter_absent():
