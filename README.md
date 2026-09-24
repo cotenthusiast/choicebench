@@ -308,6 +308,14 @@ benchmarks:                     # a non-empty list (one entry per benchmark)
     #   strategy: per_group
     #   group_field: subject
     #   n_per_group: 20
+    # Mutually exclusive with n_samples and sampling: filters to EXACTLY the
+    # question IDs in this file (CSV with a question_id column, or one ID
+    # per line for plain text) instead of re-deriving a selection at run
+    # time. Raises if any manifest ID is missing from the loaded data.
+    # Ignores seed entirely -- it's an exact frozen list, not a sampling
+    # strategy. Use this to guarantee a frozen evaluation manifest stays
+    # authoritative even if the underlying prepared dataset ever changes.
+    # question_id_manifest: data/manifests/mmlu_eval_v2.csv
     subject_filter: null        # null | list of MMLU subject strings
 
 methods:

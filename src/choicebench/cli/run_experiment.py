@@ -219,6 +219,34 @@ def build_backend(
         raise ValueError(f"Unsupported backend type: {backend_type!r}")
 
 
+def _load_question_id_manifest(path: str) -> list[str]:
+    """Read a question-ID manifest: a CSV with a question_id column, or a
+    plain-text file with one ID per line."""
+    p = Path(path)
+    if p.suffix.lower() == ".csv":
+        return pd.read_csv(p)["question_id"].astype(str).tolist()
+    return [line.strip() for line in p.read_text().splitlines() if line.strip()]
+
+
+def _apply_question_id_manifest(questions, manifest_path: str):
+    """Filter questions down to EXACTLY the IDs in manifest_path.
+
+    Raises if any manifest ID isn't present in the loaded data -- a
+    frozen manifest that no longer matches the underlying dataset is a
+    reproducibility problem to surface loudly, not paper over.
+    """
+    manifest_ids = _load_question_id_manifest(manifest_path)
+    available = set(questions["question_id"].astype(str))
+    missing = [qid for qid in manifest_ids if qid not in available]
+    if missing:
+        raise ValueError(
+            f"question_id_manifest={manifest_path!r} lists {len(missing)} question ID(s) "
+            f"not found in the loaded benchmark data: {missing[:10]}"
+            f"{'...' if len(missing) > 10 else ''}"
+        )
+    return questions[questions["question_id"].astype(str).isin(manifest_ids)]
+
+
 def _apply_group_sampling(questions, sampling, run_seed: int):
     """Draw exactly sampling.n_per_group rows from every distinct group.
 
@@ -287,7 +315,9 @@ def load_benchmark_selection(benchmark: BenchmarkConfig, run_seed: int) -> Bench
                 benchmark.name,
             )
 
-    if benchmark.n_samples is not None:
+    if benchmark.question_id_manifest is not None:
+        questions = _apply_question_id_manifest(questions, benchmark.question_id_manifest)
+    elif benchmark.n_samples is not None:
         questions = questions.sample(
             n=benchmark.n_samples,
             random_state=run_seed,
@@ -301,6 +331,7 @@ def load_benchmark_selection(benchmark: BenchmarkConfig, run_seed: int) -> Bench
         "sample_identities": identities,
         "seed": run_seed,
         "n_samples": benchmark.n_samples,
+        "question_id_manifest": benchmark.question_id_manifest,
         "sampling": (
             (benchmark.sampling.strategy, benchmark.sampling.group_field, benchmark.sampling.n_per_group)
             if benchmark.sampling else None
