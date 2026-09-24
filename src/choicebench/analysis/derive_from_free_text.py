@@ -16,6 +16,7 @@ because the whole point is that no new inference happens.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pandas as pd
@@ -61,6 +62,12 @@ def _derive_one_row(row: dict[str, Any], *, method_name: str, embed_fn: EmbedFn)
     derived["parse_reason"] = parsed.reason
     derived["is_correct"] = scored.is_correct
     derived["score_status"] = scored.status
+    # Text-matching cascade is a pure function of option TEXT content -- it
+    # never consults which display letter/rotation a text occupies -- so
+    # the matched answer is provably invariant to rotation. No synthetic
+    # rotation loop or new calls needed: the trace is just this canonical
+    # answer repeated once per option.
+    derived["per_rotation_choices_json"] = json.dumps([matched_letter] * len(options))
     return derived
 
 

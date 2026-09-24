@@ -85,3 +85,37 @@ class TestDeriveMatchedResults:
         ])
         derived = derive_matched_results(df, method_name="semantic_matching_v1", embed_fn=_no_match_embed_fn)
         assert list(derived["parsed_choice"]) == ["C", "A"]
+
+
+class TestDerivedRotationTrace:
+    """semantic_matching_v1's match is a pure function of TEXT content
+    (exact/containment/cosine over option strings) -- it never looks at
+    which display letter or rotation position a text currently occupies.
+    So its answer is provably invariant to rotation: the per-rotation trace
+    is the same canonical choice repeated once per option, derived without
+    looping over synthetic rotations or making any new calls."""
+
+    def test_per_rotation_choices_json_is_the_matched_letter_repeated_n_times(self):
+        df = pd.DataFrame([_source_row(free_text_response="HTTPS")])  # 4 options
+        derived = derive_matched_results(df, method_name="semantic_matching_v1", embed_fn=_no_match_embed_fn)
+        per_rotation = json.loads(derived.iloc[0]["per_rotation_choices_json"])
+        assert per_rotation == ["C", "C", "C", "C"]
+
+    def test_unmatched_free_text_yields_all_none_trace(self):
+        df = pd.DataFrame([_source_row(free_text_response="gibberish unrelated text")])
+        derived = derive_matched_results(df, method_name="semantic_matching_v1", embed_fn=_no_match_embed_fn)
+        per_rotation = json.loads(derived.iloc[0]["per_rotation_choices_json"])
+        assert per_rotation == [None, None, None, None]
+
+    def test_trace_length_matches_this_questions_own_option_count(self):
+        """A 3-option question's trace has 3 entries, not a hardcoded 4."""
+        choices_json = json.dumps([
+            {"text": "FTP", "source_index": 0}, {"text": "HTTP", "source_index": 1},
+            {"text": "HTTPS", "source_index": 2},
+        ])
+        df = pd.DataFrame([_source_row(
+            free_text_response="HTTPS", choices_json=choices_json, correct_option="C", n_choices=3,
+        )])
+        derived = derive_matched_results(df, method_name="semantic_matching_v1", embed_fn=_no_match_embed_fn)
+        per_rotation = json.loads(derived.iloc[0]["per_rotation_choices_json"])
+        assert len(per_rotation) == 3
