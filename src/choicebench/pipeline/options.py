@@ -100,6 +100,18 @@ def build_option_map(question_row: Mapping[str, Any]) -> dict[str, str]:
     return options
 
 
+def build_label_to_source_index(question_row: Mapping[str, Any]) -> dict[str, int]:
+    """Build the label→source_index map for one normalized row.
+
+    ``source_index`` is a question's stable canonical option identity: it's
+    assigned once at data-normalization time and never changes when the
+    same option is rendered at a different display letter under rotation
+    or permutation. Methods needing an order-invariant option identity
+    (e.g. the canonical tie-break utility) use this instead of the label.
+    """
+    return {c["label"]: c["source_index"] for c in build_choices(question_row) if c["text"]}
+
+
 def correct_option_for_row(
     question_row: Mapping[str, Any],
     options: dict[str, str] | None = None,

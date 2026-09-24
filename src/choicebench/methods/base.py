@@ -20,6 +20,7 @@ from choicebench.parsing.parser import parse_model_answer
 from choicebench.parsing.types import ParseResult
 from choicebench.pipeline.options import (
     build_choices,
+    build_label_to_source_index,
     build_option_map,
     correct_option_for_row,
     serialize_choices,
@@ -58,6 +59,7 @@ class ExperimentRunner(ABC):
             seed: int | None = SEED,
             perturbation_name: str | None = None,
             model_label: str | None = None,
+            benchmark_name: str = "",
     ) -> None:
         self.backend = backend
         self.method_name = method_name
@@ -69,6 +71,7 @@ class ExperimentRunner(ABC):
         self.seed = seed
         self.perturbation_name = perturbation_name
         self.model_label = model_label
+        self.benchmark_name = benchmark_name
         self._prompts = load_prompt_templates(prompt_version, prompts_dir)
 
     @abstractmethod
@@ -212,6 +215,7 @@ class ExperimentRunner(ABC):
         return {
             # --- trace metadata ---
             "run_id": self.run_id,
+            "benchmark_name": self.benchmark_name,
             "question_id": question_row["question_id"],
             "split_name": self.split_name,
             "subject": question_row["subject"],
@@ -330,6 +334,16 @@ class ExperimentRunner(ABC):
             Mapping from canonical answer letters to their text.
         """
         return build_option_map(question_row)
+
+    @staticmethod
+    def _build_label_to_source_index(question_row: Any) -> dict[str, int]:
+        """Extract the option letter-to-canonical-identity mapping.
+
+        ``source_index`` is stable under any permutation/rotation of the
+        displayed options -- used as the canonical option identity input to
+        the shared tie-break utility (``choicebench.scoring.tiebreak``).
+        """
+        return build_label_to_source_index(question_row)
 
     @staticmethod
     def _question_choice_fields(question_row: Any) -> dict[str, Any]:

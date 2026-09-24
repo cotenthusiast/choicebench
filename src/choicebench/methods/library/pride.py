@@ -109,6 +109,7 @@ class PriDeRunner(ExperimentRunner):
             seed: int | None = None,
             perturbation_name: str | None = None,
             model_label: str | None = None,
+            benchmark_name: str = "",
             *,
             calibration_n: int = 50,
             calibration_seed: int = 42,
@@ -144,6 +145,8 @@ class PriDeRunner(ExperimentRunner):
             kw["perturbation_name"] = perturbation_name
         if model_label is not None:
             kw["model_label"] = model_label
+        if benchmark_name:
+            kw["benchmark_name"] = benchmark_name
         super().__init__(**kw)
 
         # PriDe needs per-letter logprobs, so it requires a backend that

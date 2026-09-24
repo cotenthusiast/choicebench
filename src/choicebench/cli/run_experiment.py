@@ -349,6 +349,7 @@ def instantiate_runner(
             max_tokens=model_config.generation_kwargs.max_new_tokens,
             seed=config.run.seed,
             model_label=model_label or model_config.model_name_or_path,
+            benchmark_name=benchmark_cfg.name,
             **method_params,
             **extra_kwargs,
         )

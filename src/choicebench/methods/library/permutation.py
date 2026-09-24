@@ -26,6 +26,7 @@ from choicebench.pipeline.prompt_builder import (
     build_rotations,
 )
 from choicebench.methods.base import ExperimentRunner
+from choicebench.scoring.tiebreak import resolve_tie
 
 
 class PermutationRunner(ExperimentRunner):
@@ -82,7 +83,12 @@ class PermutationRunner(ExperimentRunner):
                 canonical_choices.append(None)
 
         # Majority vote across canonical answers
-        voted_letter = self._majority_vote(canonical_choices, canonical_options)
+        voted_letter = self._majority_vote(
+            canonical_choices, canonical_options,
+            label_to_source_index=self._build_label_to_source_index(question_row),
+            seed=self.seed, benchmark_id=self.benchmark_name,
+            question_id=question_row["question_id"], method_name=self.method_name,
+        )
 
         # Build a synthetic ParseResult from the voted answer
         voted_parse = ParseResult(
@@ -165,7 +171,12 @@ class PermutationRunner(ExperimentRunner):
                 else:
                     canonical_choices.append(None)
 
-            voted_letter = self._majority_vote(canonical_choices, canonical_options)
+            voted_letter = self._majority_vote(
+                canonical_choices, canonical_options,
+                label_to_source_index=self._build_label_to_source_index(row),
+                seed=self.seed, benchmark_id=self.benchmark_name,
+                question_id=row["question_id"], method_name=self.method_name,
+            )
             voted_parse = ParseResult(
                 final_choice=voted_letter,
                 status=PARSE_OK if voted_letter else PARSE_MISSING,
@@ -228,20 +239,33 @@ class PermutationRunner(ExperimentRunner):
     def _majority_vote(
             choices: list[str | None],
             canonical_options: dict[str, str],
+            *,
+            label_to_source_index: dict[str, int],
+            seed: int,
+            benchmark_id: str,
+            question_id: str,
+            method_name: str,
     ) -> str | None:
         """Determine the final answer by majority vote.
 
-        In the case of a tie, the canonically-earliest letter among the tied
-        candidates is used as the tiebreaker — not the first-encountered vote,
-        which is ordered by rotation/permutation index and would reintroduce
-        the positional correlation cyclic permutation exists to cancel.
+        Ties are broken via the shared canonical tie-break utility
+        (choicebench.scoring.tiebreak.resolve_tie) over each tied letter's
+        stable ``source_index`` identity — never the first-encountered vote
+        (which is ordered by rotation/permutation index and would
+        reintroduce the positional correlation cyclic permutation exists to
+        cancel) and never the display letter itself.
 
         Args:
             choices: List of canonical letters from each permutation,
                 with None for any that failed to parse.
             canonical_options: Canonical letter-to-text mapping for this
-                question, in canonical letter order (A, B, C, ...); used to
-                resolve ties by canonical index rather than vote order.
+                question (unused by the tie-break itself; kept for callers
+                that pass it positionally).
+            label_to_source_index: This question's letter->source_index map.
+            seed: Experiment seed, part of the tie-break key.
+            benchmark_id: Benchmark name, part of the tie-break key.
+            question_id: This question's canonical ID, part of the tie-break key.
+            method_name: Registry method name, part of the tie-break key.
 
         Returns:
             The most frequent letter, or None if no valid votes exist.
@@ -256,8 +280,11 @@ class PermutationRunner(ExperimentRunner):
             return top[0][0]
 
         max_count = top[0][1]
-        tied_letters = {letter for letter, count in counts.items() if count == max_count}
-        for letter in canonical_options:
-            if letter in tied_letters:
-                return letter
-        return top[0][0]
+        tied_letters = [letter for letter, count in counts.items() if count == max_count]
+        tied_ids = [label_to_source_index[letter] for letter in tied_letters]
+        winning_id = resolve_tie(
+            seed=seed, benchmark_id=benchmark_id, question_id=question_id,
+            method_name=method_name, tied_canonical_ids=tied_ids,
+        )
+        id_to_label = {v: k for k, v in label_to_source_index.items()}
+        return id_to_label[winning_id]
