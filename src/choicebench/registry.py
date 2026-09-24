@@ -16,6 +16,11 @@ from choicebench.methods import (
     ShuffledBaselineRunner,
     TwoStageRunner,
 )
+# Paper-specific (eacl-2026-revision): imported directly from its library
+# module, bypassing methods/__init__.py's re-export list, so this stays a
+# paper-branch-only registration rather than promoting it into main's
+# permanent default method library.
+from choicebench.methods.library.independent_hypothesis import IndependentHypothesisRunner
 
 METHOD_REGISTRY: dict[str, type] = {
     "direct_mcq": DirectMCQRunner,
@@ -31,6 +36,7 @@ METHOD_REGISTRY: dict[str, type] = {
     # settings in config -- no new runner behavior.
     "reasoning_mcq": DirectMCQRunner,
     "reasoning_two_stage": TwoStageRunner,
+    "independent_hypothesis": IndependentHypothesisRunner,
 }
 
 CLIENT_REGISTRY: dict[str, type] = {

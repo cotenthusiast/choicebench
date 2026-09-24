@@ -1,0 +1,5 @@
+Question: {question}
+
+Hypothesis: The correct answer is {option_text}.
+
+Task: Please evaluate whether this hypothesis correctly and accurately answers the question. First, provide a brief step-by-step analysis. Then, output a final confidence score between 0 and 100 indicating the probability that this hypothesis is the true answer. Strictly format your final score within tags, exactly like this: <score>X</score>.
