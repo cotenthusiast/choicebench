@@ -22,6 +22,7 @@ from choicebench.methods import (
 # permanent default method library.
 from choicebench.methods.library.independent_hypothesis import IndependentHypothesisRunner
 from choicebench.methods.library.text_extraction import TextExtractionRunner
+from choicebench.methods.library.visible_llm_matcher import VisibleLLMMatcherRunner
 
 METHOD_REGISTRY: dict[str, type] = {
     "direct_mcq": DirectMCQRunner,
@@ -39,6 +40,7 @@ METHOD_REGISTRY: dict[str, type] = {
     "reasoning_two_stage": TwoStageRunner,
     "independent_hypothesis": IndependentHypothesisRunner,
     "text_extraction": TextExtractionRunner,
+    "visible_llm_matcher": VisibleLLMMatcherRunner,
 }
 
 CLIENT_REGISTRY: dict[str, type] = {
