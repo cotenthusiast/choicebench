@@ -8,6 +8,7 @@ from choicebench.pipeline.prompt_builder import (
     Rotation,
     build_direct_mcq_prompt,
     build_free_text_prompt,
+    build_independent_hypothesis_prompt,
     build_option_matching_prompt,
     build_rotations,
     load_prompt_templates,
@@ -45,6 +46,28 @@ class TestBuildDirectMcqPrompt:
         assert "B. two" in prompt
         assert "C. three" in prompt
         assert "D." not in prompt
+
+
+class TestBuildIndependentHypothesisPrompt:
+    """Tests for build_independent_hypothesis_prompt."""
+
+    _TEMPLATE = "Question: {question}\n\nHypothesis: The correct answer is {option_text}."
+
+    def test_includes_question_and_exactly_one_option_text(self):
+        prompt = build_independent_hypothesis_prompt(
+            self._TEMPLATE, "Which number has one factor?", "one"
+        )
+        assert "Which number has one factor?" in prompt
+        assert "The correct answer is one." in prompt
+
+    def test_never_includes_other_options(self):
+        """The whole point of this method: one option per call, never a list."""
+        prompt = build_independent_hypothesis_prompt(
+            self._TEMPLATE, "Which number has one factor?", "one"
+        )
+        assert "two" not in prompt
+        assert "three" not in prompt
+        assert "Options:" not in prompt
 
 
 class TestBuildFreeTextPrompt:

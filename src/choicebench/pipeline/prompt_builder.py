@@ -105,6 +105,25 @@ def build_direct_mcq_prompt(
     return template.format(**format_kwargs)
 
 
+def build_independent_hypothesis_prompt(template: str, question: str, option_text: str) -> str:
+    """Format an isolated-hypothesis template with one question and exactly
+    one candidate option's text -- never the full option list.
+
+    Used by methods that evaluate each option independently, one backend
+    call per real option, with no option ever appearing alongside another
+    in the same prompt (e.g. independent_hypothesis).
+
+    Args:
+        template: Raw template string from load_prompt_templates.
+        question: Question stem.
+        option_text: This single option's text.
+
+    Returns:
+        Fully formatted prompt string.
+    """
+    return template.format(question=question, option_text=option_text)
+
+
 def build_free_text_prompt(template: str, question: str) -> str:
     """Format the free-text template with a question stem.
 
