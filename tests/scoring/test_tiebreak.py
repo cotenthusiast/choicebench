@@ -12,7 +12,11 @@ Python's random module or built-in hash().
 
 import pytest
 
-from choicebench.scoring.tiebreak import resolve_tie, TIEBREAK_NAMESPACE
+from choicebench.scoring.tiebreak import (
+    majority_vote_with_tiebreak,
+    resolve_tie,
+    TIEBREAK_NAMESPACE,
+)
 
 
 def test_single_candidate_returns_it_without_hashing():
@@ -109,3 +113,51 @@ def test_known_vector_is_stable():
     assert result == resolve_tie(seed=42, benchmark_id="mmlu", question_id="q1",
                                   method_name="cyclic", tied_canonical_ids=[0, 1, 2, 3])
     assert isinstance(result, int)
+
+
+class TestMajorityVoteWithTiebreak:
+    """Shared majority-vote-over-canonical-choices utility, used by any
+    method that collects several per-rotation/per-hypothesis votes and must
+    collapse them to one answer (PermutationRunner's cyclic vote today,
+    TwoStageRunner's stage-2 rotation rerun next) -- ties go through
+    resolve_tie() over source_index, never first-arrival order."""
+
+    @pytest.fixture
+    def label_to_source_index(self) -> dict[str, int]:
+        return {"A": 30, "B": 10, "C": 40, "D": 20}
+
+    @pytest.fixture
+    def vote_kwargs(self, label_to_source_index):
+        return dict(
+            label_to_source_index=label_to_source_index,
+            seed=42, benchmark_id="mmlu", question_id="q1", method_name="cyclic",
+        )
+
+    def test_unanimous(self, vote_kwargs):
+        assert majority_vote_with_tiebreak(["C", "C", "C", "C"], **vote_kwargs) == "C"
+
+    def test_clear_majority(self, vote_kwargs):
+        assert majority_vote_with_tiebreak(["A", "C", "C", "C"], **vote_kwargs) == "C"
+
+    def test_tie_matches_resolve_tie_directly(self, vote_kwargs, label_to_source_index):
+        result = majority_vote_with_tiebreak(["A", "B", "A", "B"], **vote_kwargs)
+        expected_id = resolve_tie(
+            seed=42, benchmark_id="mmlu", question_id="q1", method_name="cyclic",
+            tied_canonical_ids=[label_to_source_index["A"], label_to_source_index["B"]],
+        )
+        expected_letter = {v: k for k, v in label_to_source_index.items()}[expected_id]
+        assert result == expected_letter
+
+    def test_all_none_returns_none(self, vote_kwargs):
+        assert majority_vote_with_tiebreak([None, None, None, None], **vote_kwargs) is None
+
+    def test_empty_list_returns_none(self, vote_kwargs):
+        assert majority_vote_with_tiebreak([], **vote_kwargs) is None
+
+    def test_some_none_votes_among_valid_only(self, vote_kwargs):
+        assert majority_vote_with_tiebreak([None, "B", "B", None], **vote_kwargs) == "B"
+
+    def test_tie_break_invariant_to_vote_arrival_order(self, vote_kwargs):
+        forward = majority_vote_with_tiebreak(["C", "A"], **vote_kwargs)
+        reversed_ = majority_vote_with_tiebreak(["A", "C"], **vote_kwargs)
+        assert forward == reversed_

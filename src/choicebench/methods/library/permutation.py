@@ -16,7 +16,6 @@ Backend requirements: generate only
 Logprob support required: no
 """
 
-import collections
 import json
 from typing import Any, Sequence
 
@@ -27,7 +26,7 @@ from choicebench.pipeline.prompt_builder import (
     build_rotations,
 )
 from choicebench.methods.base import ExperimentRunner
-from choicebench.scoring.tiebreak import resolve_tie
+from choicebench.scoring.tiebreak import majority_vote_with_tiebreak
 
 
 class PermutationRunner(ExperimentRunner):
@@ -276,21 +275,7 @@ class PermutationRunner(ExperimentRunner):
         Returns:
             The most frequent letter, or None if no valid votes exist.
         """
-        cleaned = [x for x in choices if x is not None]
-        if not cleaned:
-            return None
-
-        counts = collections.Counter(cleaned)
-        top = counts.most_common(2)
-        if len(top) == 1 or top[0][1] != top[1][1]:
-            return top[0][0]
-
-        max_count = top[0][1]
-        tied_letters = [letter for letter, count in counts.items() if count == max_count]
-        tied_ids = [label_to_source_index[letter] for letter in tied_letters]
-        winning_id = resolve_tie(
-            seed=seed, benchmark_id=benchmark_id, question_id=question_id,
-            method_name=method_name, tied_canonical_ids=tied_ids,
+        return majority_vote_with_tiebreak(
+            choices, label_to_source_index=label_to_source_index, seed=seed,
+            benchmark_id=benchmark_id, question_id=question_id, method_name=method_name,
         )
-        id_to_label = {v: k for k, v in label_to_source_index.items()}
-        return id_to_label[winning_id]
