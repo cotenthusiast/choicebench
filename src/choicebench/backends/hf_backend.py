@@ -37,6 +37,7 @@ class HuggingFaceBackend(BaseBackend):
         device: str = "cuda",
         add_bos_token: bool = True,
         revision: str | None = None,
+        torch_dtype: str | None = None,
         **generation_kwargs,
     ) -> None:
         """
@@ -50,6 +51,14 @@ class HuggingFaceBackend(BaseBackend):
                 tokenizers' own default and prior behavior of this class.
                 Zheng et al., ICLR 2024 (arXiv:2309.03882) do not prepend BOS
                 for open-source models — pass False to reproduce that setup.
+            torch_dtype: Load-time dtype override -- "float32", "float16",
+                "bfloat16", or "auto" (defers to the checkpoint's own
+                declared torch_dtype). None preserves the prior default
+                (float32 on cpu, float16 elsewhere). Use "auto" or
+                "bfloat16" for a quantized checkpoint (e.g. a
+                compressed-tensors FP8 model) whose non-quantized layers
+                have their own native dtype that forcing float16 would
+                silently override.
             **generation_kwargs: Default overrides for generate(), e.g.
                 max_new_tokens=256, temperature=0.7, do_sample=True. Any of
                 these can also be passed per-call to generate().
@@ -58,6 +67,7 @@ class HuggingFaceBackend(BaseBackend):
         self._device = device
         self._add_bos_token = add_bos_token
         self._revision = revision
+        self._torch_dtype = torch_dtype
         self._default_generation_kwargs = generation_kwargs
         self._model = None
         self._tokenizer = None
@@ -102,9 +112,14 @@ class HuggingFaceBackend(BaseBackend):
             revision=self._revision,
         )
 
-        logger.info("Loading model: %s  device=%s", self._model_path, self._device)
+        logger.info("Loading model: %s  device=%s  torch_dtype=%s",
+                    self._model_path, self._device, self._torch_dtype or "(default)")
+        if self._torch_dtype is not None:
+            resolved_dtype = self._torch_dtype if self._torch_dtype == "auto" else getattr(torch, self._torch_dtype)
+        else:
+            resolved_dtype = torch.float32 if self._device == "cpu" else torch.float16
         load_kwargs = {
-            "torch_dtype": torch.float32 if self._device == "cpu" else torch.float16,
+            "torch_dtype": resolved_dtype,
             "trust_remote_code": True,
             "revision": self._revision,
         }

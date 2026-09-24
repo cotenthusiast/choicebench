@@ -255,6 +255,13 @@ models:                         # one or more; every model runs every benchmark
     model_name_or_path: Qwen/Qwen2.5-7B-Instruct  # HF hub ID or local path
     revision: null               # optional model branch/tag/commit; identity-bearing
     device: cuda                # "cuda" | "cpu" | "auto" (multi-GPU)
+    torch_dtype: null           # null (default: float32 on cpu, float16 elsewhere) |
+                                 # "float32" | "float16" | "bfloat16" | "auto" (defers to
+                                 # the checkpoint's own declared dtype -- use this or
+                                 # "bfloat16" for a quantized checkpoint, e.g. a
+                                 # compressed-tensors FP8 model, whose non-quantized
+                                 # layers have their own native dtype that forcing
+                                 # float16 would silently override)
     generation_kwargs:
       max_new_tokens: 512
       temperature: 0.0

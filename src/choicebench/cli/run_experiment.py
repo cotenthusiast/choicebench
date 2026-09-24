@@ -206,6 +206,8 @@ def build_backend(
         }
         if model_config.revision is not None:
             hf_kwargs["revision"] = model_config.revision
+        if model_config.torch_dtype is not None:
+            hf_kwargs["torch_dtype"] = model_config.torch_dtype
         backend = HuggingFaceBackend(
             model_config.model_name_or_path, model_config.device, **hf_kwargs,
         )

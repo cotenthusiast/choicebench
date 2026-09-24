@@ -259,3 +259,70 @@ def test_seed_never_reaches_transformers_generate_kwargs():
     backend, _ = _seeded_backend(do_sample=True)
     backend.generate("p")
     assert "seed" not in backend._model.generate_kwargs
+
+
+# ---------------------------------------------------------------------------
+# torch_dtype override (load-time model dtype)
+# ---------------------------------------------------------------------------
+
+def _load_with_patched_transformers(monkeypatch, backend):
+    """Patches the real transformers.AutoModelForCausalLM/AutoTokenizer
+    .from_pretrained() so load() runs for real (no bypass) but never hits
+    the network, capturing the exact torch_dtype kwarg it was called with."""
+    import transformers
+
+    captured = {}
+
+    def fake_model_from_pretrained(model_path, **kwargs):
+        captured["torch_dtype"] = kwargs.get("torch_dtype")
+        return _FakeModel()
+
+    def fake_tokenizer_from_pretrained(model_path, **kwargs):
+        return _FakeTokenizer()
+
+    monkeypatch.setattr(transformers.AutoModelForCausalLM, "from_pretrained", fake_model_from_pretrained)
+    monkeypatch.setattr(transformers.AutoTokenizer, "from_pretrained", fake_tokenizer_from_pretrained)
+    monkeypatch.setattr(_FakeModel, "to", lambda self, device: self, raising=False)
+    monkeypatch.setattr(_FakeModel, "eval", lambda self: self, raising=False)
+    backend.load()
+    return captured
+
+
+def test_torch_dtype_defaults_to_float32_on_cpu(monkeypatch):
+    import torch
+    backend = HuggingFaceBackend("some/model", device="cpu")
+    captured = _load_with_patched_transformers(monkeypatch, backend)
+    assert captured["torch_dtype"] is torch.float32
+
+
+def test_torch_dtype_defaults_to_float16_on_cuda(monkeypatch):
+    import torch
+    backend = HuggingFaceBackend("some/model", device="cuda")
+    captured = _load_with_patched_transformers(monkeypatch, backend)
+    assert captured["torch_dtype"] is torch.float16
+
+
+def test_torch_dtype_override_bfloat16(monkeypatch):
+    import torch
+    backend = HuggingFaceBackend("some/model", device="cuda", torch_dtype="bfloat16")
+    captured = _load_with_patched_transformers(monkeypatch, backend)
+    assert captured["torch_dtype"] is torch.bfloat16
+
+
+def test_torch_dtype_override_auto_passes_through_the_literal_string(monkeypatch):
+    """"auto" is not a torch dtype object -- transformers itself interprets
+    the literal string "auto" specially (defer to the checkpoint's own
+    declared dtype), so it must be passed through as-is, not resolved via
+    getattr(torch, "auto")."""
+    backend = HuggingFaceBackend("some/model", device="cuda", torch_dtype="auto")
+    captured = _load_with_patched_transformers(monkeypatch, backend)
+    assert captured["torch_dtype"] == "auto"
+
+
+def test_torch_dtype_override_beats_the_cpu_default(monkeypatch):
+    """An explicit override applies even on cpu, where the hardcoded
+    default would otherwise have been float32."""
+    import torch
+    backend = HuggingFaceBackend("some/model", device="cpu", torch_dtype="bfloat16")
+    captured = _load_with_patched_transformers(monkeypatch, backend)
+    assert captured["torch_dtype"] is torch.bfloat16
