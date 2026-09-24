@@ -588,6 +588,8 @@ digest (see above).
 | `pride` | PriDe Eq. 8 logprob debiasing. YAML-driven runs use a uniform prior unless a preflight calibration block is configured (see the `preflight:` example in [Config Reference](#config-reference)). Without preflight, this is logprob argmax only, not calibration-fitted debiasing. Subject to the [modal-k gate](#method-compatibility--known-limitations). | 1 score_options call per eval row; +4K calibration calls per run if K calibration rows are supplied |
 | `cyclic_logprob` | Eq. 1 logprob averaging: score every cyclic permutation via `score_options`, average probability mass back to canonical slots, argmax | N options, normally 4 score_options calls |
 | `direct_logprob` | Zheng et al.'s "Default" baseline: reads next-token log-probabilities of the option-letter tokens via a single `score_options` call and predicts the argmax: no generation, no permutations, no calibration. Requires `requires_logprobs: true` in config, same as `pride`/`cyclic_logprob`. | 1 score_options call |
+| `reasoning_mcq` | Paper-specific (`paper/eacl-2026-revision`): aliases `direct_mcq`'s runner unchanged, driven by a reasoning-enabled prompt bundle (`prompt_version: v1_reasoning`) asking for brief step-by-step reasoning before a final answer. No new runner behavior. | 1 |
+| `reasoning_two_stage` | Paper-specific (`paper/eacl-2026-revision`): aliases `two_stage`'s runner unchanged; Stage 1 uses the reasoning-enabled prompt bundle, Stage 2 is unchanged. | 2, or 3 if fallback is enabled |
 
 #### Authoritative answer column per method
 
