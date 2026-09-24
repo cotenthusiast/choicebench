@@ -123,6 +123,13 @@ class BenchmarkConfig:
     split: str = "test"
     n_samples: int | None = None
     sampling: SamplingConfig | None = None
+    # Mutually exclusive with n_samples and sampling: filters the loaded
+    # benchmark down to EXACTLY the question IDs in this file (one column
+    # "question_id", or one ID per line for a plain-text file), rather than
+    # re-deriving a selection at run time. Use this to guarantee a frozen
+    # evaluation manifest stays authoritative even if the underlying
+    # prepared dataset artifact ever changes.
+    question_id_manifest: str | None = None
     subject_filter: list[str] | None = None
     hf_path: str | None = None       # e.g. "cais/mmlu"
     hf_subset: str | None = None     # e.g. "all" or "ARC-Challenge"
@@ -335,8 +342,8 @@ def _build_benchmark_entry(raw: dict, index: int) -> BenchmarkConfig:
     if not isinstance(raw, Mapping):
         raise ConfigError(f"{where} must be a YAML mapping; got {raw!r}.")
     _reject_unknown(raw, {
-        "name", "split", "n_samples", "sampling", "subject_filter", "hf_path", "hf_subset",
-        "output_name", "source_revision", "transforms",
+        "name", "split", "n_samples", "sampling", "question_id_manifest", "subject_filter",
+        "hf_path", "hf_subset", "output_name", "source_revision", "transforms",
     }, where)
     name = _nonempty(_require(raw, "name", where), f"{where}.name")
     valid = get_valid_benchmarks()
@@ -353,6 +360,14 @@ def _build_benchmark_entry(raw: dict, index: int) -> BenchmarkConfig:
             f"{where}: n_samples and sampling are mutually exclusive; set only one."
         )
     sampling = _build_sampling_entry(sampling_raw, f"{where}.sampling") if sampling_raw is not None else None
+    question_id_manifest = raw.get("question_id_manifest")
+    if question_id_manifest is not None:
+        question_id_manifest = _nonempty(question_id_manifest, f"{where}.question_id_manifest")
+        if n_samples is not None or sampling is not None:
+            raise ConfigError(
+                f"{where}: question_id_manifest, n_samples, and sampling are mutually "
+                "exclusive; set only one."
+            )
     if name == BENCHMARK_HUGGINGFACE and not raw.get("hf_path"):
         raise ConfigError(f"{where}.hf_path is required when name is 'huggingface'.")
     transforms = raw.get("transforms", [])
@@ -372,6 +387,7 @@ def _build_benchmark_entry(raw: dict, index: int) -> BenchmarkConfig:
         split=_nonempty(raw.get("split", "test"), f"{where}.split"),
         n_samples=n_samples,
         sampling=sampling,
+        question_id_manifest=question_id_manifest,
         subject_filter=subject_filter,
         hf_path=raw.get("hf_path"),
         hf_subset=raw.get("hf_subset"),

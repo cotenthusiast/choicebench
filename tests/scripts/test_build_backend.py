@@ -610,6 +610,62 @@ def test_load_benchmark_sampling_per_group_raises_on_undersized_group(monkeypatc
     assert "history" in str(exc_info.value)
 
 
+def test_load_benchmark_question_id_manifest_filters_to_exact_ids(monkeypatch, tmp_path):
+    rows = [{"question_id": f"q{i}", "subject": "math"} for i in range(10)]
+    artifact = types.SimpleNamespace(
+        dataframe=pd.DataFrame(rows), artifact_id="ds", content_digest="digest",
+    )
+    run_exp = _load_run_experiment()
+    monkeypatch.setattr(run_exp, "load_prepared_dataset", lambda *a, **k: artifact)
+
+    manifest_path = tmp_path / "manifest.csv"
+    pd.DataFrame({"question_id": ["q2", "q5", "q7"]}).to_csv(manifest_path, index=False)
+
+    questions = run_exp.load_benchmark_selection(
+        BenchmarkConfig(name="toy", question_id_manifest=str(manifest_path)),
+        run_seed=42,
+    ).questions
+
+    assert sorted(questions["question_id"]) == ["q2", "q5", "q7"]
+
+
+def test_load_benchmark_question_id_manifest_is_deterministic_and_order_independent(monkeypatch, tmp_path):
+    rows = [{"question_id": f"q{i}", "subject": "math"} for i in range(10)]
+    artifact = types.SimpleNamespace(
+        dataframe=pd.DataFrame(rows), artifact_id="ds", content_digest="digest",
+    )
+    run_exp = _load_run_experiment()
+    monkeypatch.setattr(run_exp, "load_prepared_dataset", lambda *a, **k: artifact)
+
+    manifest_path = tmp_path / "manifest.csv"
+    pd.DataFrame({"question_id": ["q9", "q1", "q3"]}).to_csv(manifest_path, index=False)
+
+    cfg = BenchmarkConfig(name="toy", question_id_manifest=str(manifest_path))
+    ids_a = sorted(run_exp.load_benchmark_selection(cfg, run_seed=42).questions["question_id"])
+    ids_b = sorted(run_exp.load_benchmark_selection(cfg, run_seed=99).questions["question_id"])
+    # Manifest-based selection ignores run_seed entirely -- it's not a
+    # sampling strategy, it's an exact frozen list.
+    assert ids_a == ids_b == ["q1", "q3", "q9"]
+
+
+def test_load_benchmark_question_id_manifest_raises_on_missing_ids(monkeypatch, tmp_path):
+    rows = [{"question_id": "q1", "subject": "math"}]
+    artifact = types.SimpleNamespace(
+        dataframe=pd.DataFrame(rows), artifact_id="ds", content_digest="digest",
+    )
+    run_exp = _load_run_experiment()
+    monkeypatch.setattr(run_exp, "load_prepared_dataset", lambda *a, **k: artifact)
+
+    manifest_path = tmp_path / "manifest.csv"
+    pd.DataFrame({"question_id": ["q1", "q_does_not_exist"]}).to_csv(manifest_path, index=False)
+
+    with pytest.raises(ValueError, match="q_does_not_exist"):
+        run_exp.load_benchmark_selection(
+            BenchmarkConfig(name="toy", question_id_manifest=str(manifest_path)),
+            run_seed=42,
+        )
+
+
 def test_load_benchmark_subject_filter_rejects_empty_result(monkeypatch):
     run_exp = _load_run_experiment()
     artifact = types.SimpleNamespace(

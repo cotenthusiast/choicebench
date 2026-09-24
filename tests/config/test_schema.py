@@ -291,6 +291,32 @@ def test_allow_fallbacks_must_be_boolean(tmp_path):
         load_config(_write_config(tmp_path, data))
 
 
+def test_question_id_manifest_parses(tmp_path):
+    data = _valid_config()
+    del data["benchmarks"][0]["n_samples"]
+    data["benchmarks"][0]["question_id_manifest"] = "data/manifests/mmlu_eval_v2.csv"
+    config = load_config(_write_config(tmp_path, data))
+    assert config.benchmarks[0].question_id_manifest == "data/manifests/mmlu_eval_v2.csv"
+
+
+def test_question_id_manifest_and_n_samples_are_mutually_exclusive(tmp_path):
+    data = _valid_config()
+    data["benchmarks"][0]["question_id_manifest"] = "data/manifests/mmlu_eval_v2.csv"
+    with pytest.raises(ConfigError, match="mutually exclusive"):
+        load_config(_write_config(tmp_path, data))
+
+
+def test_question_id_manifest_and_sampling_are_mutually_exclusive(tmp_path):
+    data = _valid_config()
+    del data["benchmarks"][0]["n_samples"]
+    data["benchmarks"][0]["question_id_manifest"] = "data/manifests/mmlu_eval_v2.csv"
+    data["benchmarks"][0]["sampling"] = {
+        "strategy": "per_group", "group_field": "subject", "n_per_group": 20,
+    }
+    with pytest.raises(ConfigError, match="mutually exclusive"):
+        load_config(_write_config(tmp_path, data))
+
+
 def test_sampling_per_group_parses(tmp_path):
     data = _valid_config()
     del data["benchmarks"][0]["n_samples"]
