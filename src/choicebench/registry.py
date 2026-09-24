@@ -38,6 +38,11 @@ METHOD_REGISTRY: dict[str, type] = {
     # settings in config -- no new runner behavior.
     "reasoning_mcq": DirectMCQRunner,
     "reasoning_two_stage": TwoStageRunner,
+    # reasoning_mcq's own flip-rate is derived from this run's
+    # per_rotation_choices_json (see PermutationRunner), exactly as
+    # direct_mcq's flip-rate is derived from cyclic_permutation's --
+    # same relationship, reasoning-enabled prompt bundle.
+    "reasoning_cyclic": PermutationRunner,
     "independent_hypothesis": IndependentHypothesisRunner,
     "text_extraction": TextExtractionRunner,
     "visible_llm_matcher": VisibleLLMMatcherRunner,

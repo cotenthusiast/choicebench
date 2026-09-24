@@ -126,3 +126,19 @@ class TestRunTwoStageRotations:
         df.to_csv(path, index=False)
         with pytest.raises(ValueError, match="free_text_response"):
             mod.run(path, _DUMMY_MODEL_CONFIG, "test_run", tmp_path / "out.csv", run_seed=42)
+
+    def test_method_name_and_prompt_version_are_overridable(self, tmp_path):
+        """Same script, reused for reasoning_two_stage's flip-rate: only the
+        stamped method_name and the prompt bundle (which supplies stage 2's
+        reasoning-enabled option_matching template) differ from two_stage_v1."""
+        source = _two_stage_csv(tmp_path, [("q1", "HTTPS")])
+        output = tmp_path / "out.csv"
+
+        n_written = mod.run(
+            source, _DUMMY_MODEL_CONFIG, "test_run", output, run_seed=42,
+            method_name="reasoning_two_stage", prompt_version="v1_reasoning",
+        )
+
+        assert n_written == 1
+        result_df = pd.read_csv(output)
+        assert result_df.iloc[0]["method_name"] == "reasoning_two_stage"

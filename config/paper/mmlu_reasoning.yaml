@@ -73,6 +73,10 @@ benchmarks:
 methods:
   - name: reasoning_mcq
   - name: reasoning_two_stage
+  # reasoning_mcq's own flip-rate is derived from this run's
+  # per_rotation_choices_json, exactly as direct_mcq's flip-rate is
+  # derived from cyclic_permutation's in the core methods config.
+  - name: reasoning_cyclic
 
 metrics:
   - accuracy

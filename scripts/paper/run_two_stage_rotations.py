@@ -52,8 +52,17 @@ def run(
         output_path: Path,
         run_seed: int = 42,
         resume: bool = True,
+        method_name: str = METHOD_NAME,
+        prompt_version: str = "v1",
 ) -> int:
     """Run the stage-2 rotation rerun for every row in two_stage_csv.
+
+    ``method_name``/``prompt_version`` default to two_stage_v1's own
+    ("two_stage", "v1"); pass "reasoning_two_stage"/"v1_reasoning" to reuse
+    this same script for reasoning_two_stage's flip-rate -- the only
+    difference is the stamped method_name and which prompt bundle supplies
+    stage 2's option_matching template, same as reasoning_two_stage's own
+    accuracy run relates to two_stage's.
 
     Returns:
         Number of new rows written (excludes rows already present on
@@ -70,8 +79,8 @@ def run(
 
     backend = build_backend(model_config, run_id, run_seed=run_seed)
     runner = TwoStageRunner(
-        backend=backend, method_name=METHOD_NAME, split_name="test",
-        prompt_version="v1", prompts_dir=Path("prompts"), run_id=run_id,
+        backend=backend, method_name=method_name, split_name="test",
+        prompt_version=prompt_version, prompts_dir=Path("prompts"), run_id=run_id,
         seed=run_seed, benchmark_name=source_df["benchmark_name"].iloc[0] if len(source_df) else "",
         temperature=model_config.generation_kwargs.temperature,
         max_tokens=model_config.generation_kwargs.max_new_tokens,
@@ -114,6 +123,11 @@ def main() -> None:
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--no-resume", action="store_true")
+    parser.add_argument("--method-name", default=METHOD_NAME,
+                         help="Stamped on output rows; pass 'reasoning_two_stage' "
+                              "together with --prompt-version v1_reasoning to reuse "
+                              "this script for reasoning_two_stage's flip-rate.")
+    parser.add_argument("--prompt-version", default="v1")
     args = parser.parse_args()
 
     config = load_config(str(args.model_config))
@@ -122,6 +136,7 @@ def main() -> None:
     n_written = run(
         args.two_stage_csv, model_config, args.run_id, args.output,
         run_seed=args.seed, resume=not args.no_resume,
+        method_name=args.method_name, prompt_version=args.prompt_version,
     )
     print(f"Wrote {n_written} new rows -> {args.output}")
 
