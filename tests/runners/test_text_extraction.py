@@ -1,5 +1,6 @@
 # tests/runners/test_text_extraction.py
 
+import json
 from pathlib import Path
 
 import numpy as np
@@ -97,3 +98,55 @@ class TestTextExtractionRunOne:
             run_id="test_run_001", seed=42, benchmark_name="mmlu",
         )
         assert runner._effective_embed_fn() is default_embed_fn
+
+
+class TestRunRotations:
+    """text_extraction's options are VISIBLE in the prompt (unlike
+    two_stage's hidden stage 1), so rotating the options is a genuine
+    order-sensitivity probe -- unlike semantic_matching_v1's derivation,
+    this requires a full new call per rotation, not a reused stage-1
+    answer."""
+
+    def test_makes_exactly_n_calls_one_per_rotation(self, runner_question_row):
+        backend = MockBackend(responses=["HTTPS"] * 4)
+        result = _make_runner(backend).run_rotations(runner_question_row, sample_index=0)
+        assert len(backend.requests_received) == 4
+        per_rotation = json.loads(result["per_rotation_choices_json"])
+        assert len(per_rotation) == 4
+
+    def test_options_are_actually_rotated_across_calls(self, runner_question_row):
+        """Distinguishes this from four identical repeated calls: each
+        prompt must show a genuinely different option ordering."""
+        backend = MockBackend(responses=["HTTPS"] * 4)
+        _make_runner(backend).run_rotations(runner_question_row, sample_index=0)
+        assert len(set(backend.requests_received)) == 4
+
+    def test_unanimous_correct_match_across_rotations(self, runner_question_row):
+        backend = MockBackend(responses=["HTTPS"] * 4)
+        result = _make_runner(backend).run_rotations(runner_question_row, sample_index=0)
+        per_rotation = json.loads(result["per_rotation_choices_json"])
+        assert per_rotation == ["C", "C", "C", "C"]
+        assert result["parsed_choice"] == "C"
+        assert result["is_correct"] is True
+
+    def test_dissenting_rotation_is_visible_in_the_trace(self, runner_question_row):
+        backend = MockBackend(responses=["HTTPS", "HTTPS", "HTTPS", "FTP"])
+        result = _make_runner(backend).run_rotations(runner_question_row, sample_index=0)
+        per_rotation = json.loads(result["per_rotation_choices_json"])
+        assert per_rotation == ["C", "C", "C", "A"]
+        assert result["parsed_choice"] == "C"  # majority vote still wins
+
+    def test_all_rotations_fail_yields_no_parsed_choice(self, runner_question_row):
+        from choicebench.clients.types import ProviderTimeoutError
+        backend = MockBackend(responses=[ProviderTimeoutError("timed out") for _ in range(4)])
+        result = _make_runner(backend).run_rotations(runner_question_row, sample_index=0)
+        assert result["parsed_choice"] is None
+        per_rotation = json.loads(result["per_rotation_choices_json"])
+        assert per_rotation == [None, None, None, None]
+
+    def test_result_row_has_metadata(self, runner_question_row):
+        backend = MockBackend(responses=["HTTPS"] * 4)
+        result = _make_runner(backend).run_rotations(runner_question_row, sample_index=0)
+        assert result["run_id"] == "test_run_001"
+        assert result["method_name"] == "text_extraction"
+        assert result["split_name"] == "test"

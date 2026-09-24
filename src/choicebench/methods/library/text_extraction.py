@@ -17,12 +17,14 @@ Logprob support required: no
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from choicebench.methods.base import ExperimentRunner
 from choicebench.parsing.types import PARSE_MISSING, PARSE_OK, ParseResult
-from choicebench.pipeline.prompt_builder import build_direct_mcq_prompt
+from choicebench.pipeline.prompt_builder import build_direct_mcq_prompt, build_rotations
 from choicebench.scoring.text_matcher import EmbedFn, default_embed_fn, match_text_to_options
+from choicebench.scoring.tiebreak import majority_vote_with_tiebreak
 
 
 class TextExtractionRunner(ExperimentRunner):
@@ -66,6 +68,77 @@ class TextExtractionRunner(ExperimentRunner):
             parsed_result=parsed_result,
             score_result=score_result,
         )
+
+    def run_rotations(self, question_row: Any, sample_index: int) -> dict:
+        """Full rerun under every cyclic rotation of the options -- one new
+        call per rotation, since options are VISIBLE here (unlike
+        two_stage's hidden stage 1), so a rotation genuinely changes what
+        the model sees. Matching is always against this question's
+        canonical (unrotated) option texts: the cascade matches on text
+        content, not the letter/position the model saw it at, so the
+        canonical answer a given response yields doesn't depend on which
+        rotation elicited it.
+
+        Args:
+            question_row: Normalized question record.
+            sample_index: Repetition index for this question within the run.
+
+        Returns:
+            Flat result dictionary: the majority-voted answer across
+            rotations, plus per_rotation_choices_json (one canonical letter,
+            or null, per rotation, in rotation order).
+        """
+        canonical_options = self._build_options(question_row)
+        rotations = build_rotations(canonical_options)
+
+        prompts = [
+            build_direct_mcq_prompt(
+                template=self._prompts["text_extraction"],
+                question=question_row["question_text"],
+                options=rotation.mapping,
+                subject=question_row["subject"],
+            )
+            for rotation in rotations
+        ]
+        responses = [self._call_backend_generate(prompt) for prompt in prompts]
+
+        canonical_choices: list[str | None] = []
+        for response in responses:
+            if response.is_success():
+                parsed_result, _ = self._match_and_score(
+                    free_text=response.raw_text, question_row=question_row,
+                )
+                canonical_choices.append(parsed_result.final_choice)
+            else:
+                canonical_choices.append(None)
+
+        voted_letter = majority_vote_with_tiebreak(
+            canonical_choices,
+            label_to_source_index=self._build_label_to_source_index(question_row),
+            seed=self.seed, benchmark_id=self.benchmark_name,
+            question_id=question_row["question_id"], method_name=self.method_name,
+        )
+        voted_parse = ParseResult(
+            final_choice=voted_letter,
+            status=PARSE_OK if voted_letter else PARSE_MISSING,
+            raw_text=None,
+            normalized_text="",
+            reason="rotation_majority_vote",
+        )
+        score_result = None
+        if voted_letter:
+            score_result = self._score(voted_parse, question_row["correct_option"])
+
+        row = self._build_result_row(
+            question_row=question_row,
+            prompt=prompts[0],
+            sample_index=sample_index,
+            model_response=responses[0],
+            parsed_result=voted_parse,
+            score_result=score_result,
+        )
+        row["per_rotation_choices_json"] = json.dumps(canonical_choices)
+        return row
 
     def _build_prompt(self, question_row: Any) -> str:
         return build_direct_mcq_prompt(
