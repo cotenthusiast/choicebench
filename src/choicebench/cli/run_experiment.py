@@ -174,6 +174,9 @@ def build_backend(
         }
         if model_config.base_url is not None:
             client_kwargs["base_url"] = model_config.base_url
+        if model_config.upstream_provider is not None:
+            client_kwargs["upstream_provider"] = model_config.upstream_provider
+            client_kwargs["allow_fallbacks"] = model_config.allow_fallbacks
         client = client_cls(**client_kwargs)
         model_cache_id = model_identity or short_id("model", canonicalize(asdict(model_config)))
         if cache_scope == "shared":

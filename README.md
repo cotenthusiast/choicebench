@@ -261,8 +261,17 @@ models:                         # one or more; every model runs every benchmark
       do_sample: false
 
   - backend: api                # API-backed model; no GPU required
-    provider: openai            # "anthropic" | "openai" | "gemini" | "groq" | "together" | "vllm"
+    provider: openai            # "anthropic" | "openai" | "gemini" | "groq" | "together" | "vllm" | "openrouter"
     model_name_or_path: gpt-4.1-mini
+    generation_kwargs:
+      max_new_tokens: 512
+      temperature: 0.0
+
+  - backend: api                # OpenRouter: optional upstream pinning
+    provider: openrouter
+    model_name_or_path: meta-llama/llama-3.1-8b-instruct
+    upstream_provider: deepinfra  # optional; pins routing to one upstream provider
+    allow_fallbacks: false        # optional, default true; false refuses to silently reroute
     generation_kwargs:
       max_new_tokens: 512
       temperature: 0.0
@@ -678,6 +687,7 @@ capture model weights, so two local checkpoints sharing a basename
 | `groq` | Groq API (Llama, Mixtral models) |
 | `together` | Together AI (Qwen, Llama, and other open-weight models) |
 | `vllm` | Local vLLM OpenAI-compatible server; configure `base_url`, no hosted API key required. Generate-only, like the other API clients; not accepted for `pride`/`cyclic_logprob`, see [Logprob methods](#logprob-methods-pride-cyclic_logprob) |
+| `openrouter` | OpenRouter gateway to many upstream providers/models. Optional `upstream_provider`/`allow_fallbacks` model-config fields pin a specific upstream provider and disable OpenRouter's automatic fallback routing; omit both for OpenRouter's default automatic routing. Generate-only. |
 
 ### Benchmarks
 
