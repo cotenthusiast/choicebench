@@ -21,6 +21,7 @@ from choicebench.methods import (
 # paper-branch-only registration rather than promoting it into main's
 # permanent default method library.
 from choicebench.methods.library.independent_hypothesis import IndependentHypothesisRunner
+from choicebench.methods.library.text_extraction import TextExtractionRunner
 
 METHOD_REGISTRY: dict[str, type] = {
     "direct_mcq": DirectMCQRunner,
@@ -37,6 +38,7 @@ METHOD_REGISTRY: dict[str, type] = {
     "reasoning_mcq": DirectMCQRunner,
     "reasoning_two_stage": TwoStageRunner,
     "independent_hypothesis": IndependentHypothesisRunner,
+    "text_extraction": TextExtractionRunner,
 }
 
 CLIENT_REGISTRY: dict[str, type] = {

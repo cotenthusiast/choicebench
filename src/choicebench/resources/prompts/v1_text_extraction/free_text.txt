@@ -1,0 +1,5 @@
+Answer the following question based on your knowledge.
+
+Question: {question}
+
+Respond with a short direct answer only.

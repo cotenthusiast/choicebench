@@ -610,6 +610,7 @@ digest (see above).
 | `reasoning_mcq` | Paper-specific (`paper/eacl-2026-revision`): aliases `direct_mcq`'s runner unchanged, driven by a reasoning-enabled prompt bundle (`prompt_version: v1_reasoning`) asking for brief step-by-step reasoning before a final answer. No new runner behavior. | 1 |
 | `reasoning_two_stage` | Paper-specific (`paper/eacl-2026-revision`): aliases `two_stage`'s runner unchanged; Stage 1 uses the reasoning-enabled prompt bundle, Stage 2 is unchanged. | 2, or 3 if fallback is enabled |
 | `independent_hypothesis` | Paper-specific (`paper/eacl-2026-revision`): evaluates each real option as an isolated hypothesis, one call per option, never two options in the same prompt. Argmax over per-option `<score>X</score>` confidence, ties broken by the shared canonical tie-break utility. Ported natively from two external repos used for the original paper's IHS numbers. | N options (never padded for a missing option) |
+| `text_extraction` | Paper-specific (`paper/eacl-2026-revision`): options are visible; the model is asked for the answer's text (not a letter), matched back to a canonical option via the shared exact→containment→cosine cascade (`choicebench.scoring.text_matcher`), never the letter-based free-form parser. One cell of the paper's 2×2 Stage-1-visibility × Stage-2-matcher diagnostic grid. | 1 |
 
 #### Authoritative answer column per method
 

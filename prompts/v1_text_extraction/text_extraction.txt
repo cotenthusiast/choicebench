@@ -1,0 +1,8 @@
+Answer the following question. Read all options carefully.
+
+Question: {question}
+
+Options:
+{options}
+
+Respond with the correct answer text only. Do not write the option letter. Do not explain.
