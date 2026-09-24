@@ -27,7 +27,7 @@ def _make_runner(backend, embed_fn=_no_match_embed_fn):
         backend=backend,
         method_name="text_extraction",
         split_name="test",
-        prompt_version="v1_text_extraction",
+        prompt_version="v1",
         prompts_dir=_PROMPTS_DIR,
         run_id="test_run_001",
         seed=42,
@@ -93,7 +93,7 @@ class TestTextExtractionRunOne:
         runner = TextExtractionRunner(
             backend=MockBackend(responses=["HTTPS"]),
             method_name="text_extraction", split_name="test",
-            prompt_version="v1_text_extraction", prompts_dir=_PROMPTS_DIR,
+            prompt_version="v1", prompts_dir=_PROMPTS_DIR,
             run_id="test_run_001", seed=42, benchmark_name="mmlu",
         )
         assert runner._effective_embed_fn() is default_embed_fn

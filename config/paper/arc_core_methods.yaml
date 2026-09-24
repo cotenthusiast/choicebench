@@ -1,0 +1,95 @@
+# config/paper/arc_core_methods.yaml
+#
+# Paper-specific (eacl-2026-revision): ARC-Challenge, core single-pass/
+# two-call methods sharing the ordinary v1 prompt bundle. See
+# mmlu_core_methods.yaml for the full rationale (identical structure, just
+# a different benchmark + frozen manifest).
+#
+# ARC's manifest is the complete 1,172-question test split -- using
+# question_id_manifest here anyway (rather than leaving split unfiltered)
+# so the exact evaluated set is pinned the same way MMLU's is, immune to
+# any future change in the upstream HF dataset.
+#
+# Run with:
+#   python scripts/run_experiment.py --config config/paper/arc_core_methods.yaml --run-id <id>
+
+experiment:
+  name: paper_arc_core_methods
+
+models:
+  - backend: api
+    provider: openai
+    model_name_or_path: gpt-4.1-mini-2025-04-14
+    concurrency_limit: 10
+    generation_kwargs:
+      max_new_tokens: 1024
+      temperature: 0.0
+
+  - backend: api
+    provider: anthropic
+    model_name_or_path: claude-haiku-4-5-20251001
+    concurrency_limit: 10
+    generation_kwargs:
+      max_new_tokens: 1024
+      temperature: 0.0
+
+  - backend: api
+    provider: openrouter
+    model_name_or_path: meta-llama/llama-3.1-8b-instruct
+    upstream_provider: deepinfra
+    allow_fallbacks: false
+    concurrency_limit: 10
+    generation_kwargs:
+      max_new_tokens: 1024
+      temperature: 0.0
+
+  - backend: api
+    provider: together
+    model_name_or_path: Qwen/Qwen2.5-7B-Instruct-Turbo
+    concurrency_limit: 5
+    generation_kwargs:
+      max_new_tokens: 1024
+      temperature: 0.0
+
+  - backend: huggingface
+    model_name_or_path: RedHatAI/Meta-Llama-3.1-8B-Instruct-FP8-dynamic
+    device: cuda
+    torch_dtype: auto
+    generation_kwargs:
+      max_new_tokens: 1024
+      temperature: 0.0
+      do_sample: false
+
+  - backend: huggingface
+    model_name_or_path: RedHatAI/Qwen2.5-7B-Instruct-FP8-dynamic
+    device: cuda
+    torch_dtype: auto
+    generation_kwargs:
+      max_new_tokens: 1024
+      temperature: 0.0
+      do_sample: false
+
+benchmarks:
+  - name: arc_challenge
+    split: test
+    transforms: []
+    question_id_manifest: data/manifests/arc_challenge_eval_v2.csv
+
+methods:
+  - name: direct_mcq
+  - name: cyclic_permutation
+  - name: two_stage
+  - name: text_extraction
+
+metrics:
+  - accuracy
+  - mad
+
+run:
+  seed: 42
+  resume: true
+  dry_run: false
+  checkpoint_every_n: 50
+  prompt_version: "v1"
+  concurrency_limit: 10
+  cache_scope: per_run

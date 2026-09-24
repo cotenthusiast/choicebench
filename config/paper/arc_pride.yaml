@@ -1,0 +1,65 @@
+# config/paper/arc_pride.yaml
+#
+# Paper-specific (eacl-2026-revision): ARC-Challenge, PriDe -- LOCAL ONLY.
+#
+# Calibration: ARC-Challenge's own validation split (299 rows, 295 modal-k=4
+# eligible -- 3 have only 3 real options, 1 has 5, correctly excluded by
+# PriDe's own modal-k filter), disjoint from the frozen 1,172-question
+# evaluation manifest, label-free. calibration_n = 15 (5% of 295 = 14.75,
+# rounded), frozen and approved. See mmlu_pride.yaml for the rest of the
+# rationale (identical design, different benchmark/calibration_n).
+#
+# Run with:
+#   python scripts/run_experiment.py --config config/paper/arc_pride.yaml --run-id <id>
+
+experiment:
+  name: paper_arc_pride
+
+models:
+  - backend: huggingface
+    model_name_or_path: RedHatAI/Meta-Llama-3.1-8B-Instruct-FP8-dynamic
+    device: cuda
+    torch_dtype: auto
+    generation_kwargs:
+      max_new_tokens: 1024
+      temperature: 0.0
+      do_sample: false
+
+  - backend: huggingface
+    model_name_or_path: RedHatAI/Qwen2.5-7B-Instruct-FP8-dynamic
+    device: cuda
+    torch_dtype: auto
+    generation_kwargs:
+      max_new_tokens: 1024
+      temperature: 0.0
+      do_sample: false
+
+benchmarks:
+  - name: arc_challenge
+    split: test
+    transforms: []
+    question_id_manifest: data/manifests/arc_challenge_eval_v2.csv
+
+methods:
+  - name: pride
+    requires_logprobs: true
+    preflight:
+      source: benchmark
+      split: validation
+      n: 15
+
+metrics:
+  - accuracy
+  - mad
+
+run:
+  seed: 42
+  resume: true
+  dry_run: false
+  checkpoint_every_n: 50
+  prompt_version: "v1"
+  concurrency_limit: 10
+  cache_scope: per_run
+
+pride:
+  modal_k_threshold: 0.95

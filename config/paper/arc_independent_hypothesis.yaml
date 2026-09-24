@@ -1,0 +1,88 @@
+# config/paper/arc_independent_hypothesis.yaml
+#
+# Paper-specific (eacl-2026-revision): ARC-Challenge, independent_hypothesis.
+# See mmlu_independent_hypothesis.yaml for rationale. ARC's option-count
+# distribution (1,165 four-option / 4 three-option / 3 five-option) is
+# handled generically by the shared N-option infrastructure -- IHS makes
+# exactly N calls per question regardless, no special-casing needed.
+#
+# Run with:
+#   python scripts/run_experiment.py --config config/paper/arc_independent_hypothesis.yaml --run-id <id>
+
+experiment:
+  name: paper_arc_independent_hypothesis
+
+models:
+  - backend: api
+    provider: openai
+    model_name_or_path: gpt-4.1-mini-2025-04-14
+    concurrency_limit: 10
+    generation_kwargs:
+      max_new_tokens: 1024
+      temperature: 0.0
+
+  - backend: api
+    provider: anthropic
+    model_name_or_path: claude-haiku-4-5-20251001
+    concurrency_limit: 10
+    generation_kwargs:
+      max_new_tokens: 1024
+      temperature: 0.0
+
+  - backend: api
+    provider: openrouter
+    model_name_or_path: meta-llama/llama-3.1-8b-instruct
+    upstream_provider: deepinfra
+    allow_fallbacks: false
+    concurrency_limit: 10
+    generation_kwargs:
+      max_new_tokens: 1024
+      temperature: 0.0
+
+  - backend: api
+    provider: together
+    model_name_or_path: Qwen/Qwen2.5-7B-Instruct-Turbo
+    concurrency_limit: 5
+    generation_kwargs:
+      max_new_tokens: 1024
+      temperature: 0.0
+
+  - backend: huggingface
+    model_name_or_path: RedHatAI/Meta-Llama-3.1-8B-Instruct-FP8-dynamic
+    device: cuda
+    torch_dtype: auto
+    generation_kwargs:
+      max_new_tokens: 1024
+      temperature: 0.0
+      do_sample: false
+
+  - backend: huggingface
+    model_name_or_path: RedHatAI/Qwen2.5-7B-Instruct-FP8-dynamic
+    device: cuda
+    torch_dtype: auto
+    generation_kwargs:
+      max_new_tokens: 1024
+      temperature: 0.0
+      do_sample: false
+
+benchmarks:
+  - name: arc_challenge
+    split: test
+    transforms: []
+    question_id_manifest: data/manifests/arc_challenge_eval_v2.csv
+
+methods:
+  - name: independent_hypothesis
+
+metrics:
+  - accuracy
+  - mad
+
+run:
+  seed: 42
+  resume: true
+  dry_run: false
+  checkpoint_every_n: 50
+  prompt_version: "v1_ihs"
+  concurrency_limit: 10
+  cache_scope: per_run

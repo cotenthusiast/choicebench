@@ -1,0 +1,71 @@
+# config/paper/mmlu_pride.yaml
+#
+# Paper-specific (eacl-2026-revision): MMLU, PriDe -- LOCAL ONLY.
+#
+# Calibration: MMLU's own validation split (1,531 rows, 1,531 modal-k=4
+# eligible), disjoint from the frozen 1,140-question evaluation manifest,
+# label-free. calibration_n = 77 (5% of 1,531 = 76.55, rounded), frozen and
+# approved -- see the frozen scientific specification. No alpha parameter
+# exists in this codebase (confirmed: PriDe's Eq.8 is a pure ratio, not a
+# blended interpolation) -- calibration_n IS the "5%" knob.
+#
+# Full local logits via HuggingFaceBackend -- never vLLM, never an API
+# backend (neither exposes full-vocabulary score_options()). This is a
+# separate config from the other MMLU methods specifically because PriDe
+# is local-only; mixing it with the API-model configs would fail config
+# validation (requires_logprobs: true on an api backend is rejected).
+#
+# Run with:
+#   python scripts/run_experiment.py --config config/paper/mmlu_pride.yaml --run-id <id>
+
+experiment:
+  name: paper_mmlu_pride
+
+models:
+  - backend: huggingface
+    model_name_or_path: RedHatAI/Meta-Llama-3.1-8B-Instruct-FP8-dynamic
+    device: cuda
+    torch_dtype: auto
+    generation_kwargs:
+      max_new_tokens: 1024
+      temperature: 0.0
+      do_sample: false
+
+  - backend: huggingface
+    model_name_or_path: RedHatAI/Qwen2.5-7B-Instruct-FP8-dynamic
+    device: cuda
+    torch_dtype: auto
+    generation_kwargs:
+      max_new_tokens: 1024
+      temperature: 0.0
+      do_sample: false
+
+benchmarks:
+  - name: mmlu
+    split: test
+    transforms: [unique_question_ids_v1]
+    question_id_manifest: data/manifests/mmlu_eval_v2.csv
+
+methods:
+  - name: pride
+    requires_logprobs: true
+    preflight:
+      source: benchmark
+      split: validation
+      n: 77
+
+metrics:
+  - accuracy
+  - mad
+
+run:
+  seed: 42
+  resume: true
+  dry_run: false
+  checkpoint_every_n: 50
+  prompt_version: "v1"
+  concurrency_limit: 10
+  cache_scope: per_run
+
+pride:
+  modal_k_threshold: 0.95
