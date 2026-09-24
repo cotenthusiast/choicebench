@@ -45,6 +45,7 @@ _NONAPI_BACKEND_CLASSES = {
     "huggingface": HuggingFaceBackend,
 }
 _VALID_DEVICES = {"cuda", "cpu", "auto"}
+_VALID_TORCH_DTYPES = {"float32", "float16", "bfloat16", "auto"}
 
 BENCHMARK_TOY = "toy"
 BENCHMARK_HUGGINGFACE = "huggingface"
@@ -92,6 +93,13 @@ class ModelConfig:
     # Ignored by api/dummy backends.
     add_bos_token: bool = True
     revision: str | None = None
+    # HuggingFaceBackend only: overrides the load-time torch dtype. None
+    # preserves the existing default (float32 on cpu, float16 elsewhere).
+    # "auto" defers to the checkpoint's own declared torch_dtype -- the
+    # right choice for a quantized checkpoint (e.g. a compressed-tensors
+    # FP8 model) whose non-quantized layers have their own native dtype
+    # (often bfloat16) that forcing float16 would silently override.
+    torch_dtype: str | None = None
 
 
 @dataclass(frozen=True)
@@ -255,7 +263,7 @@ def _build_models(raw: dict) -> list[ModelConfig]:
         _reject_unknown(entry, {
             "backend", "model_name_or_path", "provider", "device", "generation_kwargs",
             "concurrency_limit", "base_url", "add_bos_token", "revision",
-            "upstream_provider", "allow_fallbacks",
+            "upstream_provider", "allow_fallbacks", "torch_dtype",
         }, f"models[{i}]")
         backend = _nonempty(_require(entry, "backend", f"models[{i}]"), f"models[{i}].backend")
         if backend not in _VALID_BACKENDS:
@@ -269,6 +277,13 @@ def _build_models(raw: dict) -> list[ModelConfig]:
             )
         if backend == "api" and "provider" not in entry:
             raise ConfigError("model.provider is required for API backends.")
+        torch_dtype = entry.get("torch_dtype")
+        if torch_dtype is not None:
+            torch_dtype = _nonempty(torch_dtype, f"models[{i}].torch_dtype")
+            if torch_dtype not in _VALID_TORCH_DTYPES:
+                raise ConfigError(
+                    f"models[{i}].torch_dtype must be one of {sorted(_VALID_TORCH_DTYPES)}; got {torch_dtype!r}."
+                )
         models.append(
             ModelConfig(
                 backend=backend,
@@ -288,6 +303,7 @@ def _build_models(raw: dict) -> list[ModelConfig]:
                 ),
                 allow_fallbacks=_strict_bool(entry.get("allow_fallbacks", True), f"models[{i}].allow_fallbacks"),
                 add_bos_token=_strict_bool(entry.get("add_bos_token", True), f"models[{i}].add_bos_token"),
+                torch_dtype=torch_dtype,
                 revision=(
                     _nonempty(entry["revision"], f"models[{i}].revision")
                     if entry.get("revision") is not None else None

@@ -255,6 +255,43 @@ def test_huggingface_backend_receives_generation_kwargs(monkeypatch):
     }
 
 
+def test_build_backend_forwards_torch_dtype_when_set(monkeypatch):
+    run_exp = _load_run_experiment()
+
+    class _FakeHF:
+        def __init__(self, model_name_or_path, device, **generation_kwargs):
+            self.generation_kwargs = generation_kwargs
+
+        def load(self):
+            pass
+
+    monkeypatch.setattr(run_exp, "HuggingFaceBackend", _FakeHF)
+
+    backend = run_exp.build_backend(
+        _model("huggingface", device="cuda", torch_dtype="bfloat16"),
+        "rid", run_seed=1,
+    )
+    assert backend.generation_kwargs["torch_dtype"] == "bfloat16"
+
+
+def test_build_backend_omits_torch_dtype_when_unset(monkeypatch):
+    """No torch_dtype in config -> no torch_dtype kwarg forwarded at all,
+    so HuggingFaceBackend's own default resolution applies unchanged."""
+    run_exp = _load_run_experiment()
+
+    class _FakeHF:
+        def __init__(self, model_name_or_path, device, **generation_kwargs):
+            self.generation_kwargs = generation_kwargs
+
+        def load(self):
+            pass
+
+    monkeypatch.setattr(run_exp, "HuggingFaceBackend", _FakeHF)
+
+    backend = run_exp.build_backend(_model("huggingface", device="cuda"), "rid", run_seed=1)
+    assert "torch_dtype" not in backend.generation_kwargs
+
+
 def test_instantiate_runner_passes_params_to_registry_method(monkeypatch):
     run_exp = _load_run_experiment()
 

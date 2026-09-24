@@ -28,6 +28,13 @@ hf = [
     "torch",
     "transformers",
     "accelerate",
+    # Lets AutoModelForCausalLM.from_pretrained() load compressed-tensors
+    # FP8 checkpoints (e.g. RedHatAI's *-FP8-dynamic models) directly --
+    # confirmed this works via plain Transformers, no vLLM required, and
+    # (unlike vLLM's logprob interface) still exposes full-vocabulary
+    # logits for score_options()-dependent methods (PriDe, cyclic_logprob,
+    # direct_logprob). No-op for ordinary non-quantized checkpoints.
+    "compressed-tensors",
 ]
 matching = [
     "sentence-transformers",
