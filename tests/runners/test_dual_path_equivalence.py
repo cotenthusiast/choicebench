@@ -154,6 +154,11 @@ class TestPermutationRunnerDualPath:
         _assert_rows_equivalent(
             sync_rows, async_rows, "PermutationRunner dual-path"
         )
+        # Per-rotation choice traces (needed for flip-rate) must match too,
+        # not just the final voted answer.
+        assert [r["per_rotation_choices_json"] for r in sync_rows] == [
+            r["per_rotation_choices_json"] for r in async_rows
+        ]
         # Same questions fan out to the same rotation prompts either way.
         assert sorted(sync_backend.prompts_received) == sorted(
             async_backend.prompts_received

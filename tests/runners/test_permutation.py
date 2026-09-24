@@ -1,8 +1,11 @@
 # tests/runners/test_permutation.py
 
+import asyncio
+import json
 import math
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 from choicebench.benchmarks.base import make_normalized_row
@@ -497,3 +500,180 @@ class TestPermutationRunnerRunOne:
 
         assert result["parsed_choice"] is None
         assert result["answer_status"] == "failure"
+
+
+class TestPerRotationChoicesPersistence:
+    """cyclic_permutation must persist each rotation's own canonical choice
+    (not just the final majority-voted answer), mirroring cyclic_logprob's
+    option_distributions_json precedent -- this is what makes flip-rate for
+    baseline/cyclic computable at all (a question "flips" if its rotations
+    disagree, which requires seeing every rotation's answer, not just the
+    winner)."""
+
+    def test_run_one_persists_one_choice_per_rotation_in_rotation_order(
+        self, runner_question_row
+    ):
+        canonical = {"A": "FTP", "B": "HTTP", "C": "HTTPS", "D": "SMTP"}
+        perms = [r.mapping for r in PermutationRunner._generate_rotations(canonical)]
+        responses = []
+        for perm in perms:
+            for letter, text in perm.items():
+                if text == "HTTPS":
+                    responses.append(letter)
+                    break
+
+        backend = MockBackend(responses=responses)
+        runner = PermutationRunner(
+            backend=backend,
+            method_name="cyclic_permutation",
+            split_name="robustness",
+            prompt_version="v1",
+            prompts_dir=_PROMPTS_DIR,
+            run_id="test_run_001",
+        )
+
+        result = runner.run_one(runner_question_row, sample_index=0)
+
+        assert "per_rotation_choices_json" in result
+        per_rotation = json.loads(result["per_rotation_choices_json"])
+        # All four rotations unanimously voted canonical C (HTTPS).
+        assert per_rotation == ["C", "C", "C", "C"]
+
+    def test_run_one_records_canonical_letter_per_rotation_even_when_split(
+        self, runner_question_row
+    ):
+        """Majority vote collapses a 3-1 split into one winner, but the
+        per-rotation trace must still show the dissenting rotation's own
+        (canonical) choice -- otherwise a flipped question looks unanimous."""
+        canonical = {"A": "FTP", "B": "HTTP", "C": "HTTPS", "D": "SMTP"}
+        perms = [r.mapping for r in PermutationRunner._generate_rotations(canonical)]
+        responses = []
+        for i, perm in enumerate(perms):
+            if i == 0:
+                responses.append("A")  # dissents: canonical A (FTP)
+            else:
+                for letter, text in perm.items():
+                    if text == "HTTPS":
+                        responses.append(letter)
+                        break
+
+        backend = MockBackend(responses=responses)
+        runner = PermutationRunner(
+            backend=backend,
+            method_name="cyclic_permutation",
+            split_name="robustness",
+            prompt_version="v1",
+            prompts_dir=_PROMPTS_DIR,
+            run_id="test_run_001",
+        )
+
+        result = runner.run_one(runner_question_row, sample_index=0)
+
+        per_rotation = json.loads(result["per_rotation_choices_json"])
+        assert per_rotation == ["A", "C", "C", "C"]
+        # The row's own final answer is still the majority-voted winner.
+        assert result["parsed_choice"] == "C"
+
+    def test_run_one_records_null_for_a_failed_rotation(self, runner_question_row):
+        canonical = {"A": "FTP", "B": "HTTP", "C": "HTTPS", "D": "SMTP"}
+        perms = [r.mapping for r in PermutationRunner._generate_rotations(canonical)]
+        responses = []
+        for i, perm in enumerate(perms):
+            if i == 0:
+                responses.append(ProviderTimeoutError("first call timed out"))
+            else:
+                for letter, text in perm.items():
+                    if text == "HTTPS":
+                        responses.append(letter)
+                        break
+
+        backend = MockBackend(responses=responses)
+        runner = PermutationRunner(
+            backend=backend,
+            method_name="cyclic_permutation",
+            split_name="robustness",
+            prompt_version="v1",
+            prompts_dir=_PROMPTS_DIR,
+            run_id="test_run_001",
+        )
+
+        result = runner.run_one(runner_question_row, sample_index=0)
+
+        per_rotation = json.loads(result["per_rotation_choices_json"])
+        assert per_rotation == [None, "C", "C", "C"]
+
+    def test_run_many_async_persists_per_rotation_choices_per_question(self):
+        """The batched path must reassemble each question's OWN rotation
+        trace, not mix rotations across questions in the fan-out/fan-in."""
+        from tests.runners.conftest import MockBackend as _SyncMockBackend
+        from choicebench.backends.api_backend import APIBackend
+        from choicebench.clients.types import ErrorInfo, ModelResponse, SUCCESS_STATUS
+
+        canonical = {"A": "FTP", "B": "HTTP", "C": "HTTPS", "D": "SMTP"}
+        perms = [r.mapping for r in PermutationRunner._generate_rotations(canonical)]
+
+        def _https_letter(perm: dict[str, str]) -> str:
+            for letter, text in perm.items():
+                if text == "HTTPS":
+                    return letter
+            raise AssertionError("HTTPS not found in permutation")
+
+        class _FixedResponseAsyncBackend(APIBackend):
+            def __init__(self, letter_by_rotation_index: list[str]) -> None:
+                self._letters = letter_by_rotation_index
+
+            @property
+            def provider(self) -> str:
+                return "openai"
+
+            @property
+            def model_name(self) -> str:
+                return "mock-model"
+
+            def generate(self, prompt: str, **kwargs) -> str:
+                raise NotImplementedError
+
+            async def generate_batch(self, prompts: list[str]) -> list[ModelResponse]:
+                # 2 questions x 4 rotations, in question-major order.
+                out = []
+                for i in range(len(prompts)):
+                    letter = self._letters[i % 4]
+                    out.append(ModelResponse(
+                        provider="openai", model_name="mock-model",
+                        status=SUCCESS_STATUS, latency_seconds=0.0,
+                        raw_text=letter, finish_reason=None, usage=None,
+                        error=None, timestamp_utc=None,
+                    ))
+                return out
+
+        # Rotation 0 dissents (A), rotations 1-3 agree on HTTPS's letter --
+        # same pattern used above, applied identically to both questions.
+        letters = ["A"] + [_https_letter(perms[i]) for i in range(1, 4)]
+        backend = _FixedResponseAsyncBackend(letters)
+        runner = PermutationRunner(
+            backend=backend,
+            method_name="cyclic_permutation",
+            split_name="robustness",
+            prompt_version="v1",
+            prompts_dir=_PROMPTS_DIR,
+            run_id="test_run_001",
+        )
+
+        row = {
+            "question_id": "q1",
+            "subject": "computer_security",
+            "question_text": "Which protocol is primarily used to securely browse websites?",
+            "choices_json": json.dumps([
+                {"text": "FTP", "source_index": 0}, {"text": "HTTP", "source_index": 1},
+                {"text": "HTTPS", "source_index": 2}, {"text": "SMTP", "source_index": 3},
+            ]),
+            "correct_option": "C",
+        }
+        df = pd.DataFrame([row, dict(row, question_id="q2")])
+
+        results = asyncio.run(runner.run_many_async(df))
+
+        assert len(results) == 2
+        for result in results:
+            per_rotation = json.loads(result["per_rotation_choices_json"])
+            assert per_rotation == ["A", "C", "C", "C"]
