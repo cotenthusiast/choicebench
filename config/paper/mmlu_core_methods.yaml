@@ -4,15 +4,24 @@
 # methods that share the ordinary (non-reasoning) v1 prompt bundle and
 # need no upstream join/derivation step.
 #
-# Retained here: baseline (direct_mcq), cyclic (cyclic_permutation),
-# two_stage_v1 (two_stage), text_extraction.
+# Retained here: baseline (direct_mcq), two_stage_v1 (two_stage),
+# text_extraction.
+#   - cyclic_permutation moved to mmlu_core_methods_cyclic_batch.yaml --
+#     it's batch-safe (every rotation call is independently constructible
+#     up front) per the frozen Batch execution policy, and batch-mode
+#     models need a different Llama provider entry (direct DeepInfra, not
+#     OpenRouter -- see that config's own header) than the synchronous
+#     methods here, so they can't share one models: list. direct_mcq's own
+#     flip-rate is still derived from that config's cyclic_permutation
+#     output, same relationship as before.
 #   - semantic_matching_v1 is NOT a method entry -- it's a zero-inference
 #     derivation from this run's two_stage output, see
 #     scripts/paper/derive_semantic_matching.py.
 #   - visible_llm_matcher requires this run's text_extraction output
 #     joined in first (extracted_text column); it has its own config.
 #   - reasoning_mcq/reasoning_two_stage use the v1_reasoning prompt bundle
-#     (see mmlu_reasoning.yaml); independent_hypothesis uses v1_ihs (see
+#     (see mmlu_reasoning.yaml/mmlu_reasoning_batch.yaml);
+#     independent_hypothesis uses v1_ihs (see
 #     mmlu_independent_hypothesis.yaml). prompt_version applies uniformly
 #     to every method in a run, so these cannot share this config.
 #
@@ -87,7 +96,6 @@ benchmarks:
 
 methods:
   - name: direct_mcq
-  - name: cyclic_permutation
   - name: two_stage
   - name: text_extraction
 

@@ -1,22 +1,26 @@
-# config/paper/mmlu_independent_hypothesis.yaml
+# config/paper/mmlu_reasoning_batch.yaml
 #
-# Paper-specific (eacl-2026-revision): MMLU, independent_hypothesis (IHS).
-# Separate config: uses the v1_ihs prompt bundle (prompts/v1_ihs/), and IHS
-# is not flip-rate-measured (no ordered option list exists in its prompt),
-# so it doesn't need to run alongside the flip-rate-bearing core methods.
+# Paper-specific (eacl-2026-revision): MMLU, reasoning_mcq + reasoning_cyclic
+# under Batch API execution -- batch-safe per the frozen Batch execution
+# policy (every call is independently constructible up front, no
+# cross-call dependency), split out of mmlu_reasoning.yaml because
+# reasoning_two_stage there must remain synchronous (stage-1/stage-2
+# dependency) and batch-mode Llama needs a different provider entry.
 #
-# Batch-safe per the frozen Batch execution policy (every per-option call
-# is independently constructible up front, no cross-call dependency) --
-# runs under execution_mode: batch. Llama routes through the direct
-# `deepinfra` client rather than `openrouter` + upstream_provider pinning,
-# since DeepInfra's Batch API is not reachable through OpenRouter's proxy
-# (same underlying DeepInfra-hosted weights either way).
+# reasoning_mcq's own flip-rate is derived from THIS run's
+# per_rotation_choices_json (reasoning_cyclic's trace), same relationship
+# as direct_mcq/cyclic_permutation in the core methods config.
+#
+# Llama routes through the direct `deepinfra` client rather than
+# `openrouter` + upstream_provider pinning, since DeepInfra's Batch API is
+# not reachable through OpenRouter's proxy (same underlying DeepInfra-
+# hosted weights either way).
 #
 # Run with:
-#   python scripts/run_experiment.py --config config/paper/mmlu_independent_hypothesis.yaml --run-id <id>
+#   python scripts/run_experiment.py --config config/paper/mmlu_reasoning_batch.yaml --run-id <id>
 
 experiment:
-  name: paper_mmlu_independent_hypothesis
+  name: paper_mmlu_reasoning_batch
 
 models:
   - backend: api
@@ -76,7 +80,9 @@ benchmarks:
     question_id_manifest: data/manifests/mmlu_eval_v2.csv
 
 methods:
-  - name: independent_hypothesis
+  - name: reasoning_mcq
+    execution_mode: batch
+  - name: reasoning_cyclic
     execution_mode: batch
 
 metrics:
@@ -88,6 +94,6 @@ run:
   resume: true
   dry_run: false
   checkpoint_every_n: 50
-  prompt_version: "v1_ihs"
+  prompt_version: "v1_reasoning"
   concurrency_limit: 10
   cache_scope: per_run

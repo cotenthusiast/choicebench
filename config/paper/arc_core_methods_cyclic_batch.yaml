@@ -1,22 +1,15 @@
-# config/paper/mmlu_independent_hypothesis.yaml
+# config/paper/arc_core_methods_cyclic_batch.yaml
 #
-# Paper-specific (eacl-2026-revision): MMLU, independent_hypothesis (IHS).
-# Separate config: uses the v1_ihs prompt bundle (prompts/v1_ihs/), and IHS
-# is not flip-rate-measured (no ordered option list exists in its prompt),
-# so it doesn't need to run alongside the flip-rate-bearing core methods.
-#
-# Batch-safe per the frozen Batch execution policy (every per-option call
-# is independently constructible up front, no cross-call dependency) --
-# runs under execution_mode: batch. Llama routes through the direct
-# `deepinfra` client rather than `openrouter` + upstream_provider pinning,
-# since DeepInfra's Batch API is not reachable through OpenRouter's proxy
-# (same underlying DeepInfra-hosted weights either way).
+# Paper-specific (eacl-2026-revision): ARC-Challenge, cyclic_permutation
+# under Batch API execution. See mmlu_core_methods_cyclic_batch.yaml for
+# the full rationale (identical structure, just a different benchmark +
+# frozen manifest).
 #
 # Run with:
-#   python scripts/run_experiment.py --config config/paper/mmlu_independent_hypothesis.yaml --run-id <id>
+#   python scripts/run_experiment.py --config config/paper/arc_core_methods_cyclic_batch.yaml --run-id <id>
 
 experiment:
-  name: paper_mmlu_independent_hypothesis
+  name: paper_arc_core_methods_cyclic_batch
 
 models:
   - backend: api
@@ -70,13 +63,13 @@ models:
       do_sample: false
 
 benchmarks:
-  - name: mmlu
+  - name: arc_challenge
     split: test
-    transforms: [unique_question_ids_v1]
-    question_id_manifest: data/manifests/mmlu_eval_v2.csv
+    transforms: []
+    question_id_manifest: data/manifests/arc_challenge_eval_v2.csv
 
 methods:
-  - name: independent_hypothesis
+  - name: cyclic_permutation
     execution_mode: batch
 
 metrics:
@@ -88,6 +81,6 @@ run:
   resume: true
   dry_run: false
   checkpoint_every_n: 50
-  prompt_version: "v1_ihs"
+  prompt_version: "v1"
   concurrency_limit: 10
   cache_scope: per_run
