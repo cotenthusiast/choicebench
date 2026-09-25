@@ -879,6 +879,68 @@ def test_validate_error_message_names_provider():
 
 
 # ---------------------------------------------------------------------------
+# validate_batch_compatibility(): fail before building any backend if
+# execution_mode: batch is set for a provider whose client has no
+# submit_batch/poll_batch/fetch_batch_results (config/run incompatibility
+# protection -- mirrors validate_logprob_compatibility's shape/call site).
+# ---------------------------------------------------------------------------
+
+def _batch_cfg(method_name: str, provider: str) -> ExperimentConfig:
+    return ExperimentConfig(
+        name="unit",
+        models=[_model("api", provider=provider)],
+        benchmarks=[BenchmarkConfig(name="toy")],
+        methods=[MethodConfig(name=method_name, execution_mode="batch")],
+        metrics=["accuracy"],
+        run=RunConfig(seed=0, prompt_version="v1"),
+    )
+
+
+@pytest.mark.parametrize("provider", ["openai", "anthropic", "together", "deepinfra"])
+def test_validate_batch_compatibility_passes_for_batch_capable_providers(provider):
+    run_exp = _load_run_experiment()
+    run_exp.validate_batch_compatibility(_batch_cfg("cyclic_permutation", provider))
+
+
+@pytest.mark.parametrize("provider", ["gemini", "groq", "vllm", "openrouter"])
+def test_validate_batch_compatibility_raises_for_non_batch_capable_providers(provider):
+    run_exp = _load_run_experiment()
+    with pytest.raises(run_exp.ConfigurationError, match=f"provider {provider!r}"):
+        run_exp.validate_batch_compatibility(_batch_cfg("cyclic_permutation", provider))
+
+
+def test_validate_batch_compatibility_ignores_sync_methods():
+    """A non-batch-capable provider is fine as long as no method actually
+    requests execution_mode: batch against it."""
+    run_exp = _load_run_experiment()
+    cfg = ExperimentConfig(
+        name="unit",
+        models=[_model("api", provider="gemini")],
+        benchmarks=[BenchmarkConfig(name="toy")],
+        methods=[MethodConfig(name="direct_mcq", execution_mode="sync")],
+        metrics=["accuracy"],
+        run=RunConfig(seed=0, prompt_version="v1"),
+    )
+    run_exp.validate_batch_compatibility(cfg)
+
+
+def test_validate_batch_compatibility_ignores_non_api_backends():
+    """execution_mode: batch on a huggingface/dummy model is a no-op
+    (build_backend only branches on it for backend == "api"), so it must
+    never be flagged as an incompatibility here."""
+    run_exp = _load_run_experiment()
+    cfg = ExperimentConfig(
+        name="unit",
+        models=[_model("dummy")],
+        benchmarks=[BenchmarkConfig(name="toy")],
+        methods=[MethodConfig(name="direct_mcq", execution_mode="batch")],
+        metrics=["accuracy"],
+        run=RunConfig(seed=0, prompt_version="v1"),
+    )
+    run_exp.validate_batch_compatibility(cfg)
+
+
+# ---------------------------------------------------------------------------
 # Safety-net catch: APIBackend.generate() called directly
 # ---------------------------------------------------------------------------
 

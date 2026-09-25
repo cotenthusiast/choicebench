@@ -475,6 +475,38 @@ def validate_logprob_compatibility(config: ExperimentConfig) -> None:
             )
 
 
+# Providers whose CLIENT_REGISTRY client implements submit_batch/poll_batch/
+# fetch_batch_results -- kept as an explicit set here (rather than probing
+# hasattr on each client class) so this validator's error message is
+# accurate even before a client is instantiated.
+_BATCH_CAPABLE_PROVIDERS = {"openai", "anthropic", "together", "deepinfra"}
+
+
+def validate_batch_compatibility(config: ExperimentConfig) -> None:
+    """Fail fast if any method sets execution_mode: batch against a
+    provider whose client has no real Batch API support.
+
+    Only "api"-backend models are checked -- execution_mode is a no-op for
+    huggingface/dummy backends (build_backend only branches on it under
+    backend == "api"), so it can never actually cause an incompatibility
+    for those. Raises ConfigurationError before any backend is built or
+    network call is made, mirroring validate_logprob_compatibility.
+    """
+    for method_cfg in config.methods:
+        if method_cfg.execution_mode != "batch":
+            continue
+        for model_cfg in config.models:
+            if model_cfg.backend != "api":
+                continue
+            if model_cfg.provider in _BATCH_CAPABLE_PROVIDERS:
+                continue
+            raise ConfigurationError(
+                f"Method {method_cfg.name!r} sets execution_mode: batch but "
+                f"provider {model_cfg.provider!r} has no Batch API support. "
+                f"Batch-capable providers: {sorted(_BATCH_CAPABLE_PROVIDERS)}."
+            )
+
+
 # ---------------------------------------------------------------------------
 # Per-method execution
 # ---------------------------------------------------------------------------
@@ -1355,6 +1387,7 @@ def main() -> None:
 
     # --- Early validation: fail before building any backends ---
     validate_logprob_compatibility(config)
+    validate_batch_compatibility(config)
 
     # --- Confirmation prompt ---
     if not args.yes:
