@@ -189,6 +189,123 @@ def test_api_backend_unknown_provider_raises():
         )
 
 
+def test_execution_mode_batch_builds_a_batch_api_backend(tmp_path, monkeypatch):
+    from choicebench.backends.batch_api_backend import BatchAPIBackend
+
+    run_exp = _load_run_experiment()
+    monkeypatch.setattr(run_exp, "RUNS_DIR", tmp_path)
+
+    class _FakeClient:
+        def __init__(self, model_name, concurrency_limit=10, **kwargs):
+            self.model_name = model_name
+            self.provider = "fake"
+
+    monkeypatch.setitem(run_exp.CLIENT_REGISTRY, "fake", _FakeClient)
+
+    backend = run_exp.build_backend(
+        _model("api", provider="fake", model_name_or_path="fake-model"),
+        "rid", run_seed=1, execution_mode="batch",
+    )
+
+    assert isinstance(backend, BatchAPIBackend)
+
+
+def test_execution_mode_sync_builds_a_plain_api_backend(tmp_path, monkeypatch):
+    run_exp = _load_run_experiment()
+    monkeypatch.setattr(run_exp, "RUNS_DIR", tmp_path)
+
+    class _FakeClient:
+        def __init__(self, model_name, concurrency_limit=10, **kwargs):
+            self.model_name = model_name
+            self.provider = "fake"
+
+    monkeypatch.setitem(run_exp.CLIENT_REGISTRY, "fake", _FakeClient)
+
+    backend = run_exp.build_backend(
+        _model("api", provider="fake", model_name_or_path="fake-model"),
+        "rid", run_seed=1,
+    )
+
+    # execution_mode defaults to "sync" -- must stay a plain APIBackend,
+    # never the BatchAPIBackend subclass.
+    assert type(backend) is APIBackend
+
+
+def test_execution_mode_batch_state_dir_is_scoped_by_run_id_and_model(tmp_path, monkeypatch):
+    run_exp = _load_run_experiment()
+    monkeypatch.setattr(run_exp, "RUNS_DIR", tmp_path)
+
+    class _FakeClient:
+        def __init__(self, model_name, concurrency_limit=10, **kwargs):
+            self.model_name = model_name
+            self.provider = "fake"
+
+    monkeypatch.setitem(run_exp.CLIENT_REGISTRY, "fake", _FakeClient)
+
+    backend = run_exp.build_backend(
+        _model("api", provider="fake", model_name_or_path="fake-model"),
+        "rid_batch_test", run_seed=1, execution_mode="batch",
+    )
+
+    assert str(tmp_path / "rid_batch_test" / "batch_state") in str(backend._batch_state_dir)
+
+
+class TestGetOrBuildBackendExecutionModeCaching:
+    """A shared model used by both a sync-mode method and a batch-mode
+    method in the same run must get TWO distinct backend instances (one
+    plain APIBackend, one BatchAPIBackend) -- sharing one would silently
+    force one method's calls through the other's execution semantics."""
+
+    def _setup(self, run_exp, tmp_path, monkeypatch):
+        monkeypatch.setattr(run_exp, "RUNS_DIR", tmp_path)
+
+        class _FakeClient:
+            def __init__(self, model_name, concurrency_limit=10, **kwargs):
+                self.model_name = model_name
+                self.provider = "fake"
+
+        monkeypatch.setitem(run_exp.CLIENT_REGISTRY, "fake", _FakeClient)
+
+    def test_sync_and_batch_methods_sharing_a_model_get_distinct_backends(self, tmp_path, monkeypatch):
+        from choicebench.backends.batch_api_backend import BatchAPIBackend
+        from choicebench.config.schema import MethodConfig
+
+        run_exp = _load_run_experiment()
+        self._setup(run_exp, tmp_path, monkeypatch)
+
+        model = _model("api", provider="fake", model_name_or_path="fake-model")
+        config = _experiment(MethodConfig(name="direct_mcq"))
+        backend_cache: dict = {}
+
+        sync_method = MethodConfig(name="direct_mcq", execution_mode="sync")
+        batch_method = MethodConfig(name="direct_mcq", execution_mode="batch")
+
+        sync_backend = run_exp._get_or_build_backend(model, {}, "rid", config, backend_cache, sync_method)
+        batch_backend = run_exp._get_or_build_backend(model, {}, "rid", config, backend_cache, batch_method)
+
+        assert type(sync_backend) is APIBackend
+        assert isinstance(batch_backend, BatchAPIBackend)
+        assert sync_backend is not batch_backend
+
+    def test_same_execution_mode_reuses_one_backend_instance(self, tmp_path, monkeypatch):
+        from choicebench.config.schema import MethodConfig
+
+        run_exp = _load_run_experiment()
+        self._setup(run_exp, tmp_path, monkeypatch)
+
+        model = _model("api", provider="fake", model_name_or_path="fake-model")
+        config = _experiment(MethodConfig(name="direct_mcq"))
+        backend_cache: dict = {}
+
+        method_a = MethodConfig(name="direct_mcq", execution_mode="sync")
+        method_b = MethodConfig(name="cyclic_permutation", execution_mode="sync")
+
+        backend_a = run_exp._get_or_build_backend(model, {}, "rid", config, backend_cache, method_a)
+        backend_b = run_exp._get_or_build_backend(model, {}, "rid", config, backend_cache, method_b)
+
+        assert backend_a is backend_b
+
+
 def test_huggingface_backend_is_loaded_before_return(monkeypatch):
     """Regression: build_backend must call .load() so generate() works.
 

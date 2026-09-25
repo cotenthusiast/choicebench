@@ -23,6 +23,7 @@ import pandas as pd
 import yaml
 
 from choicebench.backends.api_backend import APIBackend
+from choicebench.backends.batch_api_backend import BatchAPIBackend
 from choicebench.backends.dummy_backend import DummyBackend
 from choicebench.backends.hf_backend import HuggingFaceBackend
 from choicebench.benchmarks.registry import BENCHMARK_REGISTRY, get_by_hf_path
@@ -145,6 +146,7 @@ def build_backend(
     default_concurrency_limit: int = 10,
     model_identity: str | None = None,
     cache_scope: str = "per_run",
+    execution_mode: str = "sync",
 ) -> APIBackend | HuggingFaceBackend | DummyBackend:
     """Construct the inference backend for a single model config.
 
@@ -156,6 +158,13 @@ def build_backend(
     run ID starts cold; ``"shared"`` uses a single run-independent directory
     keyed by model identity, so identical requests reuse a hit across run
     IDs (see ``run.cache_scope`` in config/schema.py).
+
+    ``execution_mode`` (an "api" backend only): "sync" (default) returns a
+    plain APIBackend (concurrent per-request dispatch); "batch" returns a
+    BatchAPIBackend, backed by the provider's real Batch API instead --
+    same generate_batch() contract, so callers never need to branch on
+    which one they got. See MethodConfig.execution_mode in config/schema.py
+    for which methods this is safe for.
     """
     backend_type = model_config.backend
 
@@ -183,6 +192,19 @@ def build_backend(
             cache_dir = CACHE_DIR / model_cache_id
         else:
             cache_dir = RUNS_DIR / run_id / "cache" / model_cache_id
+        if execution_mode == "batch":
+            return BatchAPIBackend(
+                model_config.provider,
+                model_config.model_name_or_path,
+                client,
+                cache_dir,
+                model_config.generation_kwargs.temperature,
+                model_config.generation_kwargs.max_new_tokens,
+                run_seed,
+                RUNS_DIR / run_id / "batch_state" / model_cache_id,
+                concurrency_limit,
+                model_identity,
+            )
         return APIBackend(
             model_config.provider,
             model_config.model_name_or_path,
@@ -629,13 +651,17 @@ def _get_or_build_backend(
     condition: dict,
     run_id: str,
     config: ExperimentConfig,
-    backend_cache: dict[int, APIBackend | HuggingFaceBackend | DummyBackend],
+    backend_cache: dict[tuple[int, str], APIBackend | HuggingFaceBackend | DummyBackend],
+    method: MethodConfig,
 ) -> APIBackend | HuggingFaceBackend | DummyBackend:
-    # Keyed by object identity: config.models is the same list of ModelConfig
-    # instances for the whole run, so a model is built/loaded once and reused
-    # across every (benchmark, method) combination instead of reloading from
-    # disk on each pass through the outer loop.
-    cache_key = id(model_config)
+    # Keyed by (model identity, execution_mode): config.models is the same
+    # list of ModelConfig instances for the whole run, so a model is built/
+    # loaded once per execution mode and reused across every (benchmark,
+    # method) combination that shares both -- not just object identity,
+    # since a sync-mode method and a batch-mode method sharing one model
+    # must never share one backend instance (their execution semantics
+    # differ entirely; see MethodConfig.execution_mode).
+    cache_key = (id(model_config), method.execution_mode)
     backend = backend_cache.get(cache_key)
     if backend is None:
         runtime_model = model_config
@@ -651,7 +677,7 @@ def _get_or_build_backend(
                 runtime_model = replace(model_config, revision=resolved_model["resolved_commit"])
         backend = build_backend(
             runtime_model, run_id, config.run.seed, config.run.concurrency_limit,
-            condition.get("model_id"), config.run.cache_scope,
+            condition.get("model_id"), config.run.cache_scope, method.execution_mode,
         )
         backend_cache[cache_key] = backend
     return backend
@@ -734,7 +760,7 @@ async def _run_model(
     run_id: str,
     output_dir: Path,
     checkpoint_dir: Path,
-    backend_cache: dict[int, APIBackend | HuggingFaceBackend | DummyBackend],
+    backend_cache: dict[tuple[int, str], APIBackend | HuggingFaceBackend | DummyBackend],
     condition: dict,
 ) -> None:
     """Set up and run one (method, model, benchmark) combination."""
@@ -745,7 +771,7 @@ async def _run_model(
         benchmark_cfg.name, method.name,
         model_config.model_name_or_path, model_config.backend,
     )
-    backend = _get_or_build_backend(model_config, condition, run_id, config, backend_cache)
+    backend = _get_or_build_backend(model_config, condition, run_id, config, backend_cache, method)
     logger.info("Backend: %s", backend.__class__.__name__)
 
     # The written identity for the generic `huggingface` path is the normalized
@@ -845,7 +871,7 @@ async def _run_model_isolated(
     run_id: str,
     output_dir: Path,
     checkpoint_dir: Path,
-    backend_cache: dict[int, APIBackend | HuggingFaceBackend | DummyBackend],
+    backend_cache: dict[tuple[int, str], APIBackend | HuggingFaceBackend | DummyBackend],
     condition: dict,
 ) -> tuple[str, Exception | None, ModalKGateReport | None]:
     """Run one model job, catching any exception so sibling jobs are unaffected.
@@ -878,7 +904,7 @@ async def run_models_concurrently(
     output_dir: Path,
     checkpoint_dir: Path,
     conditions: list[dict],
-    backend_cache: dict[int, APIBackend | HuggingFaceBackend | DummyBackend] | None = None,
+    backend_cache: dict[tuple[int, str], APIBackend | HuggingFaceBackend | DummyBackend] | None = None,
 ) -> tuple[list[tuple[str, Exception]], list[tuple[str, ModalKGateReport]]]:
     """Run all models for one (benchmark, method) combination.
 
@@ -1276,7 +1302,7 @@ async def _async_main(
     # Shared across every benchmark/method iteration so each model is built
     # and loaded (weights onto GPU, for HF) exactly once per run, not once
     # per (benchmark, method) combination.
-    backend_cache: dict[int, APIBackend | HuggingFaceBackend | DummyBackend] = {}
+    backend_cache: dict[tuple[int, str], APIBackend | HuggingFaceBackend | DummyBackend] = {}
     if plan is None:
         plan = build_execution_plan(config)
         for condition in plan.conditions.values():
