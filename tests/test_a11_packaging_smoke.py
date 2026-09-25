@@ -26,7 +26,11 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 _EXPECTED_PROMPT_FILES = [
     "pride_repro/direct_mcq.txt", "pride_repro/free_text.txt",
     "pride_repro/option_matching.txt", "v1/direct_mcq.txt",
-    "v1/free_text.txt", "v1/option_matching.txt",
+    "v1/free_text.txt", "v1/option_matching.txt", "v1/text_extraction.txt",
+    "v1_ihs/direct_mcq.txt", "v1_ihs/free_text.txt",
+    "v1_ihs/independent_hypothesis.txt", "v1_ihs/option_matching.txt",
+    "v1_reasoning/direct_mcq.txt", "v1_reasoning/free_text.txt",
+    "v1_reasoning/option_matching.txt",
 ]
 
 
