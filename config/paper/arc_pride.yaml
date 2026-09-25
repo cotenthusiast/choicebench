@@ -9,6 +9,15 @@
 # rounded), frozen and approved. See mmlu_pride.yaml for the rest of the
 # rationale (identical design, different benchmark/calibration_n).
 #
+# preflight.n=15 samples 15 RAW rows from the 299-row validation split
+# before modal-k eligibility filtering (only 295/299 are eligible), so it
+# is not guaranteed a priori to yield exactly 15 eligible rows --
+# require_full_calibration: true below fails loudly rather than silently
+# calibrating on fewer than 15 if an unlucky sample ever lands on one of
+# the 4 ineligible (3- or 5-option) rows. Verified with the frozen seed 42
+# against the real prepared ARC validation artifact: today's sample is
+# 15/15 eligible.
+#
 # Run with:
 #   python scripts/run_experiment.py --config config/paper/arc_pride.yaml --run-id <id>
 
@@ -43,6 +52,9 @@ benchmarks:
 methods:
   - name: pride
     requires_logprobs: true
+    params:
+      calibration_n: 15
+      require_full_calibration: true
     preflight:
       source: benchmark
       split: validation

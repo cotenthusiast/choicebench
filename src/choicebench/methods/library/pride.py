@@ -113,6 +113,7 @@ class PriDeRunner(ExperimentRunner):
             *,
             calibration_n: int = 50,
             calibration_seed: int = 42,
+            require_full_calibration: bool = False,
             calibration_benchmark: str = "",
             calibration_runs_dir: Path | None = None,
             calibration_questions: list[dict] | None = None,
@@ -161,6 +162,13 @@ class PriDeRunner(ExperimentRunner):
 
         self._calibration_n = max(0, int(calibration_n))
         self._calibration_seed = int(calibration_seed)
+        # Default False preserves every existing caller's graceful-degrade
+        # behavior (e.g. calibration_n=50 against a tiny/empty synthetic
+        # pool falling back to a uniform prior). The frozen paper protocol
+        # opts in via params.require_full_calibration: true, since a
+        # silent under-count there would mean the published calibration_n
+        # was never actually honored -- see _ensure_calibration().
+        self._require_full_calibration = bool(require_full_calibration)
         self._calibration_benchmark = calibration_benchmark or split_name
         self._calibration_runs_dir = Path(calibration_runs_dir or Path("."))
         self._calibration_questions: list[dict] = list(calibration_questions or [])
@@ -221,6 +229,16 @@ class PriDeRunner(ExperimentRunner):
                 "PriDe calibration: dropped %d/%d calibration question(s) whose "
                 "option count != modal k=%d.",
                 dropped, len(self._calibration_questions), self._modal_k,
+            )
+        if self._require_full_calibration and len(eligible) < self._calibration_n:
+            raise RuntimeError(
+                f"PriDe calibration requires {self._calibration_n} eligible "
+                f"(modal-k={self._modal_k}) calibration question(s), but only "
+                f"{len(eligible)} are available after preflight sampling and "
+                f"eligibility filtering ({dropped} dropped for the wrong option "
+                "count). Refusing to silently calibrate on fewer questions than "
+                "the frozen protocol requires -- widen the preflight pool "
+                "(preflight.n) or investigate the eligibility gap."
             )
         cal_qids, cal_rows = _pick_calibration_rows(
             eligible,

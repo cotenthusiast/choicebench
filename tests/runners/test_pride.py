@@ -116,6 +116,118 @@ class TestPriDePartialFailureFlag:
         assert rows[0]["n_permutations_failed"] == n_failed
 
 
+class TestPriDeRequireFullCalibration:
+    """require_full_calibration (opt-in, default False) closes the gap
+    the audit found: preflight.n controls how many rows are LOADED, but
+    calibration_n (silently defaulting to 50 if a config never sets it)
+    separately controls how many the runner actually calibrates on, and
+    _pick_calibration_rows silently caps down to whatever's available --
+    so a config could believe it calibrates on N questions while actually
+    using fewer, with no error. This flag makes that fail loudly instead."""
+
+    def test_raises_when_eligible_pool_is_smaller_than_calibration_n(
+            self, runner_question_row, tmp_path: Path,
+    ):
+        cal_rows = [{**runner_question_row, "question_id": f"cal_{i}"} for i in range(13)]
+        runner = PriDeRunner(
+            backend=MockBackend(supports_logprobs=True),
+            method_name="pride",
+            split_name="robustness",
+            prompt_version="v1",
+            prompts_dir=_PROMPTS_DIR,
+            run_id="pride_short_pool",
+            calibration_n=15,
+            calibration_seed=0,
+            calibration_benchmark="mmlu",
+            calibration_runs_dir=tmp_path,
+            calibration_questions=cal_rows,
+            require_full_calibration=True,
+        )
+        with pytest.raises(RuntimeError, match="15"):
+            runner._ensure_calibration()
+
+    def test_raises_when_some_calibration_rows_have_the_wrong_option_count(
+            self, runner_question_row, tmp_path: Path,
+    ):
+        """The ARC scenario: preflight samples raw rows before modal-k
+        filtering, so a pool that LOOKS like enough rows can still yield
+        too few ELIGIBLE ones once 3-/5-option rows are dropped."""
+        from choicebench.benchmarks.base import make_normalized_row
+
+        four_option = [{**runner_question_row, "question_id": f"cal_{i}"} for i in range(14)]
+        three_option = [
+            make_normalized_row(
+                "computer_security", f"Three-option Q{i}?", ["FTP", "HTTP", "HTTPS"], correct_index=0,
+            )
+            for i in range(2)
+        ]
+        runner = PriDeRunner(
+            backend=MockBackend(supports_logprobs=True),
+            method_name="pride",
+            split_name="robustness",
+            prompt_version="v1",
+            prompts_dir=_PROMPTS_DIR,
+            run_id="pride_ineligible_rows",
+            calibration_n=15,
+            calibration_seed=0,
+            calibration_benchmark="mmlu",
+            calibration_runs_dir=tmp_path,
+            calibration_questions=four_option + three_option,  # 16 raw, only 14 eligible
+            require_full_calibration=True,
+        )
+        with pytest.raises(RuntimeError, match="14"):
+            runner._ensure_calibration()
+
+    def test_passes_when_eligible_pool_exactly_meets_calibration_n(
+            self, runner_question_row, tmp_path: Path,
+    ):
+        biased = [-0.1, -5.0, -5.0, -5.0]
+        backend = MockBackend(
+            score_responses=[biased, biased, biased, biased],  # 1 row x 4 cyclic rollouts
+            supports_logprobs=True,
+        )
+        cal_row = {**runner_question_row, "question_id": "cal_only"}
+        runner = PriDeRunner(
+            backend=backend,
+            method_name="pride",
+            split_name="robustness",
+            prompt_version="v1",
+            prompts_dir=_PROMPTS_DIR,
+            run_id="pride_exact_pool",
+            calibration_n=1,
+            calibration_seed=0,
+            calibration_benchmark="mmlu",
+            calibration_runs_dir=tmp_path,
+            calibration_questions=[cal_row],
+            require_full_calibration=True,
+        )
+        runner._ensure_calibration()  # must not raise
+        assert runner._calibration_state.estimation_question_ids == ("cal_only",)
+
+    def test_default_false_still_gracefully_degrades_to_uniform_prior(
+            self, tmp_path: Path,
+    ):
+        """Regression: require_full_calibration defaults to False, so every
+        existing caller (generic PriDe usage, tests with a tiny/empty
+        synthetic calibration pool) keeps its prior graceful-degrade
+        behavior -- this flag is opt-in, not a global behavior change."""
+        runner = PriDeRunner(
+            backend=MockBackend(supports_logprobs=True),
+            method_name="pride",
+            split_name="robustness",
+            prompt_version="v1",
+            prompts_dir=_PROMPTS_DIR,
+            run_id="pride_default_lenient",
+            calibration_n=50,
+            calibration_seed=0,
+            calibration_benchmark="mmlu",
+            calibration_runs_dir=tmp_path,
+            calibration_questions=[],
+        )
+        runner._ensure_calibration()  # must not raise even though 0 < 50
+        assert runner._calibration_state.estimation_question_ids == ()
+
+
 class TestPriDeConstruction:
     def test_accepts_and_forwards_model_label(self, tmp_path: Path):
         """Regression: instantiate_runner always passes model_label=, so PriDe's

@@ -484,6 +484,8 @@ def _validate_method_specific_params(name: str, params: dict, where: str) -> Non
             _strict_int(params["calibration_n"], f"{where}.params.calibration_n", minimum=0)
         if "calibration_seed" in params:
             _strict_int(params["calibration_seed"], f"{where}.params.calibration_seed", minimum=0)
+        if "require_full_calibration" in params:
+            _strict_bool(params["require_full_calibration"], f"{where}.params.require_full_calibration")
     if name == "two_stage" and "fallback_on_parse_failure" in params:
         _strict_bool(params["fallback_on_parse_failure"], f"{where}.params.fallback_on_parse_failure")
 

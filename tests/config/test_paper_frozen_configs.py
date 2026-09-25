@@ -11,6 +11,7 @@
 # have made the batch path silently serve a different deployment than
 # the synchronous OpenRouter->DeepInfra path).
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,25 @@ from choicebench.config.schema import load_config
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_DIR = REPO_ROOT / "config" / "paper"
+
+
+@pytest.fixture(scope="module")
+def real_prepared_mmlu_arc_data():
+    """Copies this repo's REAL, already-verified prepared MMLU/ARC-Challenge
+    artifacts (data/processed/{mmlu,arc_challenge}/) into this test session's
+    isolated CHOICEBENCH_HOME (see conftest.py's workspace isolation), so
+    tests can exercise load_preflight() against genuine prepared data instead
+    of only asserting on YAML values. Scoped to this module only -- the rest
+    of the suite stays hermetic/independent of repo working-tree state."""
+    from choicebench.config.paths import PROCESSED_DIR
+
+    for name in ("mmlu", "arc_challenge"):
+        src = REPO_ROOT / "data" / "processed" / name
+        if not src.exists():
+            pytest.skip(f"real prepared artifact data/processed/{name}/ not present in this checkout")
+        dst = PROCESSED_DIR / name
+        if not dst.exists():
+            shutil.copytree(src, dst)
 
 _ALL_CONFIGS = sorted(CONFIG_DIR.glob("*.yaml"))
 
@@ -173,6 +193,74 @@ def test_pride_configs_are_local_only(filename):
     assert all(m.backend == "huggingface" for m in config.models), filename
     local_models = {m.model_name_or_path for m in config.models}
     assert local_models == {_LLAMA_LOCAL_MODEL_ID, _QWEN_LOCAL_MODEL_ID}, filename
+
+
+@pytest.mark.parametrize("filename,expected_n", _PRIDE_CONFIGS.items())
+def test_pride_configs_actually_thread_calibration_n_into_the_runner(
+        filename, expected_n, real_prepared_mmlu_arc_data,
+):
+    """Regression for a confirmed bug: preflight.n controls how many rows
+    are LOADED as the calibration pool, but PriDeRunner.__init__'s own
+    calibration_n keyword (default 50) separately controls how many of
+    those it actually calibrates on. The frozen configs previously set
+    only preflight.n (77/15), leaving calibration_n at its silent default
+    of 50 -- MMLU would have calibrated on 50 questions, not the frozen
+    77. This instantiates the REAL production config through the REAL
+    orchestrator path (load_config -> load_preflight -> instantiate_runner),
+    not just asserting on the YAML value, so a regression here would be
+    caught even if someone "fixes" only the YAML comment.
+    """
+    from choicebench.backends.dummy_backend import DummyBackend
+    from choicebench.cli.run_experiment import instantiate_runner
+    from choicebench.preflight import load_preflight
+
+    config = load_config(str(CONFIG_DIR / filename))
+    model_config = config.models[0]
+    method_config = config.methods[0]
+    benchmark_cfg = config.benchmarks[0]
+
+    preflight_questions = load_preflight(method_config, benchmark_cfg, run_seed=config.run.seed)
+    assert preflight_questions, f"{filename}: preflight produced no rows against real prepared data"
+
+    runner = instantiate_runner(
+        config, model_config, method_config, DummyBackend(), "test_run", benchmark_cfg,
+        preflight_questions=preflight_questions,
+    )
+
+    assert runner._calibration_n == expected_n, (
+        f"{filename}: runner._calibration_n={runner._calibration_n} != frozen {expected_n} "
+        "-- calibration_n was not actually threaded from config into the runner."
+    )
+    assert runner._require_full_calibration is True, filename
+
+
+@pytest.mark.parametrize("filename,expected_n", _PRIDE_CONFIGS.items())
+def test_pride_configs_actually_calibrate_on_the_full_frozen_n(
+        filename, expected_n, real_prepared_mmlu_arc_data,
+):
+    """Beyond instantiation: actually runs calibration (real prepared
+    validation data, DummyBackend for score_options so no network/GPU is
+    used) and asserts the resulting calibration state was fit on exactly
+    expected_n questions -- the real end-to-end behavioral check the
+    audit asked for, not just a constructor-argument check."""
+    from choicebench.backends.dummy_backend import DummyBackend
+    from choicebench.cli.run_experiment import instantiate_runner
+    from choicebench.preflight import load_preflight
+
+    config = load_config(str(CONFIG_DIR / filename))
+    model_config = config.models[0]
+    method_config = config.methods[0]
+    benchmark_cfg = config.benchmarks[0]
+
+    preflight_questions = load_preflight(method_config, benchmark_cfg, run_seed=config.run.seed)
+    runner = instantiate_runner(
+        config, model_config, method_config, DummyBackend(), "test_run", benchmark_cfg,
+        preflight_questions=preflight_questions,
+    )
+
+    runner._ensure_calibration()  # must not raise -- confirms >= expected_n eligible today
+
+    assert len(runner._calibration_state.estimation_question_ids) == expected_n, filename
 
 
 def test_mmlu_configs_use_the_frozen_evaluation_manifest():

@@ -9,6 +9,15 @@
 # exists in this codebase (confirmed: PriDe's Eq.8 is a pure ratio, not a
 # blended interpolation) -- calibration_n IS the "5%" knob.
 #
+# preflight.n below controls how many rows are LOADED as the calibration
+# pool; it does NOT by itself control how many PriDeRunner actually
+# calibrates on -- that is the separate methods[].params.calibration_n,
+# which PriDeRunner defaults to 50 if unset. Both must be set to the same
+# frozen value (77) or the runner silently calibrates on only 50 of the
+# intended 77 questions. require_full_calibration: true makes it fail
+# loudly instead of silently calibrating on fewer than calibration_n
+# eligible questions, should the eligible pool ever come up short.
+#
 # Full local logits via HuggingFaceBackend -- never vLLM, never an API
 # backend (neither exposes full-vocabulary score_options()). This is a
 # separate config from the other MMLU methods specifically because PriDe
@@ -49,6 +58,9 @@ benchmarks:
 methods:
   - name: pride
     requires_logprobs: true
+    params:
+      calibration_n: 77
+      require_full_calibration: true
     preflight:
       source: benchmark
       split: validation
