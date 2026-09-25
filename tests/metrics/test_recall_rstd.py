@@ -101,3 +101,24 @@ def test_scored_subset_excludes_unparsed_rows():
 def test_empty_dataframe_returns_nan():
     out = RecallRStd().compute(_df([]))
     assert math.isnan(out["rstd"])
+    assert math.isnan(out["rstd_std"])
+
+
+def test_all_unparsed_rstd_std_is_nan():
+    out = RecallRStd().compute(_df([("A", None), ("B", None)]))
+    assert math.isnan(out["rstd_std"])
+
+
+def test_deterministic_bootstrap_std():
+    """Mirrors test_mad.py's own bootstrap determinism test -- same seeded-
+    bootstrap-is-reproducible property, same fixture shape."""
+    rows = [
+        ("A", "A"), ("A", "A"), ("A", "B"),
+        ("B", "B"), ("B", "A"),
+        ("C", "C"),
+    ]
+    first = RecallRStd().compute(_df(rows))
+    second = RecallRStd().compute(_df(rows))
+    assert first["rstd"] == second["rstd"]
+    assert first["rstd_std"] == second["rstd_std"]  # seeded bootstrap -> reproducible
+    assert math.isfinite(first["rstd_std"])

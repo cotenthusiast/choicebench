@@ -5,6 +5,9 @@ import pandas as pd
 
 from choicebench.metrics.base import BaseMetric, _label_set
 
+_N_BOOTSTRAP = 10_000
+_BOOTSTRAP_SEED = 42
+
 
 class RecallRStd(BaseMetric):
     """Selection-bias RStd — dispersion of per-letter recall (Zheng et al., ICLR
@@ -54,7 +57,7 @@ class RecallRStd(BaseMetric):
     def compute(self, results_df: pd.DataFrame) -> dict[str, float]:
         options = _label_set(results_df)
         if not options:
-            return {"rstd": float("nan")}
+            return {"rstd": float("nan"), "rstd_std": float("nan")}
 
         scored = results_df[results_df["parsed_choice"].notna()]
 
@@ -72,4 +75,62 @@ class RecallRStd(BaseMetric):
             recalls.append(recall_pct)
 
         out["rstd"] = float(np.std(recalls)) if recalls else float("nan")
+        out["rstd_std"] = self._bootstrap_std(scored, options)
         return out
+
+    @staticmethod
+    def _bootstrap_std(scored: pd.DataFrame, options: list[str]) -> float:
+        """Bootstrap standard deviation of RStd, resampling questions
+        (rows) with replacement -- mirrors mad.py's MAD._bootstrap_std
+        exactly (same _N_BOOTSTRAP/_BOOTSTRAP_SEED convention, same
+        resample-rows/recompute-per-letter-statistic/std-across-resamples
+        shape), applied to per-letter recall instead of per-letter
+        prediction-vs-gold deviation.
+
+        Args:
+            scored: already restricted to rows with a non-null
+                parsed_choice (same scored-subset convention as compute()).
+        """
+        n = len(scored)
+        if n == 0 or not options:
+            return float("nan")
+        rng = np.random.default_rng(_BOOTSTRAP_SEED)
+        opt_index = {opt: i for i, opt in enumerate(options)}
+
+        def _enc(series: pd.Series) -> np.ndarray:
+            return np.array(
+                [opt_index.get(v, -1) if isinstance(v, str) else -1 for v in series.values],
+                dtype=np.int16,
+            )
+
+        gold_enc = _enc(scored["correct_option"])
+        pred_enc = _enc(scored["parsed_choice"])
+
+        idx = rng.integers(0, n, size=(_N_BOOTSTRAP, n))
+        gold_boot = gold_enc[idx]
+        pred_boot = pred_enc[idx]
+
+        recalls_per_resample = np.full((_N_BOOTSTRAP, len(options)), np.nan)
+        for k in range(len(options)):
+            is_gold_k = gold_boot == k
+            n_gold_k = is_gold_k.sum(axis=1).astype(float)
+            n_correct_k = (is_gold_k & (pred_boot == k)).sum(axis=1).astype(float)
+            recall_k = np.divide(
+                n_correct_k * 100.0, n_gold_k,
+                out=np.full(_N_BOOTSTRAP, np.nan), where=n_gold_k > 0,
+            )
+            recalls_per_resample[:, k] = recall_k
+
+        # A resample with every letter's recall undefined (e.g. n=1 row
+        # resampled such that no gold letter has >0 occurrences for any
+        # letter it could be -- practically only possible for a
+        # pathologically tiny input) yields all-NaN for that resample row;
+        # np.nanstd on an all-NaN slice already returns NaN with a
+        # (suppressed) warning, consistent with compute()'s own NaN
+        # handling for an empty per-letter recall list.
+        with np.errstate(invalid="ignore"):
+            rstds = np.nanstd(recalls_per_resample, axis=1)
+        valid_rstds = rstds[~np.isnan(rstds)]
+        if len(valid_rstds) == 0:
+            return float("nan")
+        return float(np.std(valid_rstds))
