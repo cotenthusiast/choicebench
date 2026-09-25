@@ -16,7 +16,15 @@ dependencies = [
     "scipy",
     "datasets",
     "python-dotenv",
-    "anthropic>=0.20.0",
+    # anthropic_client.py's _generate_provider_response() passes
+    # temperature straight into AsyncMessages.create() -- confirmed
+    # live on Kelvin2 (2026-09-25) that anthropic 1.8.0 (a fresh,
+    # unconstrained resolve of ">=0.20.0") raises "AsyncMessages.create()
+    # got an unexpected keyword argument 'temperature'", while 0.88.0 (the
+    # version this whole test suite has been developed and passing
+    # against) works. Capped below the breaking major version until the
+    # call is updated for whatever changed in 1.x.
+    "anthropic>=0.20.0,<1",
     # openai_client.py's Batch API result parsing (OpenAIResponsesResponse.
     # model_validate) silently breaks (parsed fields come back None
     # instead of raising) somewhere between openai 2.33.0 and 2.54.0 --
