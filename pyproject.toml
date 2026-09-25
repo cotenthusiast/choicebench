@@ -21,6 +21,11 @@ dependencies = [
     "google-genai",
     "groq",
     "pyyaml",
+    # TogetherAIClient's synchronous path stays on the OpenAI SDK pointed at
+    # Together's OpenAI-compatible endpoint (unchanged) -- this is only for
+    # Together's native Batch API (client.batches / client.files.upload),
+    # which is not exposed through the OpenAI-compatible surface.
+    "together>=2.0",
 ]
 
 [project.optional-dependencies]
