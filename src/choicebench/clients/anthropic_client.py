@@ -3,9 +3,11 @@
 import anthropic
 from anthropic import AsyncAnthropic
 
-from choicebench.clients.base import BaseClient
+from choicebench.clients.base import batch_line_failure, BaseClient
 from choicebench.config.providers import MAX_RETRIES, MAX_TOKENS, TIMEOUT
 from choicebench.clients.types import (
+    BATCH_COMPLETED,
+    BATCH_IN_PROGRESS,
     ModelRequest,
     ModelResponse,
     UsageInfo,
@@ -119,3 +121,95 @@ class AnthropicClient(BaseClient):
             error=None,
             timestamp_utc=None,
         )
+
+    async def submit_batch(self, requests: list[ModelRequest]) -> str:
+        """Submit all requests as one Anthropic Message Batch job.
+
+        custom_id is the request's index (stringified) -- fetch_batch_results
+        reassembles by this; results are explicitly not guaranteed to stream
+        back in request order.
+        """
+        batch_requests = []
+        for i, request in enumerate(requests):
+            params: dict[str, object] = {
+                "model": request.model_name,
+                "messages": [{"role": "user", "content": request.payload}],
+                "max_tokens": request.max_tokens if request.max_tokens is not None else MAX_TOKENS,
+            }
+            if request.temperature is not None:
+                params["temperature"] = request.temperature
+            batch_requests.append({"custom_id": str(i), "params": params})
+
+        batch = await self.client.messages.batches.create(requests=batch_requests)
+        return batch.id
+
+    async def poll_batch(self, batch_id: str) -> str:
+        """Return the normalized BATCH_* status for an in-flight batch job.
+
+        Anthropic's job-level processing_status only ever reaches
+        "in_progress" or "ended" (or "canceling", which this pipeline never
+        triggers) -- there is no job-level "failed" state. Per-request
+        outcomes (succeeded/errored/canceled/expired) are only known once
+        the job has ended, and are handled individually in
+        fetch_batch_results -- never surfaced here.
+        """
+        batch = await self.client.messages.batches.retrieve(batch_id)
+        if batch.processing_status == "ended":
+            return BATCH_COMPLETED
+        return BATCH_IN_PROGRESS
+
+    async def fetch_batch_results(
+            self, batch_id: str, requests: list[ModelRequest],
+    ) -> list[ModelResponse]:
+        """Stream a completed batch's results and reassemble into `requests`
+        order via custom_id (results are not guaranteed to stream in request
+        order)."""
+        response_by_custom_id: dict[str, ModelResponse] = {}
+
+        decoder = await self.client.messages.batches.results(batch_id)
+        async for item in decoder:
+            custom_id = item.custom_id
+            result = item.result
+            if result.type == "succeeded":
+                try:
+                    raw_text, finish_reason, usage = self._extract_response(result.message)
+                    request = requests[int(custom_id)]
+                    response_by_custom_id[custom_id] = ModelResponse(
+                        provider=request.provider, model_name=request.model_name,
+                        status=SUCCESS_STATUS, latency_seconds=0.0, raw_text=raw_text,
+                        finish_reason=finish_reason, usage=usage, error=None,
+                        timestamp_utc=None,
+                    )
+                except Exception as exc:
+                    response_by_custom_id[custom_id] = batch_line_failure(
+                        requests, custom_id, str(exc), default_provider="anthropic",
+                    )
+            else:
+                response_by_custom_id[custom_id] = batch_line_failure(
+                    requests, custom_id, self._batch_result_error_message(result),
+                    default_provider="anthropic",
+                )
+
+        results = []
+        for i, request in enumerate(requests):
+            custom_id = str(i)
+            response = response_by_custom_id.get(custom_id)
+            if response is None:
+                response = batch_line_failure(
+                    requests, custom_id, f"No result for custom_id={custom_id!r}.",
+                    default_provider="anthropic",
+                )
+            results.append(response)
+        return results
+
+    @staticmethod
+    def _batch_result_error_message(result) -> str:
+        """Human-readable message for a non-succeeded batch result
+        (errored/canceled/expired -- see MessageBatchResult's discriminated
+        union in the anthropic SDK)."""
+        if result.type == "errored":
+            error = getattr(result, "error", None)
+            inner = getattr(error, "error", None)
+            message = getattr(inner, "message", None)
+            return message or str(error)
+        return f"Batch request {result.type}."

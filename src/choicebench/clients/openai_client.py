@@ -6,14 +6,12 @@ import openai
 from openai import AsyncOpenAI
 from openai.types.responses import Response as OpenAIResponsesResponse
 
-from choicebench.clients.base import BaseClient
+from choicebench.clients.base import batch_line_failure, BaseClient
 from choicebench.config.providers import MAX_RETRIES, TIMEOUT
 from choicebench.clients.types import (
     BATCH_COMPLETED,
     BATCH_FAILED,
     BATCH_IN_PROGRESS,
-    ErrorInfo,
-    FAILURE_STATUS,
     ModelRequest,
     ModelResponse,
     UsageInfo,
@@ -227,8 +225,8 @@ class OpenAIClient(BaseClient):
                         timestamp_utc=None,
                     )
                 except Exception as exc:
-                    response_by_custom_id[custom_id] = self._batch_line_failure(
-                        requests, custom_id, str(exc),
+                    response_by_custom_id[custom_id] = batch_line_failure(
+                        requests, custom_id, str(exc), default_provider="openai",
                     )
 
         if batch.error_file_id:
@@ -239,8 +237,8 @@ class OpenAIClient(BaseClient):
                 record = json.loads(line)
                 custom_id = record["custom_id"]
                 error = record.get("error") or {}
-                response_by_custom_id[custom_id] = self._batch_line_failure(
-                    requests, custom_id, str(error.get("message", error)),
+                response_by_custom_id[custom_id] = batch_line_failure(
+                    requests, custom_id, str(error.get("message", error)), default_provider="openai",
                 )
 
         results = []
@@ -248,22 +246,10 @@ class OpenAIClient(BaseClient):
             custom_id = str(i)
             response = response_by_custom_id.get(custom_id)
             if response is None:
-                response = self._batch_line_failure(
+                response = batch_line_failure(
                     requests, custom_id,
                     f"No output or error line for custom_id={custom_id!r}.",
+                    default_provider="openai",
                 )
             results.append(response)
         return results
-
-    @staticmethod
-    def _batch_line_failure(
-            requests: list[ModelRequest], custom_id: str, message: str,
-    ) -> ModelResponse:
-        request = requests[int(custom_id)] if custom_id.isdigit() and int(custom_id) < len(requests) else None
-        return ModelResponse(
-            provider=request.provider if request else "openai",
-            model_name=request.model_name if request else "",
-            status=FAILURE_STATUS,
-            latency_seconds=0.0,
-            error=ErrorInfo("BatchLineError", message, True, "batch_line"),
-        )
