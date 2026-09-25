@@ -1,6 +1,9 @@
 # tests/clients/test_together_client.py
 
 import asyncio
+import json
+from pathlib import Path
+
 import httpx
 import openai
 import pytest
@@ -10,6 +13,9 @@ from unittest.mock import AsyncMock
 
 from choicebench.clients.together_client import TogetherAIClient
 from choicebench.clients.types import (
+    BATCH_COMPLETED,
+    BATCH_FAILED,
+    BATCH_IN_PROGRESS,
     ModelRequest,
     ProviderCallError,
     ProviderConfigurationError,
@@ -227,3 +233,159 @@ class TestTogetherAIClientGenerateProviderResponse:
 
         with pytest.raises(ProviderCallError):
             asyncio.run(_inner())
+
+
+def _chat_completion_body(text: str, model: str = "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo") -> dict:
+    """Raw JSON body shaped like an OpenAI-compatible Chat Completions
+    response -- what a Together batch output line's response.body contains."""
+    return {
+        "id": "chatcmpl-abc", "object": "chat.completion", "created": 123, "model": model,
+        "choices": [{
+            "index": 0, "message": {"role": "assistant", "content": text}, "finish_reason": "stop",
+        }],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12},
+    }
+
+
+def _output_line(custom_id: str, text: str) -> str:
+    return json.dumps({
+        "custom_id": custom_id,
+        "response": {"status_code": 200, "body": _chat_completion_body(text)},
+        "error": None,
+    })
+
+
+def _error_line(custom_id: str, message: str) -> str:
+    return json.dumps({
+        "custom_id": custom_id, "response": None,
+        "error": {"message": message, "type": "invalid_request_error"},
+    })
+
+
+@pytest.fixture
+def batch_requests() -> list[ModelRequest]:
+    return [
+        ModelRequest(provider="together", model_name="Qwen/Qwen2.5-7B-Instruct", payload=f"question {i}",
+                     temperature=0.0, max_tokens=64)
+        for i in range(3)
+    ]
+
+
+class TestTogetherClientSubmitBatch:
+    pytestmark = pytest.mark.asyncio
+
+    async def test_uploads_a_jsonl_file_and_creates_the_batch_job(self, together_client, batch_requests):
+        upload = AsyncMock(return_value=SimpleNamespace(id="file_abc"))
+        create = AsyncMock(return_value=SimpleNamespace(job=SimpleNamespace(id="batch_abc")))
+        together_client._batch_client.files.upload = upload
+        together_client._batch_client.batches.create = create
+
+        batch_id = await together_client.submit_batch(batch_requests)
+
+        assert batch_id == "batch_abc"
+        assert upload.call_args.kwargs["purpose"] == "batch-api"
+        create.assert_awaited_once()
+        assert create.call_args.kwargs["input_file_id"] == "file_abc"
+        assert create.call_args.kwargs["endpoint"] == "/v1/chat/completions"
+
+    async def test_jsonl_file_has_one_line_per_request_with_stringified_index_custom_id(
+        self, together_client, batch_requests,
+    ):
+        captured = {}
+
+        async def _fake_upload(file, **kwargs):
+            # submit_batch() deletes the temp file in its own finally block
+            # once upload "returns" -- read it here, while it still exists,
+            # not after submit_batch() has already returned.
+            captured["content"] = Path(file).read_text()
+            return SimpleNamespace(id="file_abc")
+
+        together_client._batch_client.files.upload = AsyncMock(side_effect=_fake_upload)
+        together_client._batch_client.batches.create = AsyncMock(
+            return_value=SimpleNamespace(job=SimpleNamespace(id="batch_abc"))
+        )
+
+        await together_client.submit_batch(batch_requests)
+
+        lines = captured["content"].strip().splitlines()
+        assert len(lines) == 3
+        parsed = [json.loads(line) for line in lines]
+        assert [p["custom_id"] for p in parsed] == ["0", "1", "2"]
+        assert all(p["url"] == "/v1/chat/completions" for p in parsed)
+        assert parsed[0]["body"]["messages"] == [{"role": "user", "content": "question 0"}]
+
+
+class TestTogetherClientPollBatch:
+    pytestmark = pytest.mark.asyncio
+
+    @pytest.mark.parametrize("raw_status,expected", [
+        ("COMPLETED", BATCH_COMPLETED),
+        ("VALIDATING", BATCH_IN_PROGRESS),
+        ("IN_PROGRESS", BATCH_IN_PROGRESS),
+        ("FAILED", BATCH_FAILED),
+        ("EXPIRED", BATCH_FAILED),
+        ("CANCELLED", BATCH_FAILED),
+    ])
+    async def test_maps_together_status_to_normalized_status(self, together_client, raw_status, expected):
+        together_client._batch_client.batches.retrieve = AsyncMock(
+            return_value=SimpleNamespace(status=raw_status)
+        )
+        assert await together_client.poll_batch("batch_abc") == expected
+
+
+class TestTogetherClientFetchBatchResults:
+    pytestmark = pytest.mark.asyncio
+
+    async def test_parses_successful_lines_from_the_output_file(self, together_client, batch_requests):
+        jsonl = "\n".join([_output_line("0", "A"), _output_line("1", "B"), _output_line("2", "C")])
+        together_client._batch_client.batches.retrieve = AsyncMock(return_value=SimpleNamespace(
+            output_file_id="out_1", error_file_id=None,
+        ))
+        together_client._batch_client.files.content = AsyncMock(return_value=SimpleNamespace(text=jsonl))
+
+        results = await together_client.fetch_batch_results("batch_abc", batch_requests)
+
+        assert [r.raw_text for r in results] == ["A", "B", "C"]
+        assert all(r.is_success() for r in results)
+
+    async def test_reassembles_by_custom_id_not_line_order(self, together_client, batch_requests):
+        jsonl = "\n".join([_output_line("2", "C"), _output_line("0", "A"), _output_line("1", "B")])
+        together_client._batch_client.batches.retrieve = AsyncMock(return_value=SimpleNamespace(
+            output_file_id="out_1", error_file_id=None,
+        ))
+        together_client._batch_client.files.content = AsyncMock(return_value=SimpleNamespace(text=jsonl))
+
+        results = await together_client.fetch_batch_results("batch_abc", batch_requests)
+
+        assert [r.raw_text for r in results] == ["A", "B", "C"]
+
+    async def test_a_line_in_the_error_file_becomes_a_failure_response(self, together_client, batch_requests):
+        output_jsonl = "\n".join([_output_line("0", "A"), _output_line("2", "C")])
+        error_jsonl = _error_line("1", "rate limited")
+        together_client._batch_client.batches.retrieve = AsyncMock(return_value=SimpleNamespace(
+            output_file_id="out_1", error_file_id="err_1",
+        ))
+
+        async def _fake_content(file_id):
+            return SimpleNamespace(text=output_jsonl if file_id == "out_1" else error_jsonl)
+
+        together_client._batch_client.files.content = AsyncMock(side_effect=_fake_content)
+
+        results = await together_client.fetch_batch_results("batch_abc", batch_requests)
+
+        assert results[0].is_success() and results[0].raw_text == "A"
+        assert not results[1].is_success()
+        assert "rate limited" in results[1].error.message
+        assert results[2].is_success() and results[2].raw_text == "C"
+
+    async def test_a_missing_custom_id_becomes_a_failure_response_not_a_crash(self, together_client, batch_requests):
+        jsonl = "\n".join([_output_line("0", "A"), _output_line("2", "C")])
+        together_client._batch_client.batches.retrieve = AsyncMock(return_value=SimpleNamespace(
+            output_file_id="out_1", error_file_id=None,
+        ))
+        together_client._batch_client.files.content = AsyncMock(return_value=SimpleNamespace(text=jsonl))
+
+        results = await together_client.fetch_batch_results("batch_abc", batch_requests)
+
+        assert results[0].is_success() and results[2].is_success()
+        assert not results[1].is_success()
