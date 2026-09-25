@@ -703,6 +703,7 @@ capture model weights, so two local checkpoints sharing a basename
 | `together` | Together AI (Qwen, Llama, and other open-weight models) |
 | `vllm` | Local vLLM OpenAI-compatible server; configure `base_url`, no hosted API key required. Generate-only, like the other API clients; not accepted for `pride`/`cyclic_logprob`, see [Logprob methods](#logprob-methods-pride-cyclic_logprob) |
 | `openrouter` | OpenRouter gateway to many upstream providers/models. Optional `upstream_provider`/`allow_fallbacks` model-config fields pin a specific upstream provider and disable OpenRouter's automatic fallback routing; omit both for OpenRouter's default automatic routing. Generate-only. |
+| `deepinfra` | DeepInfra's OpenAI-compatible endpoint. Exists specifically for Batch API execution (see [Batch execution](#batch-execution)) -- synchronous execution of DeepInfra-hosted models still goes through `openrouter` with `upstream_provider: deepinfra` pinning; DeepInfra's Batch API is not reachable through OpenRouter's proxy. |
 
 ### Benchmarks
 
