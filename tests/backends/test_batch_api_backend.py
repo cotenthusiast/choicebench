@@ -216,3 +216,51 @@ class TestGenerateBatchFailure:
         results = await backend2.generate_batch(["q1"])
         assert len(client2.submit_batch_calls) == 1
         assert results[0].raw_text == "A"
+
+
+class _FakePinnedBatchClient(_FakeBatchClient):
+    """A batch client double carrying OpenRouter-style upstream pinning
+    attributes, to prove BatchAPIBackend's own _cache_key calls (which
+    bypass CachingClientWrapper.generate() entirely) still fold in
+    client_extra_identity -- a regression the claim-7 cache-identity fix
+    initially missed, since it only touched CachingClientWrapper.generate()."""
+
+    def __init__(self, *args, upstream_provider, allow_fallbacks=False, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._upstream_provider = upstream_provider
+        self._allow_fallbacks = allow_fallbacks
+
+
+class TestGenerateBatchUpstreamProviderIdentity:
+    @pytest.mark.asyncio
+    async def test_different_upstream_pinning_never_shares_a_cache_entry(self, tmp_path):
+        cache_dir = tmp_path / "cache"
+
+        deepinfra_client = _FakePinnedBatchClient(
+            poll_sequence=[BATCH_COMPLETED], result_by_payload={"q1": "A"},
+            upstream_provider="deepinfra",
+        )
+        deepinfra_backend = BatchAPIBackend(
+            provider="openrouter", model_name="meta-llama/llama-3.1-8b-instruct",
+            client=deepinfra_client, cache_dir=cache_dir, temperature=0.0, max_tokens=16,
+            seed=None, batch_state_dir=tmp_path / "batch_state_a",
+            poll_interval_seconds=0.0, sleep_fn=_noop_sleep,
+        )
+        await deepinfra_backend.generate_batch(["q1"])
+
+        together_client = _FakePinnedBatchClient(
+            poll_sequence=[BATCH_COMPLETED], result_by_payload={"q1": "B"},
+            upstream_provider="together",
+        )
+        together_backend = BatchAPIBackend(
+            provider="openrouter", model_name="meta-llama/llama-3.1-8b-instruct",
+            client=together_client, cache_dir=cache_dir, temperature=0.0, max_tokens=16,
+            seed=None, batch_state_dir=tmp_path / "batch_state_b",
+            poll_interval_seconds=0.0, sleep_fn=_noop_sleep,
+        )
+        results = await together_backend.generate_batch(["q1"])
+
+        # Sharing one cache_dir must NOT make the together-pinned backend
+        # see the deepinfra-pinned response as a cache hit.
+        assert len(together_client.submit_batch_calls) == 1
+        assert results[0].raw_text == "B"

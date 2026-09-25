@@ -71,6 +71,25 @@ def _load_preflight_from_benchmark(
     df = artifact.dataframe
     if eval_question_ids:
         df = df[~df["question_id"].isin(eval_question_ids)]
+    if cfg.n_choices is not None:
+        # Eligibility-before-sampling: restrict to eligible rows FIRST,
+        # then sample n from that pool -- never sample n raw rows and
+        # filter afterward, which offers no guarantee of yielding n
+        # eligible rows if the raw pool contains any ineligible ones.
+        if "n_choices" not in df.columns:
+            raise ValueError(
+                f"load_preflight: preflight.n_choices={cfg.n_choices} was set, but the "
+                f"loaded benchmark data has no 'n_choices' column to filter on."
+            )
+        raw_pool_size = len(df)
+        df = df[df["n_choices"] == cfg.n_choices]
+        if len(df) < cfg.n:
+            raise ValueError(
+                f"load_preflight: preflight.n={cfg.n} requires that many eligible "
+                f"(n_choices=={cfg.n_choices}) rows, but only {len(df)} are eligible "
+                f"out of {raw_pool_size} raw rows in the preflight pool -- refusing to "
+                "silently sample fewer, or any ineligible, rows."
+            )
     n = max(0, min(cfg.n, len(df)))
     if n == 0:
         logger.warning(

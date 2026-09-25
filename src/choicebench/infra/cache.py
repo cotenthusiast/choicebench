@@ -131,6 +131,34 @@ class ResponseCache:
             logger.warning("Cache write failed for key %s: %s", key[:8], exc)
 
 
+def client_extra_identity(client) -> dict | None:
+    """Client-level identity not carried on ModelRequest itself that can
+    change the actual served deployment for an otherwise-identical request
+    -- currently OpenRouter's upstream_provider/allow_fallbacks pinning.
+    Returns None for every client without this configured (every non-
+    OpenRouter client, and an OpenRouter client with no pinning at all), so
+    their cache keys are byte-identical to before this existed -- only a
+    PINNED OpenRouter client's key changes.
+
+    Shared by both CachingClientWrapper (sync APIBackend path) and
+    BatchAPIBackend (which calls _cache_key directly rather than through
+    the wrapper, and would otherwise silently bypass this).
+
+    Duck-typed on attribute VALUE TYPE, not attribute presence or client
+    class -- a bare getattr(..., None) default is not enough to stay inert
+    against a test double (e.g. unittest.mock.Mock), which auto-vivifies
+    any attribute access as a truthy, non-None Mock object rather than
+    raising or returning the default.
+    """
+    upstream_provider = getattr(client, "_upstream_provider", None)
+    if not isinstance(upstream_provider, str):
+        return None
+    allow_fallbacks = getattr(client, "_allow_fallbacks", True)
+    if not isinstance(allow_fallbacks, bool):
+        allow_fallbacks = True
+    return {"upstream_provider": upstream_provider, "allow_fallbacks": allow_fallbacks}
+
+
 class CachingClientWrapper:
     """Wraps a BaseClient to transparently cache successful responses.
 
@@ -151,31 +179,8 @@ class CachingClientWrapper:
         self.provider = client.provider
         self.model_name = client.model_name
 
-    def _client_extra_identity(self) -> dict | None:
-        """Client-level identity not carried on ModelRequest itself that
-        can change the actual served deployment for an otherwise-identical
-        request -- currently OpenRouter's upstream_provider/allow_fallbacks
-        pinning. Returns None for every client without this configured
-        (every non-OpenRouter client, and an OpenRouter client with no
-        pinning at all), so their cache keys are byte-identical to before
-        this existed -- only a PINNED OpenRouter client's key changes.
-
-        Duck-typed on attribute VALUE TYPE, not attribute presence or
-        client class -- a bare getattr(..., None) default is not enough to
-        stay inert against a test double (e.g. unittest.mock.Mock), which
-        auto-vivifies any attribute access as a truthy, non-None Mock
-        object rather than raising or returning the default.
-        """
-        upstream_provider = getattr(self._client, "_upstream_provider", None)
-        if not isinstance(upstream_provider, str):
-            return None
-        allow_fallbacks = getattr(self._client, "_allow_fallbacks", True)
-        if not isinstance(allow_fallbacks, bool):
-            allow_fallbacks = True
-        return {"upstream_provider": upstream_provider, "allow_fallbacks": allow_fallbacks}
-
     async def generate(self, request: ModelRequest) -> ModelResponse:
-        key = _cache_key(request, extra_identity=self._client_extra_identity())
+        key = _cache_key(request, extra_identity=client_extra_identity(self._client))
         cached = self._cache.get(key)
 
         if cached is not None:

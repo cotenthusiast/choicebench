@@ -150,6 +150,172 @@ class TestLoadPreflightBenchmarkSource:
         assert [r["question_id"] for r in first] != [r["question_id"] for r in second]
 
 
+def _make_questions_with_n_choices(rows: list[tuple[str, int]]) -> pd.DataFrame:
+    """rows: list of (question_id, n_choices)."""
+    return pd.DataFrame(
+        [
+            {
+                "question_id": qid,
+                "subject": "general",
+                "question_text": f"Question {qid}?",
+                "correct_option": "A",
+                "correct_answer_text": "A text",
+                "n_choices": n_choices,
+            }
+            for qid, n_choices in rows
+        ]
+    )
+
+
+class TestLoadPreflightEligibilityBeforeSampling:
+    """Confirmed audit finding, corrected: sampling n raw rows and
+    filtering to n_choices==k AFTERWARD offers no a priori guarantee of
+    yielding n eligible rows if the raw pool contains any ineligible
+    ones (ARC-Challenge validation's few 3-/5-option rows). Frozen
+    protocol: filter to the eligible pool FIRST, then sample exactly n
+    from THAT pool."""
+
+    def test_discriminates_sample_before_filter_from_filter_before_sample(self):
+        """This exact fixture/seed pair is chosen so the OLD (sample n raw
+        rows, then filter) approach would have returned only 10/15
+        eligible rows -- empirically verified by directly reproducing that
+        old code path below -- while the fixed (filter first, then sample
+        n) approach returns exactly 15."""
+        rows = (
+            [(f"q{i:03d}", 4) for i in range(15)]  # 15 eligible
+            + [(f"x{i:03d}", 3) for i in range(5)]  # 5 ineligible
+        )
+        df = _make_questions_with_n_choices(rows)
+
+        # Reproduce the OLD sample-then-filter behavior directly, to prove
+        # this fixture/seed genuinely would have broken it (not just
+        # asserting the NEW behavior in isolation).
+        old_style_sample = df.sample(n=15, random_state=42)
+        old_style_eligible_count = int((old_style_sample["n_choices"] == 4).sum())
+        assert old_style_eligible_count < 15, (
+            "fixture must exercise the old sample-before-filter bug; "
+            f"got {old_style_eligible_count}/15 eligible in the naive sample"
+        )
+
+        method = _make_method(PreflightConfig(source="benchmark", split="validation", n=15, n_choices=4))
+        bench = _make_benchmark(split="test")
+        fake_artifact = _make_prepared_dataset(df)
+
+        with patch("choicebench.preflight._load_benchmark_artifact", return_value=fake_artifact):
+            result = load_preflight(method, bench, run_seed=42)
+
+        assert len(result) == 15
+        assert all(r["n_choices"] == 4 for r in result)
+        assert all(r["question_id"].startswith("q") for r in result)  # never one of the 5 ineligible rows
+
+    def test_deterministic_selection_under_seed_42(self):
+        rows = [(f"q{i:03d}", 4) for i in range(15)] + [(f"x{i:03d}", 3) for i in range(5)]
+        df = _make_questions_with_n_choices(rows)
+        method = _make_method(PreflightConfig(source="benchmark", split="validation", n=10, n_choices=4))
+        bench = _make_benchmark(split="test")
+        fake_artifact = _make_prepared_dataset(df)
+
+        with patch("choicebench.preflight._load_benchmark_artifact", return_value=fake_artifact):
+            first = load_preflight(method, bench, run_seed=42)
+        with patch("choicebench.preflight._load_benchmark_artifact", return_value=fake_artifact):
+            second = load_preflight(method, bench, run_seed=42)
+
+        assert [r["question_id"] for r in first] == [r["question_id"] for r in second]
+
+    def test_exact_mmlu_style_selection_77_of_77_eligible(self):
+        """MMLU: validation pool = 1,531, all modal-k=4 eligible -- select
+        exactly 77."""
+        rows = [(f"q{i:04d}", 4) for i in range(1531)]
+        df = _make_questions_with_n_choices(rows)
+        method = _make_method(PreflightConfig(source="benchmark", split="validation", n=77, n_choices=4))
+        bench = _make_benchmark(split="test")
+        fake_artifact = _make_prepared_dataset(df)
+
+        with patch("choicebench.preflight._load_benchmark_artifact", return_value=fake_artifact):
+            result = load_preflight(method, bench, run_seed=42)
+
+        assert len(result) == 77
+        assert len({r["question_id"] for r in result}) == 77  # no duplicates
+        assert all(r["n_choices"] == 4 for r in result)
+
+    def test_exact_arc_style_selection_15_of_295_eligible(self):
+        """ARC: raw validation = 299, eligible four-option = 295 -- select
+        exactly 15 from the eligible pool, never from the ineligible 4."""
+        rows = (
+            [(f"q{i:04d}", 4) for i in range(295)]
+            + [(f"x{i:04d}", 3) for i in range(2)]
+            + [(f"y{i:04d}", 5) for i in range(2)]
+        )
+        df = _make_questions_with_n_choices(rows)
+        method = _make_method(PreflightConfig(source="benchmark", split="validation", n=15, n_choices=4))
+        bench = _make_benchmark(split="test")
+        fake_artifact = _make_prepared_dataset(df)
+
+        with patch("choicebench.preflight._load_benchmark_artifact", return_value=fake_artifact):
+            result = load_preflight(method, bench, run_seed=42)
+
+        assert len(result) == 15
+        assert all(r["n_choices"] == 4 for r in result)
+        assert all(r["question_id"].startswith("q") for r in result)
+
+    def test_calibration_evaluation_disjointness_preserved_with_n_choices(self):
+        """The pre-existing eval_question_ids exclusion must still apply
+        BEFORE eligibility filtering -- an eligible row that's also in the
+        evaluation set must never be selected for calibration."""
+        rows = [(f"q{i:03d}", 4) for i in range(20)]
+        df = _make_questions_with_n_choices(rows)
+        eval_ids = {f"q{i:03d}" for i in range(10)}  # first 10 are "in eval"
+
+        method = _make_method(PreflightConfig(source="benchmark", split="validation", n=10, n_choices=4))
+        bench = _make_benchmark(split="test")
+        fake_artifact = _make_prepared_dataset(df)
+
+        with patch("choicebench.preflight._load_benchmark_artifact", return_value=fake_artifact):
+            result = load_preflight(method, bench, run_seed=42, eval_question_ids=eval_ids)
+
+        returned_ids = {r["question_id"] for r in result}
+        assert returned_ids.isdisjoint(eval_ids)
+        assert returned_ids == {f"q{i:03d}" for i in range(10, 20)}  # only the 10 non-eval-overlapping ones
+
+    def test_insufficient_eligible_pool_fails_loudly(self):
+        """Only 12 eligible rows exist but n=15 is requested -- must raise
+        immediately, at load_preflight() itself, not silently return 12
+        or silently include ineligible rows."""
+        rows = [(f"q{i:03d}", 4) for i in range(12)] + [(f"x{i:03d}", 3) for i in range(8)]
+        df = _make_questions_with_n_choices(rows)
+        method = _make_method(PreflightConfig(source="benchmark", split="validation", n=15, n_choices=4))
+        bench = _make_benchmark(split="test")
+        fake_artifact = _make_prepared_dataset(df)
+
+        with patch("choicebench.preflight._load_benchmark_artifact", return_value=fake_artifact):
+            with pytest.raises(ValueError, match="eligible"):
+                load_preflight(method, bench, run_seed=42)
+
+    def test_missing_n_choices_column_raises_clearly(self):
+        method = _make_method(PreflightConfig(source="benchmark", split="validation", n=5, n_choices=4))
+        bench = _make_benchmark(split="test")
+        fake_artifact = _make_prepared_dataset(_make_questions(20))  # no n_choices column
+
+        with patch("choicebench.preflight._load_benchmark_artifact", return_value=fake_artifact):
+            with pytest.raises(ValueError, match="n_choices"):
+                load_preflight(method, bench, run_seed=42)
+
+    def test_n_choices_none_preserves_prior_unfiltered_behavior(self):
+        """Backward compatibility: when n_choices is not set (the default,
+        and every non-PriDe preflight consumer), behavior is completely
+        unchanged -- rows of any n_choices value may be sampled."""
+        rows = [(f"q{i:03d}", 4) for i in range(10)] + [(f"x{i:03d}", 3) for i in range(10)]
+        df = _make_questions_with_n_choices(rows)
+        method = _make_method(PreflightConfig(source="benchmark", split="validation", n=15))  # n_choices unset
+        bench = _make_benchmark(split="test")
+        fake_artifact = _make_prepared_dataset(df)
+
+        with patch("choicebench.preflight._load_benchmark_artifact", return_value=fake_artifact):
+            result = load_preflight(method, bench, run_seed=42)
+
+        assert len(result) == 15  # never raises even though only 10 are "eligible" -- filter is opt-in
+
+
 class TestLoadPreflightFilePath:
     def test_jsonl_source_returns_records(self, tmp_path: Path):
         """source: JSONL file path → returns parsed records."""

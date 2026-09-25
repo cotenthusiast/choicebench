@@ -192,6 +192,13 @@ def build_backend(
             cache_dir = CACHE_DIR / model_cache_id
         else:
             cache_dir = RUNS_DIR / run_id / "cache" / model_cache_id
+        # provider_seed (a model config field, default None) is deliberately
+        # NOT run_seed (the experiment seed): run.seed governs benchmark
+        # sampling/manifests, deterministic tie-breaking, and bootstrap
+        # analysis, never the provider's own request-level `seed` parameter
+        # -- a distinct, provider-best-effort-sampling-determinism concept
+        # the frozen ChoiceBench protocol does not specify. See
+        # ModelConfig.provider_seed's own docstring.
         if execution_mode == "batch":
             return BatchAPIBackend(
                 model_config.provider,
@@ -200,7 +207,7 @@ def build_backend(
                 cache_dir,
                 model_config.generation_kwargs.temperature,
                 model_config.generation_kwargs.max_new_tokens,
-                run_seed,
+                model_config.provider_seed,
                 RUNS_DIR / run_id / "batch_state" / model_cache_id,
                 concurrency_limit,
                 model_identity,
@@ -212,7 +219,7 @@ def build_backend(
             cache_dir,
             model_config.generation_kwargs.temperature,
             model_config.generation_kwargs.max_new_tokens,
-            run_seed,
+            model_config.provider_seed,
             concurrency_limit,
             model_identity,
         )

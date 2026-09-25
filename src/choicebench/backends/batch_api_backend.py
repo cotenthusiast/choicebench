@@ -18,7 +18,7 @@ from choicebench.clients.types import (
     ModelRequest,
     ModelResponse,
 )
-from choicebench.infra.cache import CachingClientWrapper, _cache_key
+from choicebench.infra.cache import CachingClientWrapper, _cache_key, client_extra_identity
 
 
 class BatchAPIBackend(APIBackend):
@@ -61,7 +61,7 @@ class BatchAPIBackend(APIBackend):
         cache_dir: Path,
         temperature: float,
         max_tokens: int,
-        seed: int,
+        seed: int | None,
         batch_state_dir: Path,
         concurrency_limit: int = 10,
         cache_identity: str | None = None,
@@ -83,11 +83,17 @@ class BatchAPIBackend(APIBackend):
         only), returned in the same order the prompts were given."""
         requests = [self._make_request(p) for p in prompts]
         cache = self._client._cache
+        # Calls _cache_key directly (not through CachingClientWrapper.
+        # generate(), which is bypassed entirely by the batch path) -- must
+        # pass the same client-level extra_identity that path does, or a
+        # pinned OpenRouter client's batch requests would silently use a
+        # different (weaker) cache key than its sync requests do.
+        extra_identity = client_extra_identity(self._raw_client)
 
         results: list[ModelResponse | None] = [None] * len(prompts)
         uncached_indices: list[int] = []
         for i, request in enumerate(requests):
-            cached = cache.get(_cache_key(request))
+            cached = cache.get(_cache_key(request, extra_identity=extra_identity))
             if cached is not None:
                 results[i] = CachingClientWrapper._build_cached_response(request, cached)
             else:
@@ -101,7 +107,7 @@ class BatchAPIBackend(APIBackend):
                 results[local_i] = response
                 if response.is_success():
                     cache.put(
-                        _cache_key(requests[local_i]),
+                        _cache_key(requests[local_i], extra_identity=extra_identity),
                         CachingClientWrapper._serialize_response(response),
                     )
             self._clear_batch_state(uncached_requests)

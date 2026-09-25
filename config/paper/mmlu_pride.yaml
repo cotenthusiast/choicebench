@@ -18,6 +18,14 @@
 # loudly instead of silently calibrating on fewer than calibration_n
 # eligible questions, should the eligible pool ever come up short.
 #
+# preflight.n_choices: 4 implements eligibility-before-sampling (every
+# MMLU validation row is already n_choices=4, so this is a no-op here in
+# practice, but it's the SAME frozen selection protocol as ARC's own
+# config -- see arc_pride.yaml's header for why this matters there):
+# restrict to eligible (n_choices==4) rows FIRST, then sample exactly
+# preflight.n from that pool -- never sample n raw rows and filter
+# afterward.
+#
 # Full local logits via HuggingFaceBackend -- never vLLM, never an API
 # backend (neither exposes full-vocabulary score_options()). This is a
 # separate config from the other MMLU methods specifically because PriDe
@@ -65,6 +73,7 @@ methods:
       source: benchmark
       split: validation
       n: 77
+      n_choices: 4
 
 metrics:
   - accuracy

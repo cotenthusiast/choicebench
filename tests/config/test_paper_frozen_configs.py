@@ -104,6 +104,29 @@ def test_every_paper_config_uses_the_frozen_generation_settings(path):
         assert model.generation_kwargs.temperature == 0.0, f"{path.name}: {model.model_name_or_path}"
 
 
+@pytest.mark.parametrize("path", _ALL_CONFIGS, ids=lambda p: p.name)
+def test_every_paper_config_omits_provider_seed(path):
+    """The frozen ChoiceBench protocol does not specify a provider
+    sampling seed -- run.seed (42) is the EXPERIMENT seed (benchmark
+    sampling/manifests, deterministic tie-breaking, bootstrap analysis)
+    and must never be confused with it. None of the frozen paper configs
+    set model.provider_seed, so OpenRouter (Llama sync) and Together
+    (Qwen) never receive a `seed` request parameter for these runs --
+    covers every provider, not just those two, since the field should be
+    unset everywhere unless a future experiment deliberately opts in."""
+    config = load_config(str(path))
+    for model in config.models:
+        assert model.provider_seed is None, f"{path.name}: {model.model_name_or_path}"
+
+
+@pytest.mark.parametrize("path", _ALL_CONFIGS, ids=lambda p: p.name)
+def test_every_paper_config_uses_the_frozen_experiment_seed(path):
+    """run.seed (the EXPERIMENT seed) stays 42 everywhere -- distinct from,
+    and unaffected by, provider_seed being unset."""
+    config = load_config(str(path))
+    assert config.run.seed == 42, path.name
+
+
 @pytest.mark.parametrize("filename", _FULL_ROSTER_CONFIGS)
 def test_full_roster_configs_have_the_exact_frozen_six_models(filename):
     config = load_config(str(CONFIG_DIR / filename))

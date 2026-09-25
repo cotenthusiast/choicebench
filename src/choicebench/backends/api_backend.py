@@ -30,10 +30,15 @@ class APIBackend(BaseBackend):
         cache_dir: Path,
         temperature: float,
         max_tokens: int,
-        seed: int,
+        seed: int | None,
         concurrency_limit: int = 10,
         cache_identity: str | None = None,
     ) -> None:
+        # This is the PROVIDER's own request-level seed (best-effort
+        # sampling determinism, provider-dependent), deliberately distinct
+        # from the experiment/run seed -- None means no `seed` is sent to
+        # the provider at all, the default for every frozen paper config.
+        # See ModelConfig.provider_seed.
         self._provider = provider
         self._model_name = model_name
         self._raw_client = client  # unwrapped; exposed for introspection (e.g. client-level config)

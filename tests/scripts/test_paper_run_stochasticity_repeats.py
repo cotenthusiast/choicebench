@@ -182,6 +182,69 @@ class TestRunStochasticityRepeatsBaseline:
         assert len(set(recorded_identities)) == 3  # all distinct
         assert all(i is not None for i in recorded_identities)
 
+    def test_fresh_repetitions_use_the_same_run_seed_never_a_varied_one(self, tmp_path, monkeypatch):
+        """"Same request configuration + separate real invocations + no
+        response-cache reuse" -- NOT explicitly different provider seeds
+        per repetition, which would deliberately change the request and
+        measure a different phenomenon. The distinct cache/invocation
+        identity across fresh repetitions comes entirely from
+        model_identity (see the sibling test above); run_seed itself must
+        be identical across every fresh repetition."""
+        recorded_calls = []
+
+        def _fake_build_backend(*args, **kwargs):
+            recorded_calls.append(kwargs)
+            return _FakeAsyncBackend()
+
+        monkeypatch.setattr(mod, "build_backend", _fake_build_backend)
+        source = _questions_csv(tmp_path, ["q1"])
+        output = tmp_path / "out.csv"
+        canonical = _canonical_obs0_csv(tmp_path, [
+            {"question_id": "q1", "method_name": "direct_mcq", "parsed_choice": "C", "is_correct": True},
+        ])
+
+        mod.run(
+            source, _MODEL_CONFIG, "test_run", output, method_name="direct_mcq",
+            prompt_version="v1", canonical_obs0_csv=canonical, n_repetitions=4, run_seed=42,
+        )
+
+        assert len(recorded_calls) == 3  # reps 1, 2, 3
+        run_seeds = [call.get("run_seed") for call in recorded_calls]
+        assert run_seeds == [42, 42, 42]  # identical -- never varied per repetition
+        # Distinct identity comes from model_identity alone, not from seed.
+        model_identities = [call.get("model_identity") for call in recorded_calls]
+        assert len(set(model_identities)) == 3
+
+    def test_build_backend_never_receives_a_repetition_varying_provider_seed_kwarg(
+            self, tmp_path, monkeypatch,
+    ):
+        """Same production seed policy for obs0 and every fresh repetition:
+        this script must never pass a provider-seed-like override that
+        varies per repetition -- provider_seed is purely a model_config
+        field, resolved once by build_backend() itself, identically for
+        every call sharing that model_config."""
+        recorded_calls = []
+
+        def _fake_build_backend(*args, **kwargs):
+            recorded_calls.append(kwargs)
+            return _FakeAsyncBackend()
+
+        monkeypatch.setattr(mod, "build_backend", _fake_build_backend)
+        source = _questions_csv(tmp_path, ["q1"])
+        output = tmp_path / "out.csv"
+        canonical = _canonical_obs0_csv(tmp_path, [
+            {"question_id": "q1", "method_name": "direct_mcq", "parsed_choice": "C", "is_correct": True},
+        ])
+
+        mod.run(
+            source, _MODEL_CONFIG, "test_run", output, method_name="direct_mcq",
+            prompt_version="v1", canonical_obs0_csv=canonical, n_repetitions=4, run_seed=42,
+        )
+
+        for call in recorded_calls:
+            assert "provider_seed" not in call
+            assert "seed" not in call  # only run_seed/model_identity vary the call
+
     def test_method_name_is_stamped_correctly(self, tmp_path, monkeypatch):
         backend = _FakeAsyncBackend()
         monkeypatch.setattr(mod, "build_backend", lambda *a, **k: backend)

@@ -67,11 +67,17 @@ def test_unknown_backend_raises():
         run_exp.build_backend(_model("not_a_backend"), "rid", run_seed=1)
 
 
-def test_api_backend_receives_run_seed(tmp_path, monkeypatch):
-    """Regression: build_backend must thread the run seed into APIBackend.
-
-    The original code read a nonexistent model_config.run.seed and crashed
-    with AttributeError on every API run.
+def test_api_backend_does_not_receive_run_seed(tmp_path, monkeypatch):
+    """Regression, corrected 2026-09-25: build_backend() previously threaded
+    run_seed (the EXPERIMENT seed -- governs benchmark sampling/manifests,
+    deterministic tie-breaking, bootstrap analysis) directly into
+    APIBackend._seed, and therefore into the provider's own request-level
+    `seed` parameter for any client that forwards it (OpenRouter, Together)
+    -- a genuinely different, provider-best-effort-sampling-determinism
+    concept the frozen ChoiceBench protocol does not specify. A varying
+    run_seed must never change what gets sent to the provider when
+    model_config.provider_seed is unset (the default for every frozen
+    paper config) -- backend._seed stays None regardless.
     """
     run_exp = _load_run_experiment()
     monkeypatch.setattr(run_exp, "RUNS_DIR", tmp_path)
@@ -83,13 +89,69 @@ def test_api_backend_receives_run_seed(tmp_path, monkeypatch):
 
     monkeypatch.setitem(run_exp.CLIENT_REGISTRY, "fake", _FakeClient)
 
+    for run_seed in (1234, 99, 42):
+        backend = run_exp.build_backend(
+            _model("api", provider="fake", model_name_or_path="fake-model"),
+            "rid",
+            run_seed=run_seed,
+        )
+        assert isinstance(backend, APIBackend)
+        assert backend._seed is None
+
+
+def test_api_backend_uses_explicit_provider_seed_when_configured(tmp_path, monkeypatch):
+    """Generic ChoiceBench still supports an explicitly configured provider
+    seed for a future experiment that wants one -- independent of
+    run_seed."""
+    run_exp = _load_run_experiment()
+    monkeypatch.setattr(run_exp, "RUNS_DIR", tmp_path)
+
+    class _FakeClient:
+        def __init__(self, model_name, concurrency_limit=10, **kwargs):
+            self.model_name = model_name
+            self.provider = "fake"
+
+    monkeypatch.setitem(run_exp.CLIENT_REGISTRY, "fake", _FakeClient)
+
     backend = run_exp.build_backend(
-        _model("api", provider="fake", model_name_or_path="fake-model"),
+        _model("api", provider="fake", model_name_or_path="fake-model", provider_seed=777),
         "rid",
-        run_seed=1234,
+        run_seed=1234,  # deliberately different from provider_seed -- must not leak in
     )
-    assert isinstance(backend, APIBackend)
-    assert backend._seed == 1234
+    assert backend._seed == 777
+
+
+@pytest.mark.parametrize("config_filename,provider", [
+    ("mmlu_core_methods.yaml", "openrouter"),  # Llama sync
+    ("mmlu_core_methods.yaml", "together"),  # Qwen
+])
+def test_frozen_paper_config_produces_no_provider_seed_end_to_end(
+        tmp_path, monkeypatch, config_filename, provider,
+):
+    """End-to-end (config -> build_backend -> _make_request): the ACTUAL
+    frozen production config for Llama-sync (OpenRouter) and Qwen
+    (Together) must never send a `seed` request parameter, regardless of
+    run.seed -- not just a check on the config field in isolation."""
+    from choicebench.config.schema import load_config
+
+    run_exp = _load_run_experiment()
+    monkeypatch.setattr(run_exp, "RUNS_DIR", tmp_path)
+
+    class _FakeClient:
+        def __init__(self, model_name, concurrency_limit=10, **kwargs):
+            self.model_name = model_name
+            self.provider = provider
+
+    monkeypatch.setitem(run_exp.CLIENT_REGISTRY, provider, _FakeClient)
+
+    config = load_config(str(_REPO_ROOT / "config" / "paper" / config_filename))
+    model_config = next(m for m in config.models if m.provider == provider)
+
+    backend = run_exp.build_backend(model_config, "rid", run_seed=config.run.seed)
+    request = backend._make_request("some prompt")
+
+    assert config.run.seed == 42  # the experiment seed IS 42...
+    assert request.seed is None  # ...but it never reaches the provider request
 
 
 def test_model_inherits_run_concurrency_limit_when_unset(tmp_path, monkeypatch):

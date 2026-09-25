@@ -100,6 +100,15 @@ class ModelConfig:
     # FP8 model) whose non-quantized layers have their own native dtype
     # (often bfloat16) that forcing float16 would silently override.
     torch_dtype: str | None = None
+    # API backends only. This is deliberately SEPARATE from run.seed (the
+    # experiment seed, used for benchmark sampling/manifests, deterministic
+    # tie-breaking, and bootstrap analysis) -- run.seed must never leak into
+    # the provider request's own `seed` parameter, which is a genuinely
+    # different concept (a provider best-effort sampling-determinism knob
+    # the frozen ChoiceBench protocol does not specify). None (default)
+    # means no `seed` is sent to the provider at all; set this explicitly
+    # only for an experiment that specifically wants one.
+    provider_seed: int | None = None
 
 
 @dataclass(frozen=True)
@@ -143,6 +152,14 @@ class PreflightConfig:
     source: str = "benchmark"   # "benchmark" or a file path
     split: str = "validation"   # split label; used for disjointness check
     n: int = 100                # number of preflight questions to load
+    # When set, restricts the pool to rows with exactly this many options
+    # BEFORE sampling n from it (eligibility-before-sampling) -- rather
+    # than sampling n raw rows and filtering afterward, which offers no
+    # guarantee of yielding n eligible rows if the raw pool contains any
+    # ineligible ones (e.g. ARC-Challenge validation's few 3-/5-option
+    # rows). None (default) samples from the raw pool unfiltered,
+    # preserving prior behavior for any consumer that doesn't need this.
+    n_choices: int | None = None
 
 
 _VALID_EXECUTION_MODES = {"sync", "batch"}
@@ -280,7 +297,7 @@ def _build_models(raw: dict) -> list[ModelConfig]:
         _reject_unknown(entry, {
             "backend", "model_name_or_path", "provider", "device", "generation_kwargs",
             "concurrency_limit", "base_url", "add_bos_token", "revision",
-            "upstream_provider", "allow_fallbacks", "torch_dtype",
+            "upstream_provider", "allow_fallbacks", "torch_dtype", "provider_seed",
         }, f"models[{i}]")
         backend = _nonempty(_require(entry, "backend", f"models[{i}]"), f"models[{i}].backend")
         if backend not in _VALID_BACKENDS:
@@ -324,6 +341,10 @@ def _build_models(raw: dict) -> list[ModelConfig]:
                 revision=(
                     _nonempty(entry["revision"], f"models[{i}].revision")
                     if entry.get("revision") is not None else None
+                ),
+                provider_seed=(
+                    _strict_int(entry["provider_seed"], f"models[{i}].provider_seed", minimum=0)
+                    if entry.get("provider_seed") is not None else None
                 ),
             )
         )
@@ -520,11 +541,15 @@ def _build_methods(raw: list | None) -> list[MethodConfig]:
                 raise ConfigError(
                     f"{where}.preflight must be a YAML mapping; got {preflight_raw!r}."
                 )
-            _reject_unknown(preflight_raw, {"source", "split", "n"}, f"{where}.preflight")
+            _reject_unknown(preflight_raw, {"source", "split", "n", "n_choices"}, f"{where}.preflight")
             preflight = PreflightConfig(
                 source=_nonempty(preflight_raw.get("source", "benchmark"), f"{where}.preflight.source"),
                 split=_nonempty(preflight_raw.get("split", "validation"), f"{where}.preflight.split"),
                 n=_strict_int(preflight_raw.get("n", 100), f"{where}.preflight.n", minimum=1),
+                n_choices=(
+                    _strict_int(preflight_raw["n_choices"], f"{where}.preflight.n_choices", minimum=2)
+                    if preflight_raw.get("n_choices") is not None else None
+                ),
             )
         _validate_method_specific_params(name, params, where)
         methods.append(

@@ -9,14 +9,20 @@
 # rounded), frozen and approved. See mmlu_pride.yaml for the rest of the
 # rationale (identical design, different benchmark/calibration_n).
 #
-# preflight.n=15 samples 15 RAW rows from the 299-row validation split
-# before modal-k eligibility filtering (only 295/299 are eligible), so it
-# is not guaranteed a priori to yield exactly 15 eligible rows --
-# require_full_calibration: true below fails loudly rather than silently
-# calibrating on fewer than 15 if an unlucky sample ever lands on one of
-# the 4 ineligible (3- or 5-option) rows. Verified with the frozen seed 42
-# against the real prepared ARC validation artifact: today's sample is
-# 15/15 eligible.
+# Frozen selection protocol (eligibility-before-sampling, corrected
+# 2026-09-25): 299 raw validation rows -> restrict to the eligible
+# (n_choices==4) 295-row pool FIRST -> seeded selection of exactly 15 from
+# THOSE 295 -> pass exactly those 15 to PriDe calibration. preflight.
+# n_choices: 4 implements this in load_preflight() itself -- it no longer
+# samples 15 raw rows and filters afterward (which offered no a priori
+# guarantee of yielding exactly 15 eligible rows; it happened to work
+# under seed 42 against today's data, per the previous version of this
+# comment, but that was luck, not the frozen protocol). If the eligible
+# pool ever has fewer than 15 rows, load_preflight() itself now raises
+# immediately, before PriDe ever sees the selection.
+# require_full_calibration: true (below) remains as an ADDITIONAL,
+# independent fail-loud safety check at calibration time, not the primary
+# mechanism.
 #
 # Run with:
 #   python scripts/run_experiment.py --config config/paper/arc_pride.yaml --run-id <id>
@@ -59,6 +65,7 @@ methods:
       source: benchmark
       split: validation
       n: 15
+      n_choices: 4
 
 metrics:
   - accuracy

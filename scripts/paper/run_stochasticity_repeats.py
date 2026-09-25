@@ -50,32 +50,32 @@
 # repetition_index) pairs, one repetition's batch of pending questions at
 # a time.
 #
-# ⚠️ OPEN DESIGN QUESTION, deliberately NOT resolved here (flagging per
-# Karl's instruction rather than guessing at a scientific protocol change)
-# -- investigated 2026-09-25 (see clients/openrouter_client.py:142-143,
-# clients/together_client.py:134-135/174-175 vs. openai_client.py,
-# anthropic_client.py, deepinfra_client.py, none of which reference
-# request.seed at all): ONLY the OpenRouter (Llama sync) and Together
-# (Qwen sync+batch) clients forward ModelRequest.seed to the provider's
-# own API call; OpenAI/Anthropic/DeepInfra never send a seed (Anthropic's
-# Messages API has no seed parameter at all; OpenAI's Chat Completions API
-# does support one but this codebase's OpenAIClient never wires it).
-# Separately: this script passes the SAME run_seed (e.g. 42) to
-# build_backend() for every repetition -- only model_identity varies, not
-# run_seed -- so APIBackend._seed (and therefore the seed value actually
-# sent over the wire) is IDENTICAL across all fresh repetitions for
-# whichever providers DO forward it. Net effect: for Llama-sync and Qwen,
-# every fresh repetition requests the SAME seed=42 from the provider; for
-# GPT/Claude/Llama-batch, no seed is ever sent at all. Whether stochastic
-# repeatability should be measured under a FIXED seed sent identically
-# every time (current behavior, preserved as-is), an OMITTED seed, or a
-# VARIED seed per repetition is a genuine scientific protocol question
-# with more than one defensible answer -- NOT changed here. This is
-# orthogonal to (and does not compromise) the model_identity-based cache
-# isolation above: a "fresh" repetition here always means a genuinely new
-# API call was made (never served from a prior repetition's cache), even
-# on the providers where that new call happens to request the same seed
-# as the previous one.
+# RESOLVED 2026-09-25 (was flagged as an open design question in an
+# earlier version of this comment -- see git history): run_seed (the
+# EXPERIMENT seed -- benchmark sampling/manifests, deterministic
+# tie-breaking, bootstrap analysis) is now cleanly separated from the
+# provider's own request-level `seed` parameter. build_backend() sources
+# the provider seed from ModelConfig.provider_seed (a distinct config
+# field, default None), never from run_seed -- so OpenRouter (Llama sync)
+# and Together (Qwen), the only two clients that forward a seed at all
+# (openai_client.py/anthropic_client.py/deepinfra_client.py never
+# reference request.seed), receive NO seed parameter for the frozen paper
+# runs, exactly like every other provider. Karl's explicit desired policy:
+# "same request configuration + separate real invocations + no
+# response-cache reuse" for observations 0-3, NOT explicit different
+# provider seeds per repetition (which would deliberately change the
+# request and measure a different phenomenon). Since provider_seed is a
+# model_config field (constant across every repetition sharing that
+# config) and this script passes the SAME model_config to every
+# repetition, obs0 (reused from the canonical production run, which used
+# the identical model_config) and every fresh repetition automatically
+# agree on provider-seed policy by construction -- no per-repetition
+# variance is possible without deliberately passing a different
+# model_config, which this script never does. model_identity remains the
+# sole source of each fresh repetition's distinct cache/invocation
+# identity (see above) -- a "fresh" repetition here always means a
+# genuinely new API call was made, never served from a prior repetition's
+# cache, regardless of provider-seed policy.
 #
 # The output file mixes two row shapes: observation 0's reused rows carry
 # whatever condition_metadata columns the main accuracy run's grid
