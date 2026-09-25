@@ -155,6 +155,27 @@ def test_pride_threshold_out_of_range_rejected(tmp_path, bad):
         load_config(_write_config(tmp_path, data))
 
 
+# --- method.execution_mode -------------------------------------------------
+
+def test_execution_mode_defaults_to_sync(tmp_path):
+    cfg = load_config(_write_config(tmp_path, _valid_config()))
+    assert cfg.methods[0].execution_mode == "sync"
+
+
+def test_execution_mode_can_be_set_to_batch(tmp_path):
+    data = _valid_config()
+    data["methods"] = [{"name": "direct_mcq", "execution_mode": "batch"}]
+    cfg = load_config(_write_config(tmp_path, data))
+    assert cfg.methods[0].execution_mode == "batch"
+
+
+def test_execution_mode_rejects_invalid_value(tmp_path):
+    data = _valid_config()
+    data["methods"] = [{"name": "direct_mcq", "execution_mode": "async"}]
+    with pytest.raises(ConfigError, match="execution_mode must be one of"):
+        load_config(_write_config(tmp_path, data))
+
+
 def test_method_params_default_dicts_are_independent(tmp_path):
     data = _valid_config()
     data["methods"] = [{"name": "direct_mcq"}, {"name": "two_stage"}]

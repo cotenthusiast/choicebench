@@ -145,12 +145,22 @@ class PreflightConfig:
     n: int = 100                # number of preflight questions to load
 
 
+_VALID_EXECUTION_MODES = {"sync", "batch"}
+
+
 @dataclass
 class MethodConfig:
     name: str
     requires_logprobs: bool = False
     params: dict[str, Any] = field(default_factory=dict)
     preflight: PreflightConfig | None = None
+    # "sync" (default): concurrent per-request dispatch via generate_batch()
+    # (APIBackend). "batch": the SAME generate_batch() calls are routed
+    # through a real provider Batch API job instead (BatchAPIBackend) --
+    # only safe for methods whose calls are all independently constructible
+    # up front (no cross-call dependency), never for a method that must
+    # construct call N+1 from call N's own result.
+    execution_mode: str = "sync"
 
 
 @dataclass
@@ -496,7 +506,13 @@ def _build_methods(raw: list | None) -> list[MethodConfig]:
         _reject_credential_params(params, where)
         preflight_raw = entry.get("preflight")
         preflight: PreflightConfig | None = None
-        _reject_unknown(entry, {"name", "requires_logprobs", "params", "preflight"}, where)
+        _reject_unknown(entry, {"name", "requires_logprobs", "params", "preflight", "execution_mode"}, where)
+        execution_mode = entry.get("execution_mode", "sync")
+        if execution_mode not in _VALID_EXECUTION_MODES:
+            raise ConfigError(
+                f"{where}.execution_mode must be one of {sorted(_VALID_EXECUTION_MODES)}; "
+                f"got {execution_mode!r}."
+            )
         if preflight_raw is not None:
             if not isinstance(preflight_raw, dict):
                 raise ConfigError(
@@ -515,6 +531,7 @@ def _build_methods(raw: list | None) -> list[MethodConfig]:
                 requires_logprobs=_strict_bool(entry.get("requires_logprobs", False), f"{where}.requires_logprobs"),
                 params=dict(params),
                 preflight=preflight,
+                execution_mode=execution_mode,
             )
         )
     return methods
