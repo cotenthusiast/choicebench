@@ -30,6 +30,7 @@ import pandas as pd
 
 from choicebench.cli.run_experiment import build_backend
 from choicebench.config.schema import load_config
+from choicebench.infra.resumable_csv import check_resume_compatible
 from choicebench.methods.library.visible_llm_matcher import VisibleLLMMatcherRunner
 
 METHOD_NAME = "visible_llm_matcher"
@@ -90,6 +91,14 @@ def run(
             result = runner.run_one(row, sample_index=0)
 
             if writer is None:
+                # file_exists reflects state BEFORE this open(path, "a")
+                # call -- which itself creates an empty file the instant
+                # it runs, so checking output_path.exists() from here on
+                # would always see "exists" even for a genuinely fresh run.
+                if file_exists:
+                    check_resume_compatible(
+                        output_path, exact_columns=list(result.keys()), expected_method_name=METHOD_NAME,
+                    )
                 writer = csv.DictWriter(f, fieldnames=list(result.keys()))
                 if not file_exists:
                     writer.writeheader()

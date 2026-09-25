@@ -34,6 +34,7 @@ import pandas as pd
 
 from choicebench.cli.run_experiment import build_backend
 from choicebench.config.schema import load_config
+from choicebench.infra.resumable_csv import check_resume_compatible
 from choicebench.methods.library.text_extraction import TextExtractionRunner
 
 METHOD_NAME = "text_extraction"
@@ -54,6 +55,14 @@ def _write_results(results: list[dict], output_path: Path, file_exists: bool) ->
         writer = None
         for result in results:
             if writer is None:
+                # file_exists reflects state BEFORE this open(path, "a")
+                # call -- which itself creates an empty file the instant
+                # it runs, so checking output_path.exists() from here on
+                # would always see "exists" even for a genuinely fresh run.
+                if file_exists:
+                    check_resume_compatible(
+                        output_path, exact_columns=list(result.keys()), expected_method_name=METHOD_NAME,
+                    )
                 writer = csv.DictWriter(f, fieldnames=list(result.keys()))
                 if not file_exists:
                     writer.writeheader()
@@ -132,6 +141,10 @@ def run(
         for sample_index, source_row in enumerate(pending_df.to_dict(orient="records")):
             result = runner.run_rotations(source_row, sample_index)
             if writer is None:
+                if file_exists:
+                    check_resume_compatible(
+                        output_path, exact_columns=list(result.keys()), expected_method_name=METHOD_NAME,
+                    )
                 writer = csv.DictWriter(f, fieldnames=list(result.keys()))
                 if not file_exists:
                     writer.writeheader()

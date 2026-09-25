@@ -111,18 +111,22 @@ class TestRunVisibleLLMMatcherRotations:
         assert sorted(result_df["question_id"]) == ["q1", "q2", "q3"]
 
     def test_resume_after_partial_completion_only_does_remaining_work(self, tmp_path):
+        # Realistic partial state: an actual prior invocation of this same
+        # script, not a hand-built fixture with a different column set --
+        # a real resume's existing file always has the matching schema,
+        # since only this script's own writer ever produced it.
         source = _text_extraction_rotations_csv(tmp_path, [
             ("q1", ["HTTPS"] * 4), ("q2", ["FTP"] * 4),
         ])
         output = tmp_path / "out.csv"
 
-        existing = pd.DataFrame([{
-            "question_id": "q1", "method_name": "visible_llm_matcher",
-            "parsed_choice": "C", "is_correct": True,
-        }])
-        existing.to_csv(output, index=False)
+        n_first = mod.run(source, _DUMMY_MODEL_CONFIG, "test_run", output, run_seed=42)
+        assert n_first == 2
 
-        n_written = mod.run(source, _DUMMY_MODEL_CONFIG, "test_run", output, run_seed=42)
+        source2 = _text_extraction_rotations_csv(tmp_path, [
+            ("q1", ["HTTPS"] * 4), ("q2", ["FTP"] * 4), ("q3", ["HTTP"] * 4),
+        ])
+        n_written = mod.run(source2, _DUMMY_MODEL_CONFIG, "test_run", output, run_seed=42)
         assert n_written == 1
 
     def test_missing_per_rotation_raw_text_json_column_raises_clear_error(self, tmp_path):
@@ -131,3 +135,17 @@ class TestRunVisibleLLMMatcherRotations:
         df.to_csv(path, index=False)
         with pytest.raises(ValueError, match="per_rotation_raw_text_json"):
             mod.run(path, _DUMMY_MODEL_CONFIG, "test_run", tmp_path / "out.csv", run_seed=42)
+
+    def test_a_schema_mismatched_existing_output_file_raises_clearly(self, tmp_path):
+        """A stale output file from an older script version (fewer/
+        different columns) must fail loudly, not silently have new-format
+        rows appended into it, corrupting the CSV's per-row field count."""
+        source = _text_extraction_rotations_csv(tmp_path, [
+            ("q1", ["HTTPS"] * 4), ("q2", ["FTP"] * 4),
+        ])
+        output = tmp_path / "out.csv"
+        stale = pd.DataFrame([{"question_id": "q1", "method_name": "visible_llm_matcher"}])
+        stale.to_csv(output, index=False)
+
+        with pytest.raises(ValueError, match="schema"):
+            mod.run(source, _DUMMY_MODEL_CONFIG, "test_run", output, run_seed=42)
