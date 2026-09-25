@@ -328,26 +328,17 @@ def test_l20_agreement_metric_arithmetic():
 
 # --- L21 ------------------------------------------------------------------
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "compute_agreement_rate() has no repetition_index awareness at all -- "
-        "it groups only by question_id and accepts any group with len(group) "
-        ">= 2 (confirmed by reading analysis/agreement.py, whose own module "
-        "docstring says it is deliberately generic, not specific to any one "
-        "experiment's repetition protocol). No wrapper enforcing exactly-"
-        "{0,1,2,3} observations exists anywhere in src/choicebench or "
-        "scripts/paper/ (no call site references compute_agreement_rate "
-        "outside its own module/tests). A group missing repetition 2, or "
-        "with a duplicate repetition 3, is silently accepted as a valid "
-        "four-(or three-, or five-)observation group."
-    ),
-)
 def test_l21_missing_or_duplicate_observation_not_silently_valid():
     """Frozen invariant: an agreement-rate consumer must require EXACTLY
     observations {0,1,2,3} -- a group missing one repetition_index, or with
     a duplicate, must never be silently treated as a valid four-observation
-    group."""
+    group.
+
+    FIXED (verified against commit 651137768dcad640de28f124cff3d50837fe7d7c):
+    compute_agreement_rate now checks, whenever a repetition_index column is
+    present, that each counted group's repetition_index values form a
+    complete, duplicate-free 0..N-1 range, raising ValueError otherwise.
+    Previously xfail."""
     missing_one = pd.DataFrame({
         "question_id": ["q1"] * 3, "repetition_index": [0, 1, 3],
         "parsed_choice": ["A", "A", "A"],

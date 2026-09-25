@@ -92,18 +92,13 @@ def test_visible_llm_matcher_rotations_consume_same_rotation_extracted_text(base
                 assert other_tag not in call.prompt
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "VisibleLLMMatcherRunner.run_matching_rotations zips "
-        "rotations with per_rotation_extracted_text without checking their "
-        "lengths match -- a length mismatch silently truncates to the "
-        "shorter length instead of raising (see visible_llm_matcher.py's "
-        "zip(rotations, per_rotation_extracted_text) call)."
-    ),
-)
 def test_trace_length_mismatch_fails_loudly(base_runner_kwargs):
-    """H6: trace length != n_choices must fail loudly, not silently zip/truncate."""
+    """H6: trace length != n_choices must fail loudly, not silently zip/truncate.
+
+    FIXED (verified against commit 651137768dcad640de28f124cff3d50837fe7d7c):
+    run_matching_rotations now checks len(per_rotation_extracted_text) ==
+    len(rotations) before the zip and raises ValueError on mismatch.
+    Previously xfail."""
     spy = SpyBackend(default_text="The answer is A.")
     runner = VisibleLLMMatcherRunner(backend=spy, method_name="visible_llm_matcher", **base_runner_kwargs)
     short_trace = ["only_three", "entries", "here"]  # q_n4_paris has 4 options
@@ -111,18 +106,14 @@ def test_trace_length_mismatch_fails_loudly(base_runner_kwargs):
         runner.run_matching_rotations(q_n4_paris, per_rotation_extracted_text=short_trace, sample_index=0)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Neither TextExtractionRunner nor VisibleLLMMatcherRunner validates "
-        "that question_row['extracted_text'] actually came from the same "
-        "model/benchmark/method this run is about to use -- confirmed by "
-        "reading both modules, no such validation code exists."
-    ),
-)
 def test_cross_model_extracted_text_is_rejected(base_runner_kwargs):
-    """H7: a wrong-model/-benchmark/-method producer artifact must not
-    silently pass, where source identity is available."""
+    """H7: a wrong-model producer artifact must not silently pass, where
+    source identity is available.
+
+    FIXED (verified against commit 651137768dcad640de28f124cff3d50837fe7d7c):
+    VisibleLLMMatcherRunner._validate_extracted_text_source checks the
+    OPTIONAL extracted_text_source_model/_benchmark/_method fields, when
+    present, against this run's own identity. Previously xfail."""
     row = dict(q_n4_paris)
     row["extracted_text"] = "Paris"
     row["extracted_text_source_model"] = "some-other-model-entirely"
@@ -130,3 +121,29 @@ def test_cross_model_extracted_text_is_rejected(base_runner_kwargs):
     runner = VisibleLLMMatcherRunner(backend=spy, method_name="visible_llm_matcher", **base_runner_kwargs)
     with pytest.raises(ValueError):
         runner.run_one(row, sample_index=0)
+
+
+def test_cross_benchmark_extracted_text_is_rejected(base_runner_kwargs):
+    """H7 (benchmark half): extracted_text_source_benchmark mismatch is
+    also rejected, exercising the second branch the fix added."""
+    row = dict(q_n4_paris)
+    row["extracted_text"] = "Paris"
+    row["extracted_text_source_benchmark"] = "some_other_benchmark"
+    spy = SpyBackend(default_text="The answer is A.")
+    runner = VisibleLLMMatcherRunner(backend=spy, method_name="visible_llm_matcher", **base_runner_kwargs)
+    with pytest.raises(ValueError):
+        runner.run_one(row, sample_index=0)
+
+
+def test_extracted_text_without_source_fields_is_unvalidated_backward_compat(base_runner_kwargs):
+    """The source-identity fields are optional/additive: a question_row
+    predating this fix (no extracted_text_source_* fields at all) must
+    still run exactly as before -- this is the fix's own stated backward-
+    compatibility guarantee, not just an absence-of-crash check."""
+    row = dict(q_n4_paris)
+    row["extracted_text"] = "Paris"
+    spy = SpyBackend(default_text="The answer is A.")
+    runner = VisibleLLMMatcherRunner(backend=spy, method_name="visible_llm_matcher", **base_runner_kwargs)
+    result = runner.run_one(row, sample_index=0)
+    assert spy.call_count == 1
+    assert result["reused_extracted_text"] == "Paris"

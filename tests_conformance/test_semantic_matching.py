@@ -116,9 +116,19 @@ def test_nan_free_text_does_not_silently_produce_plausible_answer():
     """G4: a real pandas CSV round-trip turns an empty free_text_response
     cell into a float NaN (not None, not the string 'nan'). Reproduce that
     exact real-world shape via an actual CSV round-trip, then assert the
-    matcher never silently returns a plausible answer for it. Current
-    behavior crashes (AttributeError: float has no .strip()) rather than
-    cleanly returning None -- documented explicitly rather than assumed."""
+    matcher never silently returns a plausible answer for it.
+
+    The frozen spec (G4) says exactly two things must NOT happen: the NaN
+    must not silently become the literal string "nan", and it must not
+    produce a plausible answer. It does not say a crash is an acceptable
+    substitute for either -- a crash is a THIRD failure mode, not a pass.
+    An earlier version of this test asserted AttributeError as the expected
+    outcome, which is wrong: it encoded the pre-fix bug as if it were the
+    spec, contradicting both G4 itself and this suite's own Q5 test
+    (test_provenance.py), which already asserted the correct graceful
+    behavior. Production (src/choicebench/analysis/derive_from_free_text.py)
+    now treats a pandas NaN as missing via an explicit isinstance(..., float)
+    + pd.isna(...) check, so this asserts the frozen invariant directly."""
     import json
     import tempfile
     from pathlib import Path
@@ -139,26 +149,36 @@ def test_nan_free_text_does_not_silently_produce_plausible_answer():
     assert isinstance(nan_df.loc[0, "free_text_response"], float)
     assert math.isnan(nan_df.loc[0, "free_text_response"])
 
-    with pytest.raises(AttributeError):
-        derive_matched_results(nan_df, method_name="semantic_matching_v1", embed_fn=_exact_embed_fn)
+    derived = derive_matched_results(nan_df, method_name="semantic_matching_v1", embed_fn=_exact_embed_fn)
+    row_out = derived.iloc[0]
+    assert row_out["parsed_choice"] is None or (isinstance(row_out["parsed_choice"], float) and math.isnan(row_out["parsed_choice"]))
+    normalized_text = row_out["normalized_text"]
+    assert normalized_text is None or (isinstance(normalized_text, float) and math.isnan(normalized_text))
+    assert normalized_text != "nan"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "derive_matched_results has no source-identity validation: it accepts "
-        "any DataFrame with a free_text_response column regardless of which "
-        "method/model/benchmark actually produced it (confirmed by reading "
-        "choicebench/analysis/derive_from_free_text.py -- no validation code "
-        "exists there). The frozen spec requires wrong-source artifacts to be "
-        "rejected when source identity is available; this pins that gap."
-    ),
-)
 def test_wrong_source_method_is_rejected():
     """G5: a free-text artifact produced by a different method (e.g.
     reasoning_two_stage) should be rejected when reused as
-    semantic_matching_v1's source, if source-identity validation exists."""
+    semantic_matching_v1's source.
+
+    FIXED (verified against commit 651137768dcad640de28f124cff3d50837fe7d7c):
+    derive_from_free_text.py now validates method_name via
+    _VALID_SOURCE_METHODS_BY_DERIVED_METHOD before deriving -- an
+    unrecognized producing method raises ValueError. Previously xfail."""
     row = _source_row(q_n4_paris, "Paris", method_name="totally_unrelated_method")
     df = pd.DataFrame([row])
+    with pytest.raises(ValueError):
+        derive_matched_results(df, method_name="semantic_matching_v1", embed_fn=_exact_embed_fn)
+
+
+def test_wrong_source_model_or_benchmark_is_rejected():
+    """G5 (model/benchmark half): a source_df mixing more than one
+    model_name or benchmark_name is rejected as internally heterogeneous --
+    there is no single "expected" model/benchmark to compare a lone value
+    against here, so the fix validates internal consistency instead."""
+    row_a = _source_row(q_n4_paris, "Paris", model_name="model-a")
+    row_b = _source_row(q_n4_paris, "Paris", model_name="model-b")
+    df = pd.DataFrame([row_a, row_b])
     with pytest.raises(ValueError):
         derive_matched_results(df, method_name="semantic_matching_v1", embed_fn=_exact_embed_fn)

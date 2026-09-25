@@ -105,23 +105,13 @@ def test_m4_batch_response_cache_lookup_incorporates_same_identity_as_sync(monke
     assert hit["raw_text"] == "Paris."
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "BatchAPIBackend._batch_state_path() (batch_api_backend.py) calls "
-        "_cache_key(request) with NO extra_identity argument at all -- unlike "
-        "generate_batch()'s own response-cache lookups (lines 96/110), which "
-        "correctly pass client_extra_identity(self._raw_client). Two "
-        "differently-pinned OpenRouter clients (e.g. upstream_provider="
-        "'deepinfra' vs 'together') that otherwise share provider/model_name/"
-        "prompt/temperature/seed therefore compute the IDENTICAL batch-state "
-        "file path -- reproducing, in the batch-state layer, exactly the "
-        "class of bug spec M4 says was 'previously discovered' and fixed in "
-        "the response-cache layer. A restart could poll/resume the wrong "
-        "pinned deployment's in-flight batch job."
-    ),
-)
-def test_m4_batch_state_path_does_not_yet_incorporate_pinning_identity(monkeypatch, tmp_path):
+def test_m4_batch_state_path_now_incorporates_pinning_identity(monkeypatch, tmp_path):
+    """FIXED (verified against commit 651137768dcad640de28f124cff3d50837fe7d7c):
+    BatchAPIBackend._batch_state_path() now folds client_extra_identity(self.
+    _raw_client) into its _cache_key() calls, the same way generate_batch()'s
+    response-cache lookups already did -- two differently-pinned OpenRouter
+    clients (upstream_provider='deepinfra' vs 'together') now compute
+    DIFFERENT batch-state file paths. Previously xfail."""
     monkeypatch.setattr("choicebench.config.providers.OPENROUTER_API_KEY", "sk-test")
     deepinfra_pinned = OpenRouterClient(model_name="x", upstream_provider="deepinfra", allow_fallbacks=False)
     together_pinned = OpenRouterClient(model_name="x", upstream_provider="together", allow_fallbacks=False)

@@ -9,13 +9,11 @@ Batch state must reattach rather than resubmit.
 Ground truth (established by reading batch_api_backend.py in full, section
 M's Task): BatchAPIBackend itself does NOT reassemble Batch results by ID --
 its docstring says reassembly "via each request's custom_id" is the
-UNDERLYING CLIENT's job (fetch_batch_results contract). BatchAPIBackend's
-own generate_batch() trusts that fetch_batch_results() already returned
-results in the SAME order as the `requests` it was given, and zips them
-back onto uncached_indices with NO length or identity check at all. A
-well-behaved client (real or fake) that honors the custom_id contract makes
-N1/N2 hold; a client that doesn't -- or that returns the wrong number of
-results -- is where N3 exposes a real gap (see the xfail test below).
+UNDERLYING CLIENT's job (fetch_batch_results contract). A well-behaved
+client (real or fake) that honors the custom_id contract makes N1/N2 hold.
+N3 (a client returning the wrong number of results) was a real gap as of
+commit edf4340 -- FIXED as of commit 651137768dcad640de28f124cff3d50837fe7d7c,
+which added a length check in _poll_until_terminal before the zip.
 """
 
 from __future__ import annotations
@@ -129,23 +127,11 @@ async def test_n2_out_of_order_batch_results_map_to_correct_request(tmp_path):
 # --- N3 -------------------------------------------------------------------
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "BatchAPIBackend.generate_batch() has NO length/identity check on "
-        "fetch_batch_results()'s return value before zipping it onto "
-        "uncached_indices (batch_api_backend.py: "
-        "'for local_i, response in zip(uncached_indices, fetched): "
-        "results[local_i] = response'). If a client's fetch_batch_results "
-        "returns fewer results than requests (a missing batch result ID), "
-        "zip() silently truncates and the corresponding results[] slots stay "
-        "None -- not a raised, loud failure. The frozen invariant (missing/"
-        "duplicate result IDs must fail loudly) is violated at this layer; "
-        "only a scrupulously-correct client implementation prevents it from "
-        "ever being observed in practice."
-    ),
-)
 async def test_n3_missing_batch_result_fails_loudly(tmp_path):
+    """FIXED (verified against commit 651137768dcad640de28f124cff3d50837fe7d7c):
+    _poll_until_terminal now checks len(fetched) == len(requests) and raises
+    RuntimeError on mismatch, before the zip that would otherwise silently
+    truncate. Previously xfail."""
     client = FakeBatchClient(result_count_delta=-1)  # one fewer result than requests
     backend = _backend(client, tmp_path)
     with pytest.raises(RuntimeError):
@@ -198,22 +184,12 @@ async def test_n4_resume_from_completed_batch_state_reattaches_no_duplicate_subm
 
 # --- N5 -------------------------------------------------------------------
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "batch_api_backend.py's module and class docstrings do not mention "
-        "the crash window between a provider accepting a submitted batch "
-        "(_raw_client.submit_batch() returns a batch_id) and this backend "
-        "writing that batch_id to its local batch-state file "
-        "(state_path.write_text(...)) -- a crash in between would submit a "
-        "real provider job with no local record of it, so a subsequent "
-        "resume attempt would resubmit a duplicate job. This is a genuine, "
-        "probably-unavoidable limitation (spec N5 says it 'may remain "
-        "documented'), but it is not currently documented anywhere in this "
-        "file."
-    ),
-)
 def test_n5_crash_window_is_documented():
+    """FIXED (verified against commit 651137768dcad640de28f124cff3d50837fe7d7c):
+    BatchAPIBackend's class docstring now has a "KNOWN LIMITATION" section
+    explicitly documenting the submit-accepted-but-not-yet-persisted crash
+    window and its consequence (a duplicate job on resume). Previously
+    xfail."""
     import inspect
     from choicebench.backends import batch_api_backend
 

@@ -250,21 +250,13 @@ def test_o7_wrong_method_name_same_columns_hard_failure(tmp_path):
 
 # --- O8 -------------------------------------------------------------------
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "run_text_extraction_rotations.py's (and the sibling rotation "
-        "scripts') own _load_completed_question_ids() does "
-        "'set(existing[\"question_id\"].astype(str))' -- it only checks "
-        "PRESENCE of a question_id, never whether two rows for the same "
-        "question_id have conflicting content. A corrupted/concatenated "
-        "output file with two different rows for the same question_id is "
-        "silently treated as 'already completed' (the first, arbitrary, row "
-        "wins by virtue of being read into the DataFrame first) rather than "
-        "raising or surfacing the conflict."
-    ),
-)
 def test_o8_conflicting_duplicate_completed_rows_not_silently_collapsed(tmp_path):
+    """FIXED (verified against commit 651137768dcad640de28f124cff3d50837fe7d7c):
+    _load_completed_question_ids() now delegates to
+    infra.resumable_csv.load_completed_ids_excluding_conflicts(), which
+    excludes any question_id with disagreeing rows from the "completed" set
+    entirely, rather than silently picking whichever row loaded first.
+    Previously xfail."""
     path = tmp_path / "existing.csv"
     pd.DataFrame([
         {"question_id": "q1", "parsed_choice": "A", "method_name": "text_extraction"},
@@ -276,21 +268,34 @@ def test_o8_conflicting_duplicate_completed_rows_not_silently_collapsed(tmp_path
     assert "q1" not in completed
 
 
+def test_o8_run_hard_fails_loudly_on_conflicting_rows(tmp_path, monkeypatch):
+    """Stronger form of O8, exercised through the real run() entry point:
+    production now fails LOUDLY (not just silently-excludes) when resuming
+    against a file with conflicting duplicate rows -- verified via
+    infra.resumable_csv.detect_conflicting_ids(), called before any
+    "completed" decision is made."""
+    def fake_build_backend(model_config, run_id, run_seed, execution_mode=None):
+        return SpyBackend(default_text="Paris.")
+
+    monkeypatch.setattr(ter, "build_backend", fake_build_backend)
+    questions_csv = _questions_csv(tmp_path)
+    output_path = tmp_path / "conflicting.csv"
+    pd.DataFrame([
+        {"question_id": "q1", "parsed_choice": "A", "method_name": "text_extraction"},
+        {"question_id": "q1", "parsed_choice": "B", "method_name": "text_extraction"},
+    ]).to_csv(output_path, index=False)
+
+    with pytest.raises(ValueError, match="conflicting duplicate"):
+        ter.run(questions_csv, _model_config(), run_id="t", output_path=output_path, run_seed=42, resume=True, execution_mode="sync")
+
+
 # --- O9 -------------------------------------------------------------------
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "run_text_extraction_rotations.run() with resume=False (--no-resume) "
-        "still opens output_path in APPEND mode ('a') and writes fresh rows "
-        "for every question -- it does not truncate/overwrite the existing "
-        "file first. Running --no-resume against a pre-existing output for "
-        "the same questions therefore appends duplicate, scientifically "
-        "identical rows rather than producing a clean, deduplicated "
-        "artifact."
-    ),
-)
 def test_o9_no_resume_against_existing_output_does_not_duplicate_rows(tmp_path, monkeypatch):
+    """FIXED (verified against commit 651137768dcad640de28f124cff3d50837fe7d7c):
+    run() with resume=False now unlinks a pre-existing output_path before
+    proceeding, so a --no-resume run always starts genuinely fresh instead
+    of appending onto stale content. Previously xfail."""
     responder = _fixed_letter_responder("Paris")
 
     def fake_build_backend(model_config, run_id, run_seed, execution_mode=None):

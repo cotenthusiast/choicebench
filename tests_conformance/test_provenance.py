@@ -109,18 +109,12 @@ def test_q4_visible_matcher_retains_text_extraction_source_relationship(base_run
 
 # --- Q5 ---------------------------------------------------------------
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "derive_from_free_text.py's _derive_one_row sets "
-        "normalized_text=str(free_text) if free_text is not None else None -- "
-        "a pandas NaN (float('nan'), not Python None) IS 'not None', so "
-        "str(float('nan')) produces the literal string 'nan', which becomes "
-        "the persisted normalized_text value instead of staying missing. "
-        "Same root cause as spec G4."
-    ),
-)
 def test_q5_nan_free_text_normalized_text_stays_missing_not_literal_nan():
+    """FIXED (verified against commit 651137768dcad640de28f124cff3d50837fe7d7c):
+    _derive_one_row now checks isinstance(free_text, float) and pd.isna(free_text)
+    to treat a pandas NaN as missing, so normalized_text is set to None
+    instead of the literal string "nan". Previously xfail (same root cause
+    as spec G4, also fixed -- see test_semantic_matching.py)."""
     row = _two_stage_source_row(q_n4_paris, float("nan"))
     df = pd.DataFrame([row])
     derived_df = derive_matched_results(df, method_name="semantic_matching_v1", embed_fn=_exact_embed_fn)
