@@ -6,10 +6,12 @@ import pandas as pd
 import pytest
 
 from choicebench.backends.api_backend import APIBackend
-from choicebench.clients.types import ModelResponse, SUCCESS_STATUS
-from choicebench.methods.library.independent_hypothesis import IndependentHypothesisRunner
+from choicebench.clients.types import ModelResponse, FAILURE_STATUS, SUCCESS_STATUS
+from choicebench.methods.library.independent_hypothesis import (
+    IndependentHypothesisRunner, _parse_confidence_score,
+)
 from choicebench.parsing.types import PARSE_OK
-from choicebench.scoring.types import SCORE_CORRECT, SCORE_INCORRECT
+from choicebench.scoring.types import SCORE_CORRECT, SCORE_INCORRECT, SCORE_UNSCORABLE
 from choicebench.scoring.tiebreak import resolve_tie
 
 from tests.runners.conftest import MockBackend
@@ -61,6 +63,40 @@ def _make_runner(backend, *, seed=42, benchmark_name="mmlu"):
 
 def _score_response(score: float, analysis: str = "brief analysis") -> str:
     return f"{analysis} <score>{score}</score>"
+
+
+class TestParseConfidenceScore:
+    """Direct unit coverage of the score-validity rule itself -- the
+    integration-level tests above prove the AGGREGATION behavior (exclude
+    invalid candidates from the argmax); these prove the per-candidate
+    validity classification in isolation."""
+
+    def test_in_range_score_is_valid(self):
+        assert _parse_confidence_score(_score_response(50)) == (50.0, True)
+
+    def test_boundary_scores_are_valid(self):
+        assert _parse_confidence_score(_score_response(0)) == (0.0, True)
+        assert _parse_confidence_score(_score_response(100)) == (100.0, True)
+
+    def test_above_100_is_invalid(self):
+        score, ok = _parse_confidence_score(_score_response(100.01))
+        assert ok is False
+
+    def test_negative_is_invalid(self):
+        score, ok = _parse_confidence_score(_score_response(-0.01))
+        assert ok is False
+
+    def test_missing_tag_is_invalid(self):
+        assert _parse_confidence_score("no tag here") == (0.0, False)
+
+    def test_none_raw_text_is_invalid(self):
+        assert _parse_confidence_score(None) == (0.0, False)
+
+    def test_empty_raw_text_is_invalid(self):
+        assert _parse_confidence_score("") == (0.0, False)
+
+    def test_non_numeric_capture_is_invalid(self):
+        assert _parse_confidence_score("<score>not-a-number</score>") == (0.0, False)
 
 
 class TestIndependentHypothesisRunOne:
@@ -126,18 +162,20 @@ class TestIndependentHypothesisRunOne:
         assert result["option_a_score"] == 99.0
         assert result["parsed_choice"] == "A"  # 99 > 30
 
-    def test_parse_failure_scores_zero_but_still_participates(self, runner_question_row):
-        """No <score> tag at all -> 0.0, parse_ok False, but the option is
-        NOT excluded from the argmax (a 0 is a real candidate, not missing)."""
+    def test_parse_failure_is_excluded_from_the_argmax(self, runner_question_row):
+        """No <score> tag at all -> 0.0/parse_ok False, and the option is
+        recorded (for transparency) but EXCLUDED from the argmax -- its
+        placeholder 0.0 must never compete against, or be mistaken for, a
+        real observation."""
         backend = MockBackend(responses=[
-            "no score tag here at all", _score_response(20), _score_response(-5), _score_response(-10),
+            "no score tag here at all", _score_response(20), _score_response(50), _score_response(10),
         ])
         result = _make_runner(backend).run_one(runner_question_row, sample_index=0)
         assert result["option_a_score"] == 0.0
         assert result["option_a_score_parse_ok"] is False
-        assert result["parsed_choice"] == "B"  # 20 is the max including A's forced 0.0
+        assert result["parsed_choice"] == "C"  # highest among the VALID candidates (50)
 
-    def test_backend_call_failure_scores_zero(self, runner_question_row):
+    def test_backend_call_failure_is_excluded_from_the_argmax(self, runner_question_row):
         from choicebench.clients.types import ProviderTimeoutError
         backend = MockBackend(responses=[
             ProviderTimeoutError("timed out"), _score_response(20), _score_response(30), _score_response(5),
@@ -146,6 +184,45 @@ class TestIndependentHypothesisRunOne:
         assert result["option_a_score"] == 0.0
         assert result["option_a_score_parse_ok"] is False
         assert result["parsed_choice"] == "C"
+
+    def test_out_of_range_score_is_excluded_from_the_argmax(self, runner_question_row):
+        """The prompt asks for a score 'between 0 and 100' -- a value
+        outside that range is not a trustworthy observation and must not
+        be allowed to win the argmax merely by being numerically large."""
+        backend = MockBackend(responses=[
+            _score_response(150), _score_response(60), _score_response(50), _score_response(40),
+        ])
+        result = _make_runner(backend).run_one(runner_question_row, sample_index=0)
+        assert result["option_a_score"] == 0.0
+        assert result["option_a_score_parse_ok"] is False
+        assert result["parsed_choice"] == "B"  # 60 is highest among in-range candidates, not A's 150
+
+    def test_negative_score_is_excluded_from_the_argmax(self, runner_question_row):
+        backend = MockBackend(responses=[
+            _score_response(-5), _score_response(20), _score_response(10), _score_response(5),
+        ])
+        result = _make_runner(backend).run_one(runner_question_row, sample_index=0)
+        assert result["option_a_score_parse_ok"] is False
+        assert result["parsed_choice"] == "B"
+
+    def test_all_candidates_invalid_yields_an_unscorable_row_not_a_fabricated_pick(
+            self, runner_question_row,
+    ):
+        """If every candidate fails to parse (or every call fails
+        transport), no valid decision can be made -- the row must come
+        through as unscorable/failure, never a fabricated argmax among
+        all-placeholder 0.0s."""
+        from choicebench.clients.types import ProviderTimeoutError
+        backend = MockBackend(responses=[
+            "no score tag", ProviderTimeoutError("timed out"), _score_response(150), _score_response(-1),
+        ])
+        result = _make_runner(backend).run_one(runner_question_row, sample_index=0)
+        assert result["parsed_choice"] is None
+        assert result["is_correct"] is None
+        assert result["answer_status"] == FAILURE_STATUS
+        assert result["score_status"] == SCORE_UNSCORABLE
+        for letter in ("a", "b", "c", "d"):
+            assert result[f"option_{letter}_score_parse_ok"] is False
 
     def test_per_option_fields_are_persisted(self, runner_question_row):
         backend = MockBackend(responses=[

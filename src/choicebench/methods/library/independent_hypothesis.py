@@ -45,9 +45,13 @@ def _parse_confidence_score(raw_text: str | None) -> tuple[float, bool]:
     """Extract a confidence score from raw model output via regex.
 
     Returns:
-        (score, parse_ok). On parse failure, score is 0.0 and parse_ok is
-        False -- but the caller still includes this 0.0 in the argmax; a
-        parse failure is not the same as "this option should be excluded."
+        (score, parse_ok). On any failure -- missing text, no <score> tag,
+        a non-numeric or non-finite (NaN/inf) capture, or a value outside
+        the prompt's own documented 0-100 range -- score is 0.0 and
+        parse_ok is False. 0.0 here is a PLACEHOLDER, never a legitimate
+        observation: the caller must exclude parse_ok=False candidates
+        from the argmax entirely (see _assemble_result_row), not treat
+        this 0.0 as "the model scored this hypothesis zero."
     """
     if not raw_text:
         return 0.0, False
@@ -55,9 +59,12 @@ def _parse_confidence_score(raw_text: str | None) -> tuple[float, bool]:
     if not matches:
         return 0.0, False
     try:
-        return float(matches[-1]), True
+        score = float(matches[-1])
     except ValueError:
         return 0.0, False
+    if not math.isfinite(score) or not (0.0 <= score <= 100.0):
+        return 0.0, False
+    return score, True
 
 
 def _argmax_with_tiebreak(
@@ -170,18 +177,35 @@ class IndependentHypothesisRunner(ExperimentRunner):
             scores[letter] = score
             parse_oks[letter] = ok
 
-        final_letter = _argmax_with_tiebreak(
-            scores, label_to_source_index,
-            seed=self.seed, benchmark_id=self.benchmark_name,
-            question_id=question_row["question_id"], method_name=self.method_name,
-        )
-        parsed_result = ParseResult(
-            final_choice=final_letter,
-            status=PARSE_OK,
-            raw_text=None,
-            normalized_text="",
-            reason="argmax_of_independent_hypothesis_scores",
-        )
+        # A parse_ok=False candidate's 0.0 is a placeholder, not a real
+        # observation -- it must never compete in (or silently win) the
+        # argmax. Only candidates with a genuinely parsed, in-range score
+        # are eligible. If NONE are (every call failed transport, every
+        # response was unparseable, or every score was out of range), no
+        # valid decision can be made: the question is unscorable, not a
+        # fabricated pick among invalid placeholders.
+        valid_scores = {letter: s for letter, s in scores.items() if parse_oks[letter]}
+        if valid_scores:
+            final_letter = _argmax_with_tiebreak(
+                valid_scores, label_to_source_index,
+                seed=self.seed, benchmark_id=self.benchmark_name,
+                question_id=question_row["question_id"], method_name=self.method_name,
+            )
+            parsed_result = ParseResult(
+                final_choice=final_letter,
+                status=PARSE_OK,
+                raw_text=None,
+                normalized_text="",
+                reason="argmax_of_independent_hypothesis_scores",
+            )
+        else:
+            parsed_result = ParseResult(
+                final_choice=None,
+                status=PARSE_MISSING,
+                raw_text=None,
+                normalized_text="",
+                reason="no_valid_independent_hypothesis_scores",
+            )
         score_result = self._score(parsed_result, question_row["correct_option"])
 
         row = self._build_result_row(
