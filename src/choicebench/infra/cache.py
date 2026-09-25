@@ -20,12 +20,30 @@ from choicebench.clients.types import (
 logger = logging.getLogger(__name__)
 
 
-def _cache_key(request: ModelRequest) -> str:
+def _cache_key(request: ModelRequest, extra_identity: dict | None = None) -> str:
     """Compute a stable SHA-256 cache key for a model request.
 
     Only deterministic generation parameters are included — not trace
     metadata (question_id, run_id, etc.), which vary per request but
     don't affect the model output.
+
+    Args:
+        extra_identity: additional runtime-affecting client-level identity
+            not carried on ModelRequest itself -- currently OpenRouter's
+            upstream_provider/allow_fallbacks pinning (see
+            CachingClientWrapper.generate()). Two OpenRouter configs for
+            the identical nominal model_name but different upstream
+            pinning can resolve to genuinely different deployments (e.g.
+            different quantization); without this, they would collide on
+            the same cache key. None/omitted for every other client,
+            which changes nothing for them semantically, but DOES change
+            the resulting hash for every provider (an intentional cache
+            key version bump -- old entries become unreachable under the
+            new formula rather than silently misinterpreted as
+            new-format; see infra/resumable_csv.py's docstring for the
+            same fail-loud-not-silent-reinterpret principle applied here
+            via a clean cache miss instead of a raised error, since a
+            miss just costs a re-fetch, not a wrong answer).
     """
     key_data: dict = {
         "provider": request.provider,
@@ -35,6 +53,8 @@ def _cache_key(request: ModelRequest) -> str:
         "max_tokens": request.max_tokens,
         "seed": request.seed,
     }
+    if extra_identity:
+        key_data["extra_identity"] = extra_identity
     fingerprint = json.dumps(key_data, sort_keys=True)
     return hashlib.sha256(fingerprint.encode()).hexdigest()
 
@@ -131,8 +151,31 @@ class CachingClientWrapper:
         self.provider = client.provider
         self.model_name = client.model_name
 
+    def _client_extra_identity(self) -> dict | None:
+        """Client-level identity not carried on ModelRequest itself that
+        can change the actual served deployment for an otherwise-identical
+        request -- currently OpenRouter's upstream_provider/allow_fallbacks
+        pinning. Returns None for every client without this configured
+        (every non-OpenRouter client, and an OpenRouter client with no
+        pinning at all), so their cache keys are byte-identical to before
+        this existed -- only a PINNED OpenRouter client's key changes.
+
+        Duck-typed on attribute VALUE TYPE, not attribute presence or
+        client class -- a bare getattr(..., None) default is not enough to
+        stay inert against a test double (e.g. unittest.mock.Mock), which
+        auto-vivifies any attribute access as a truthy, non-None Mock
+        object rather than raising or returning the default.
+        """
+        upstream_provider = getattr(self._client, "_upstream_provider", None)
+        if not isinstance(upstream_provider, str):
+            return None
+        allow_fallbacks = getattr(self._client, "_allow_fallbacks", True)
+        if not isinstance(allow_fallbacks, bool):
+            allow_fallbacks = True
+        return {"upstream_provider": upstream_provider, "allow_fallbacks": allow_fallbacks}
+
     async def generate(self, request: ModelRequest) -> ModelResponse:
-        key = _cache_key(request)
+        key = _cache_key(request, extra_identity=self._client_extra_identity())
         cached = self._cache.get(key)
 
         if cached is not None:

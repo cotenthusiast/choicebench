@@ -1031,6 +1031,16 @@ def _build_model_records(config: ExperimentConfig) -> list[dict]:
                 "backend": model.backend, "provider": model.provider,
                 "model_name_or_path": model.model_name_or_path,
                 "base_url": model.base_url, "generation_kwargs": api_generation,
+                # Runtime-affecting routing, not merely operational: two
+                # configs sharing provider="openrouter" + the identical
+                # model_name_or_path can still resolve to genuinely
+                # different served deployments (e.g. different upstream
+                # quantization) depending on this pinning -- they must not
+                # collide on the same model_id/condition_id. None/True
+                # (OpenRouter's own unpinned defaults) for every
+                # non-OpenRouter model, unaffected either way.
+                "upstream_provider": model.upstream_provider,
+                "allow_fallbacks": model.allow_fallbacks,
             }
             resolved = None
         else:

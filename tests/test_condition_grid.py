@@ -51,6 +51,36 @@ def test_same_model_display_name_different_provider_backend_settings_do_not_coll
     assert len({c["condition_id"] for c in plan.conditions.values()}) == 2
 
 
+def test_different_openrouter_upstream_pinning_does_not_collide():
+    """Regression: two configs sharing provider="openrouter" and the
+    identical model_name_or_path, but pinned to different upstream
+    deployments (or one pinned, one not), can resolve to genuinely
+    different served models (e.g. different upstream quantization) --
+    they must never share a model_id/condition_id, which would make
+    resume logic silently treat one deployment's completed work as
+    covering the other's."""
+    mod = _module()
+    config = _config(
+        [
+            ModelConfig(
+                "api", "meta-llama/llama-3.1-8b-instruct", provider="openrouter",
+                upstream_provider="deepinfra", allow_fallbacks=False,
+            ),
+            ModelConfig(
+                "api", "meta-llama/llama-3.1-8b-instruct", provider="openrouter",
+                upstream_provider="together", allow_fallbacks=False,
+            ),
+            ModelConfig(
+                "api", "meta-llama/llama-3.1-8b-instruct", provider="openrouter",
+            ),  # unpinned -- also must not collide with either pinned config
+        ],
+        [MethodConfig("direct_mcq")],
+    )
+    plan = mod.build_execution_plan(config)
+    assert len({c["model_id"] for c in plan.conditions.values()}) == 3
+    assert len({c["condition_id"] for c in plan.conditions.values()}) == 3
+
+
 def test_identical_duplicate_conditions_are_rejected():
     mod = _module()
     config = _config([ModelConfig("dummy", "same")], [MethodConfig("direct_mcq"), MethodConfig("direct_mcq")])

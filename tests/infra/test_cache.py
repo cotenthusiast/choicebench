@@ -111,6 +111,24 @@ class TestCacheKey:
         assert len(key) == 64
         int(key, 16)  # raises ValueError if not valid hex
 
+    def test_omitted_extra_identity_matches_the_pre_existing_key_formula(self, base_request):
+        """Backward compatibility: a request with no extra_identity (every
+        non-OpenRouter client, and an OpenRouter client with no upstream
+        pinning) must produce the EXACT SAME key as before extra_identity
+        existed -- historical cache entries for these must stay reachable."""
+        assert _cache_key(base_request, extra_identity=None) == _cache_key(base_request)
+        assert _cache_key(base_request, extra_identity={}) == _cache_key(base_request)
+
+    def test_different_extra_identity_produces_different_key(self, base_request):
+        """Two OpenRouter configs for the identical nominal provider/model
+        but different upstream_provider pinning must never collide -- they
+        can resolve to genuinely different deployments (e.g. different
+        quantization)."""
+        key_a = _cache_key(base_request, extra_identity={"upstream_provider": "deepinfra", "allow_fallbacks": False})
+        key_b = _cache_key(base_request, extra_identity={"upstream_provider": "together", "allow_fallbacks": False})
+        assert key_a != key_b
+        assert key_a != _cache_key(base_request)  # also differs from "no pinning at all"
+
 
 # ---------------------------------------------------------------------------
 # ResponseCache
@@ -387,5 +405,63 @@ class TestCachingClientWrapper:
             assert len(results) == 2
             # First call misses cache, second hits it
             assert mock_client.generate.await_count == 1
+
+        asyncio.run(_inner())
+
+
+class TestCachingClientWrapperUpstreamProviderIdentity:
+    """The audit's "cache identity may omit runtime-affecting properties"
+    concern, specifically for OpenRouter's upstream_provider/
+    allow_fallbacks pinning: two configs for the identical nominal
+    provider/model but pinned to different upstream deployments (e.g.
+    Llama served via deepinfra vs. via together) must never share a cache
+    entry."""
+
+    @staticmethod
+    def _pinned_client(upstream_provider, allow_fallbacks, generate_return):
+        client = AsyncMock()
+        client.provider = "openrouter"
+        client.model_name = "meta-llama/llama-3.1-8b-instruct"
+        client._upstream_provider = upstream_provider
+        client._allow_fallbacks = allow_fallbacks
+        client.generate = AsyncMock(return_value=generate_return)
+        return client
+
+    def test_different_upstream_pinning_never_shares_a_cache_entry(self, tmp_path, success_response):
+        async def _inner():
+            req = ModelRequest(
+                provider="openrouter", model_name="meta-llama/llama-3.1-8b-instruct",
+                payload="Which protocol secures web browsing?", temperature=0.0, max_tokens=128,
+            )
+            cache_dir = tmp_path / "cache"
+
+            deepinfra_client = self._pinned_client("deepinfra", False, success_response)
+            deepinfra_wrapper = CachingClientWrapper(deepinfra_client, ResponseCache(cache_dir))
+            await deepinfra_wrapper.generate(req)
+
+            together_client = self._pinned_client("together", False, success_response)
+            together_wrapper = CachingClientWrapper(together_client, ResponseCache(cache_dir))
+            await together_wrapper.generate(req)
+
+            # Sharing one cache_dir (same as a "shared" cache_scope, or a
+            # collision in model_identity, would produce) must NOT make
+            # the together-pinned wrapper see the deepinfra-pinned
+            # response as a cache hit -- each must genuinely call through.
+            assert deepinfra_client.generate.await_count == 1
+            assert together_client.generate.await_count == 1
+
+        asyncio.run(_inner())
+
+    def test_unpinned_openrouter_client_cache_key_is_unaffected(self, tmp_path, base_request, success_response):
+        """Backward compatibility: an OpenRouter client with no pinning at
+        all (upstream_provider=None, the pre-existing default) must
+        produce the exact same key as before this existed."""
+        async def _inner():
+            client = self._pinned_client(None, True, success_response)
+            wrapper = CachingClientWrapper(client, ResponseCache(tmp_path / "cache"))
+            await wrapper.generate(base_request)
+            await wrapper.generate(base_request)
+            # Second call is a cache hit -- only one real call made.
+            assert client.generate.await_count == 1
 
         asyncio.run(_inner())
