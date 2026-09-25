@@ -1,9 +1,10 @@
 # config/paper/arc_reasoning_batch.yaml
 #
-# Paper-specific (eacl-2026-revision): ARC-Challenge, reasoning_mcq +
-# reasoning_cyclic under Batch API execution. See mmlu_reasoning_batch.yaml
-# for the full rationale (identical structure, just a different benchmark
-# + frozen manifest).
+# Paper-specific (eacl-2026-revision): ARC-Challenge, reasoning_cyclic under
+# Batch API execution. See mmlu_reasoning_batch.yaml for the full rationale
+# (identical structure, just a different benchmark + frozen manifest) --
+# including why reasoning_mcq is NOT a method entry here (derived, zero new
+# calls, from this config's own reasoning_cyclic rotation-0 observation).
 #
 # Run with:
 #   python scripts/run_experiment.py --config config/paper/arc_reasoning_batch.yaml --run-id <id>
@@ -69,8 +70,6 @@ benchmarks:
     question_id_manifest: data/manifests/arc_challenge_eval_v2.csv
 
 methods:
-  - name: reasoning_mcq
-    execution_mode: batch
   - name: reasoning_cyclic
     execution_mode: batch
 

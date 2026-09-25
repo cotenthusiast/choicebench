@@ -1,15 +1,21 @@
 # config/paper/mmlu_reasoning_batch.yaml
 #
-# Paper-specific (eacl-2026-revision): MMLU, reasoning_mcq + reasoning_cyclic
-# under Batch API execution -- batch-safe per the frozen Batch execution
-# policy (every call is independently constructible up front, no
-# cross-call dependency), split out of mmlu_reasoning.yaml because
-# reasoning_two_stage there must remain synchronous (stage-1/stage-2
-# dependency) and batch-mode Llama needs a different provider entry.
+# Paper-specific (eacl-2026-revision): MMLU, reasoning_cyclic under Batch
+# API execution -- batch-safe per the frozen Batch execution policy (every
+# call is independently constructible up front, no cross-call dependency),
+# split out of mmlu_reasoning.yaml because reasoning_two_stage there must
+# remain synchronous (stage-1/stage-2 dependency) and batch-mode Llama
+# needs a different provider entry.
 #
-# reasoning_mcq's own flip-rate is derived from THIS run's
-# per_rotation_choices_json (reasoning_cyclic's trace), same relationship
-# as direct_mcq/cyclic_permutation in the core methods config.
+# reasoning_mcq is NOT a method entry here -- same relationship as
+# direct_mcq/cyclic_permutation in the core methods config: the frozen
+# protocol requires it to BE reasoning_cyclic's own canonical/rotation-0
+# observation, not a second independent generation. It is derived (zero
+# new calls) from THIS run's own reasoning_cyclic output via
+# scripts/paper/derive_baseline_from_cyclic.py --method-name reasoning_mcq.
+# (Previously this config also listed reasoning_mcq as its own live
+# method, alongside reasoning_cyclic in the same run -- fixed 2026-09-25,
+# same bug as direct_mcq/cyclic_permutation.)
 #
 # Llama routes through the direct `deepinfra` client rather than
 # `openrouter` + upstream_provider pinning, since DeepInfra's Batch API is
@@ -83,8 +89,6 @@ benchmarks:
     question_id_manifest: data/manifests/mmlu_eval_v2.csv
 
 methods:
-  - name: reasoning_mcq
-    execution_mode: batch
   - name: reasoning_cyclic
     execution_mode: batch
 

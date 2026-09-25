@@ -4,8 +4,16 @@
 # methods that share the ordinary (non-reasoning) v1 prompt bundle and
 # need no upstream join/derivation step.
 #
-# Retained here: baseline (direct_mcq), two_stage_v1 (two_stage),
-# text_extraction.
+# Retained here: two_stage_v1 (two_stage), text_extraction.
+#   - direct_mcq is NOT a method entry here -- the frozen protocol requires
+#     baseline to BE cyclic_permutation's own canonical/rotation-0
+#     observation, never a second independent target-model generation. It
+#     is derived (zero new calls) from mmlu_core_methods_cyclic_batch.yaml's
+#     own cyclic_permutation output via
+#     scripts/paper/derive_baseline_from_cyclic.py. (Previously this config
+#     also listed direct_mcq as its own live method; that made TWO
+#     independent canonical-order observations per question instead of
+#     one -- fixed 2026-09-25.)
 #   - cyclic_permutation moved to mmlu_core_methods_cyclic_batch.yaml --
 #     it's batch-safe (every rotation call is independently constructible
 #     up front) per the frozen Batch execution policy, and batch-mode
@@ -95,7 +103,6 @@ benchmarks:
     question_id_manifest: data/manifests/mmlu_eval_v2.csv
 
 methods:
-  - name: direct_mcq
   - name: two_stage
   - name: text_extraction
 

@@ -4,7 +4,10 @@
 # two-call methods sharing the ordinary v1 prompt bundle. See
 # mmlu_core_methods.yaml for the full rationale (identical structure, just
 # a different benchmark + frozen manifest) -- including why
-# cyclic_permutation moved to arc_core_methods_cyclic_batch.yaml.
+# cyclic_permutation moved to arc_core_methods_cyclic_batch.yaml, and why
+# direct_mcq is NOT a method entry here (derived, zero new calls, from
+# that config's own cyclic_permutation rotation-0 observation via
+# scripts/paper/derive_baseline_from_cyclic.py).
 #
 # ARC's manifest is the complete 1,172-question test split -- using
 # question_id_manifest here anyway (rather than leaving split unfiltered)
@@ -77,7 +80,6 @@ benchmarks:
     question_id_manifest: data/manifests/arc_challenge_eval_v2.csv
 
 methods:
-  - name: direct_mcq
   - name: two_stage
   - name: text_extraction
 

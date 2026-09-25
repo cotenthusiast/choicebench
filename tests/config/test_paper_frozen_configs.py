@@ -63,17 +63,25 @@ _FULL_ROSTER_CONFIGS = [
 ]
 
 _BATCH_CONFIGS_AND_METHODS = {
+    # direct_mcq/reasoning_mcq are NOT method entries in the cyclic/
+    # reasoning-batch configs -- the frozen protocol requires baseline to
+    # BE cyclic_permutation's/reasoning_cyclic's own rotation-0
+    # observation, derived (zero new calls) via
+    # scripts/paper/derive_baseline_from_cyclic.py rather than run as a
+    # second independent method here. See that script's/module's own
+    # header for the full rationale.
     "mmlu_core_methods_cyclic_batch.yaml": {"cyclic_permutation"},
     "arc_core_methods_cyclic_batch.yaml": {"cyclic_permutation"},
     "mmlu_independent_hypothesis.yaml": {"independent_hypothesis"},
     "arc_independent_hypothesis.yaml": {"independent_hypothesis"},
-    "mmlu_reasoning_batch.yaml": {"reasoning_mcq", "reasoning_cyclic"},
-    "arc_reasoning_batch.yaml": {"reasoning_mcq", "reasoning_cyclic"},
+    "mmlu_reasoning_batch.yaml": {"reasoning_cyclic"},
+    "arc_reasoning_batch.yaml": {"reasoning_cyclic"},
 }
 
 _SYNC_ONLY_CONFIGS = {
-    "mmlu_core_methods.yaml": {"direct_mcq", "two_stage", "text_extraction"},
-    "arc_core_methods.yaml": {"direct_mcq", "two_stage", "text_extraction"},
+    # direct_mcq is NOT a method entry here -- see _BATCH_CONFIGS_AND_METHODS's note.
+    "mmlu_core_methods.yaml": {"two_stage", "text_extraction"},
+    "arc_core_methods.yaml": {"two_stage", "text_extraction"},
     "mmlu_reasoning.yaml": {"reasoning_two_stage"},
     "arc_reasoning.yaml": {"reasoning_two_stage"},
 }
@@ -170,6 +178,36 @@ def test_dependent_methods_never_run_under_execution_mode_batch(filename, expect
     assert method_names == expected_methods, filename
     for method in config.methods:
         assert method.execution_mode == "sync", f"{filename}: {method.name}"
+
+
+@pytest.mark.parametrize("filename", [
+    "mmlu_core_methods.yaml", "arc_core_methods.yaml",
+    "mmlu_core_methods_cyclic_batch.yaml", "arc_core_methods_cyclic_batch.yaml",
+])
+def test_direct_mcq_is_never_an_independent_method_entry(filename):
+    """Regression: baseline must BE cyclic_permutation's own rotation-0
+    observation (derived, zero new calls), never a second independent
+    live method -- confirmed audit finding, fixed 2026-09-25. A
+    reintroduced 'direct_mcq' entry anywhere in these configs would mean
+    two target-model observations for the same canonical-order prompt."""
+    config = load_config(str(CONFIG_DIR / filename))
+    method_names = {m.name for m in config.methods}
+    assert "direct_mcq" not in method_names, filename
+
+
+@pytest.mark.parametrize("filename", [
+    "mmlu_reasoning.yaml", "arc_reasoning.yaml",
+    "mmlu_reasoning_batch.yaml", "arc_reasoning_batch.yaml",
+])
+def test_reasoning_mcq_is_never_an_independent_method_entry(filename):
+    """Same bug, same fix, reasoning variant: reasoning_mcq must BE
+    reasoning_cyclic's own rotation-0 observation, derived via
+    scripts/paper/derive_baseline_from_cyclic.py --method-name
+    reasoning_mcq, never run as its own live method alongside
+    reasoning_cyclic in the same batch config."""
+    config = load_config(str(CONFIG_DIR / filename))
+    method_names = {m.name for m in config.methods}
+    assert "reasoning_mcq" not in method_names, filename
 
 
 @pytest.mark.parametrize("filename,expected_n", _PRIDE_CONFIGS.items())
