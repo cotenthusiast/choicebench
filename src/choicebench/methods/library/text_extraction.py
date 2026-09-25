@@ -144,6 +144,87 @@ class TextExtractionRunner(ExperimentRunner):
         row["per_rotation_raw_text_json"] = json.dumps(per_rotation_raw_text)
         return row
 
+    async def run_rotations_many_async(self, question_rows: Any) -> list[dict]:
+        """Batched sibling of run_rotations(): flattens every (question,
+        rotation) prompt pair across ALL given questions into ONE
+        generate_batch() call.
+
+        This is what genuine Batch API execution requires -- run_rotations's
+        own sequential per-rotation _call_backend_generate() calls work
+        correctly against an async-capable backend (routed through
+        generate_single_async()), but that means one individual real-time
+        call per rotation, never a true batch job. Only this batched path,
+        called once across every pending question, actually gets the
+        Batch API benefit text_extraction rotations is marked safe for.
+        """
+        rows = question_rows.to_dict(orient="records")
+        canonical_options_per_q = [self._build_options(row) for row in rows]
+        rotations_per_q = [build_rotations(opts) for opts in canonical_options_per_q]
+
+        all_prompts: list[str] = []
+        prompt_map: list[tuple[int, int]] = []  # (question_index, rotation_index)
+        for q_idx, (row, rotations) in enumerate(zip(rows, rotations_per_q)):
+            for r_idx, rotation in enumerate(rotations):
+                all_prompts.append(build_direct_mcq_prompt(
+                    template=self._prompts["text_extraction"],
+                    question=row["question_text"],
+                    options=rotation.mapping,
+                    subject=row["subject"],
+                ))
+                prompt_map.append((q_idx, r_idx))
+
+        all_responses = await self.backend.generate_batch(all_prompts)
+
+        results = []
+        for q_idx, row in enumerate(rows):
+            q_flat_indices = [i for i, (qi, _) in enumerate(prompt_map) if qi == q_idx]
+
+            canonical_choices: list[str | None] = []
+            per_rotation_raw_text: list[str | None] = []
+            for flat_i in q_flat_indices:
+                response = all_responses[flat_i]
+                if response.is_success():
+                    parsed_result, _ = self._match_and_score(
+                        free_text=response.raw_text, question_row=row,
+                    )
+                    canonical_choices.append(parsed_result.final_choice)
+                    per_rotation_raw_text.append(response.raw_text)
+                else:
+                    canonical_choices.append(None)
+                    per_rotation_raw_text.append(None)
+
+            voted_letter = majority_vote_with_tiebreak(
+                canonical_choices,
+                label_to_source_index=self._build_label_to_source_index(row),
+                seed=self.seed, benchmark_id=self.benchmark_name,
+                question_id=row["question_id"], method_name=self.method_name,
+            )
+            voted_parse = ParseResult(
+                final_choice=voted_letter,
+                status=PARSE_OK if voted_letter else PARSE_MISSING,
+                raw_text=None,
+                normalized_text="",
+                reason="rotation_majority_vote",
+            )
+            score_result = None
+            if voted_letter:
+                score_result = self._score(voted_parse, row["correct_option"])
+
+            first_flat = q_flat_indices[0]
+            result_row = self._build_result_row(
+                question_row=row,
+                prompt=all_prompts[first_flat],
+                sample_index=q_idx,
+                model_response=all_responses[first_flat],
+                parsed_result=voted_parse,
+                score_result=score_result,
+            )
+            result_row["per_rotation_choices_json"] = json.dumps(canonical_choices)
+            result_row["per_rotation_raw_text_json"] = json.dumps(per_rotation_raw_text)
+            results.append(result_row)
+
+        return results
+
     def _build_prompt(self, question_row: Any) -> str:
         return build_direct_mcq_prompt(
             template=self._prompts["text_extraction"],

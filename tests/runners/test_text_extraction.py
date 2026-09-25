@@ -4,11 +4,44 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
+import pytest
 
+from choicebench.backends.api_backend import APIBackend
+from choicebench.clients.types import ModelResponse, SUCCESS_STATUS
 from choicebench.methods.library.text_extraction import TextExtractionRunner
 from choicebench.scoring.types import SCORE_CORRECT, SCORE_INCORRECT, SCORE_UNSCORABLE
 
 from tests.runners.conftest import MockBackend
+
+
+class _AsyncMockBackend(APIBackend):
+    """Minimal APIBackend stand-in: generate_batch() returns queued responses
+    in order and records the prompts it received -- same double every other
+    runner's batched-path tests use (test_independent_hypothesis.py etc.)."""
+
+    def __init__(self, texts: list[str]) -> None:
+        self._provider = "openai"
+        self._model_name = "mock-model"
+        self._temperature = 0.0
+        self._max_tokens = 512
+        self._seed = 42
+        self._concurrency_limit = len(texts) or 10
+        self._queued = list(texts)
+        self.prompts_received: list[str] = []
+
+    async def generate_batch(self, prompts: list[str]) -> list[ModelResponse]:
+        self.prompts_received.extend(prompts)
+        out = [
+            ModelResponse(
+                provider=self._provider, model_name=self._model_name,
+                status=SUCCESS_STATUS, latency_seconds=0.0, raw_text=text,
+                finish_reason="stop", usage=None, error=None, timestamp_utc=None,
+            )
+            for text in self._queued[: len(prompts)]
+        ]
+        self._queued = self._queued[len(prompts):]
+        return out
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 _PROMPTS_DIR = REPO_ROOT / "prompts"
@@ -168,3 +201,59 @@ class TestRunRotations:
         result = _make_runner(backend).run_rotations(runner_question_row, sample_index=0)
         per_rotation_text = json.loads(result["per_rotation_raw_text_json"])
         assert per_rotation_text == [None, "FTP", "HTTPS", "HTTPS"]
+
+
+class TestRunRotationsManyAsync:
+    """Batched sibling of run_rotations(): flattens ALL (question, rotation)
+    prompt pairs across every given question into ONE generate_batch() call.
+
+    Required for genuine Batch API benefit -- run_rotations's own sequential
+    per-rotation _call_backend_generate() calls would, against an
+    async-capable backend, silently submit one single-request "batch" per
+    call instead of one real batch job across everything, defeating the
+    whole point of marking text_extraction rotations batch-safe."""
+
+    pytestmark = pytest.mark.asyncio
+
+    async def test_makes_exactly_one_generate_batch_call_for_all_questions(self, runner_question_row):
+        # 2 questions x 4 rotations = 8 prompts, all in one generate_batch().
+        backend = _AsyncMockBackend(["HTTPS"] * 8)
+        df = pd.DataFrame([runner_question_row, runner_question_row])
+
+        results = await _make_runner(backend).run_rotations_many_async(df)
+
+        assert len(backend.prompts_received) == 8
+        assert len(results) == 2
+
+    async def test_per_question_results_are_independent(self, runner_question_row):
+        # Question 1: unanimous HTTPS (correct). Question 2: unanimous FTP (incorrect).
+        backend = _AsyncMockBackend(["HTTPS"] * 4 + ["FTP"] * 4)
+        df = pd.DataFrame([runner_question_row, runner_question_row])
+
+        results = await _make_runner(backend).run_rotations_many_async(df)
+
+        assert results[0]["parsed_choice"] == "C"
+        assert results[0]["is_correct"] is True
+        assert results[1]["parsed_choice"] == "A"
+        assert results[1]["is_correct"] is False
+
+    async def test_per_rotation_fields_are_persisted_per_question(self, runner_question_row):
+        backend = _AsyncMockBackend(["HTTPS"] * 4 + ["FTP"] * 4)
+        df = pd.DataFrame([runner_question_row, runner_question_row])
+
+        results = await _make_runner(backend).run_rotations_many_async(df)
+
+        assert json.loads(results[0]["per_rotation_choices_json"]) == ["C", "C", "C", "C"]
+        assert json.loads(results[1]["per_rotation_choices_json"]) == ["A", "A", "A", "A"]
+        assert json.loads(results[0]["per_rotation_raw_text_json"]) == ["HTTPS"] * 4
+        assert json.loads(results[1]["per_rotation_raw_text_json"]) == ["FTP"] * 4
+
+    async def test_result_row_has_metadata(self, runner_question_row):
+        backend = _AsyncMockBackend(["HTTPS"] * 4)
+        df = pd.DataFrame([runner_question_row])
+
+        results = await _make_runner(backend).run_rotations_many_async(df)
+
+        assert results[0]["run_id"] == "test_run_001"
+        assert results[0]["method_name"] == "text_extraction"
+        assert results[0]["split_name"] == "test"

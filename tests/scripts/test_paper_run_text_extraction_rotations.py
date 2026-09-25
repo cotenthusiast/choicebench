@@ -104,3 +104,93 @@ class TestRunTextExtractionRotations:
         df.to_csv(path, index=False)
         with pytest.raises(ValueError, match="question_text"):
             mod.run(path, _DUMMY_MODEL_CONFIG, "test_run", tmp_path / "out.csv", run_seed=42)
+
+
+class _FakeAsyncCapableBackend:
+    """is_async_capable()=True double -- verifies run() dispatches to the
+    BATCHED run_rotations_many_async() path, never the sequential one
+    (which would silently submit one single-request "batch" per rotation
+    call against a real BatchAPIBackend, defeating the point)."""
+
+    def __init__(self, response_text: str = "HTTPS") -> None:
+        self._response_text = response_text
+        self.generate_batch_calls: list[list[str]] = []
+
+    def is_async_capable(self) -> bool:
+        return True
+
+    @property
+    def provider(self) -> str:
+        return "fake"
+
+    @property
+    def model_name(self) -> str:
+        return "fake-model"
+
+    async def generate_batch(self, prompts):
+        from choicebench.clients.types import ModelResponse, SUCCESS_STATUS
+        self.generate_batch_calls.append(list(prompts))
+        return [
+            ModelResponse(
+                provider="fake", model_name="fake-model", status=SUCCESS_STATUS,
+                latency_seconds=0.0, raw_text=self._response_text,
+            )
+            for _ in prompts
+        ]
+
+    def generate(self, prompt, **kwargs):
+        raise RuntimeError("must not be called for an async-capable backend")
+
+
+class TestRunDispatchesToBatchedPathForAsyncCapableBackends:
+    def test_uses_run_rotations_many_async_not_the_sequential_path(self, tmp_path, monkeypatch):
+        fake_backend = _FakeAsyncCapableBackend()
+        monkeypatch.setattr(mod, "build_backend", lambda *a, **k: fake_backend)
+
+        source = _questions_csv(tmp_path, ["q1", "q2"])
+        output = tmp_path / "out.csv"
+
+        n_written = mod.run(source, _DUMMY_MODEL_CONFIG, "test_run", output, run_seed=42)
+
+        assert n_written == 2
+        # One generate_batch() call covering BOTH questions' rotations
+        # (2 questions x 4 rotations = 8 prompts), not 8 separate calls.
+        assert len(fake_backend.generate_batch_calls) == 1
+        assert len(fake_backend.generate_batch_calls[0]) == 8
+        result_df = pd.read_csv(output)
+        assert len(result_df) == 2
+
+    def test_resume_only_batches_the_still_pending_questions(self, tmp_path, monkeypatch):
+        fake_backend = _FakeAsyncCapableBackend()
+        monkeypatch.setattr(mod, "build_backend", lambda *a, **k: fake_backend)
+
+        source = _questions_csv(tmp_path, ["q1", "q2"])
+        output = tmp_path / "out.csv"
+        existing = pd.DataFrame([{
+            "question_id": "q1", "method_name": "text_extraction",
+            "parsed_choice": "C", "is_correct": True,
+        }])
+        existing.to_csv(output, index=False)
+
+        n_written = mod.run(source, _DUMMY_MODEL_CONFIG, "test_run", output, run_seed=42)
+
+        assert n_written == 1
+        # Only q2's 4 rotation prompts should have been submitted.
+        assert len(fake_backend.generate_batch_calls[0]) == 4
+
+    def test_nothing_pending_makes_no_generate_batch_call(self, tmp_path, monkeypatch):
+        fake_backend = _FakeAsyncCapableBackend()
+        monkeypatch.setattr(mod, "build_backend", lambda *a, **k: fake_backend)
+
+        source = _questions_csv(tmp_path, ["q1"])
+        output = tmp_path / "out.csv"
+        existing = pd.DataFrame([{
+            "question_id": "q1", "method_name": "text_extraction",
+            "parsed_choice": "C", "is_correct": True,
+        }])
+        existing.to_csv(output, index=False)
+
+        n_written = mod.run(source, _DUMMY_MODEL_CONFIG, "test_run", output, run_seed=42)
+
+        assert n_written == 0
+        assert fake_backend.generate_batch_calls == []

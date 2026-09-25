@@ -26,6 +26,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import csv
 from pathlib import Path
 
@@ -47,6 +48,21 @@ def _load_completed_question_ids(output_path: Path) -> set[str]:
     return set(existing["question_id"].astype(str))
 
 
+def _write_results(results: list[dict], output_path: Path, file_exists: bool) -> int:
+    n_written = 0
+    with open(output_path, "a", newline="") as f:
+        writer = None
+        for result in results:
+            if writer is None:
+                writer = csv.DictWriter(f, fieldnames=list(result.keys()))
+                if not file_exists:
+                    writer.writeheader()
+            writer.writerow(result)
+            f.flush()  # one row at a time: a crash loses at most this one row
+            n_written += 1
+    return n_written
+
+
 def run(
         questions_csv: Path,
         model_config,
@@ -54,8 +70,20 @@ def run(
         output_path: Path,
         run_seed: int = 42,
         resume: bool = True,
+        execution_mode: str = "batch",
 ) -> int:
     """Run the rotation rerun for every row in questions_csv.
+
+    ``execution_mode`` ("batch" default | "sync") is forwarded to
+    build_backend() -- text_extraction rotations is batch-safe per the
+    frozen Batch execution policy (every rotation call across every
+    question is constructible up front), so an async-capable backend
+    (BatchAPIBackend under "batch", or a plain APIBackend under "sync")
+    always goes through TextExtractionRunner.run_rotations_many_async(),
+    ONE call across every still-pending question's rotations -- never the
+    sequential run_rotations() path, which would submit one single-request
+    "batch" per rotation call and defeat the whole point. Dummy/HuggingFace
+    backends (not async-capable) keep using the sequential path.
 
     Returns:
         Number of new rows written (excludes rows already present on resume).
@@ -68,8 +96,10 @@ def run(
         )
 
     completed_ids = _load_completed_question_ids(output_path) if resume else set()
+    completed_mask = source_df["question_id"].astype(str).isin(completed_ids)
+    pending_df = source_df[~completed_mask].reset_index(drop=True)
 
-    backend = build_backend(model_config, run_id, run_seed=run_seed)
+    backend = build_backend(model_config, run_id, run_seed=run_seed, execution_mode=execution_mode)
     runner = TextExtractionRunner(
         backend=backend, method_name=METHOD_NAME, split_name="test",
         prompt_version="v1", prompts_dir=Path("prompts"), run_id=run_id,
@@ -80,25 +110,34 @@ def run(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     file_exists = output_path.exists()
-    n_written = 0
 
+    if len(pending_df) == 0:
+        return 0
+
+    if backend.is_async_capable():
+        # The expensive step (batch submission) is already atomically
+        # resumable on its own (BatchAPIBackend's content-addressed
+        # batch-state file) -- generate_batch() returns everything at
+        # once regardless, so there's no finer-grained crash window to
+        # protect against here the way the sequential path below has.
+        results = asyncio.run(runner.run_rotations_many_async(pending_df))
+        return _write_results(results, output_path, file_exists)
+
+    # Sync path (Dummy/HuggingFace, not async-capable): one call at a
+    # time, written and flushed immediately -- a crash loses at most the
+    # one in-flight row.
+    n_written = 0
     with open(output_path, "a", newline="") as f:
         writer = None
-        for sample_index, source_row in enumerate(source_df.to_dict(orient="records")):
-            qid = str(source_row["question_id"])
-            if qid in completed_ids:
-                continue
-
+        for sample_index, source_row in enumerate(pending_df.to_dict(orient="records")):
             result = runner.run_rotations(source_row, sample_index)
-
             if writer is None:
                 writer = csv.DictWriter(f, fieldnames=list(result.keys()))
                 if not file_exists:
                     writer.writeheader()
             writer.writerow(result)
-            f.flush()  # one row at a time: a crash loses at most this one row
+            f.flush()
             n_written += 1
-
     return n_written
 
 
@@ -111,6 +150,7 @@ def main() -> None:
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--no-resume", action="store_true")
+    parser.add_argument("--execution-mode", choices=["batch", "sync"], default="batch")
     args = parser.parse_args()
 
     config = load_config(str(args.model_config))
@@ -118,7 +158,7 @@ def main() -> None:
 
     n_written = run(
         args.questions_csv, model_config, args.run_id, args.output,
-        run_seed=args.seed, resume=not args.no_resume,
+        run_seed=args.seed, resume=not args.no_resume, execution_mode=args.execution_mode,
     )
     print(f"Wrote {n_written} new rows -> {args.output}")
 
