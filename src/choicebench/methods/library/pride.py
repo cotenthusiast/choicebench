@@ -469,6 +469,9 @@ class PriDeRunner(ExperimentRunner):
                 lp_map,
                 letters=tuple(letters),
                 eps_prob=1e-12,
+                label_to_source_index=self._build_label_to_source_index(question_row),
+                seed=self.seed, benchmark_id=self.benchmark_name,
+                question_id=question_row["question_id"], method_name=self.method_name,
             )
             adj_parse = ParseResult(
                 final_choice=adjusted_letter,

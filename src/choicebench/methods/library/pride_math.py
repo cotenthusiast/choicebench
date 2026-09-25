@@ -22,6 +22,7 @@ from typing import Any, Iterable, Mapping
 import numpy as np
 
 from choicebench.constants import LEGACY_OPTION_LETTERS
+from choicebench.scoring.tiebreak import resolve_tie
 
 OPTION_LETTERS: tuple[str, ...] = tuple(LEGACY_OPTION_LETTERS)
 
@@ -236,6 +237,11 @@ def apply_debiased_choice_from_defaults(
         *,
         letters: tuple[str, ...] = OPTION_LETTERS,
         eps_prob: float = 1e-12,
+        label_to_source_index: Mapping[str, int],
+        seed: int,
+        benchmark_id: str,
+        question_id: str,
+        method_name: str,
 ) -> str:
     """Argmax Eq.~(8), restricted to ``letters`` — this question's real options.
 
@@ -247,6 +253,20 @@ def apply_debiased_choice_from_defaults(
     restricted and renormalized over just ``letters`` before the Eq.~(8)
     division, since D's share of the global prior doesn't apply to a
     question where D was never a real choice.
+
+    An exact tie among the debiased content probabilities is broken via the
+    shared canonical tie-break utility (choicebench.scoring.tiebreak.
+    resolve_tie) over each tied letter's stable source_index -- never a raw
+    np.argmax first-index-wins pick, which would silently correlate PriDe's
+    tie-break behavior with letter/display order, the exact positional bias
+    PriDe exists to correct for.
+
+    Args:
+        label_to_source_index: this question's letter->source_index map,
+            for the tie-break's canonical identity (never the display
+            letter itself).
+        seed, benchmark_id, question_id, method_name: the remaining
+            tie-break key components -- see resolve_tie().
 
     Raises:
         ValueError: if letters has fewer than 2 entries.
@@ -263,4 +283,15 @@ def apply_debiased_choice_from_defaults(
     pep = np.clip(pep, state.epsilon, None)
     pep = pep / pep.sum()
     deb_content = equation8_debiased_content_probs(default_probs, pep, eps=eps_prob)
-    return letters[int(np.argmax(deb_content))]
+
+    best = float(np.max(deb_content))
+    tied_letters = [letters[i] for i in range(len(letters)) if float(deb_content[i]) == best]
+    if len(tied_letters) == 1:
+        return tied_letters[0]
+    tied_ids = [label_to_source_index[letter] for letter in tied_letters]
+    winning_id = resolve_tie(
+        seed=seed, benchmark_id=benchmark_id, question_id=question_id,
+        method_name=method_name, tied_canonical_ids=tied_ids,
+    )
+    id_to_label = {v: k for k, v in label_to_source_index.items()}
+    return id_to_label[winning_id]

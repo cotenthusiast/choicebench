@@ -10,6 +10,7 @@ from choicebench.backends.dummy_backend import DummyBackend
 from choicebench.methods.library.pride import PriDeRunner
 from choicebench.metrics.accuracy import Accuracy
 from choicebench.metrics.mad import MAD
+from choicebench.scoring.tiebreak import resolve_tie
 
 from tests.runners.conftest import MockBackend
 
@@ -226,6 +227,60 @@ class TestPriDeRequireFullCalibration:
         )
         runner._ensure_calibration()  # must not raise even though 0 < 50
         assert runner._calibration_state.estimation_question_ids == ()
+
+
+class TestPriDeExactTieUsesSharedTiebreak:
+    """Confirmed audit finding: apply_debiased_choice_from_defaults()
+    previously picked an exact Eq.8 tie via raw np.argmax (first-index
+    wins), silently correlating PriDe's tie-break with letter/display
+    order -- exactly the positional bias PriDe exists to correct for.
+    Must route through the shared canonical tie-break utility instead."""
+
+    def test_exact_tie_routes_through_shared_tiebreak_utility(self, tmp_path: Path):
+        from choicebench.benchmarks.base import make_normalized_row
+
+        # This specific question_id/seed/method combination is chosen so
+        # resolve_tie's own winner is B (source_index 1) -- NOT index 0 --
+        # so this test genuinely discriminates the shared-tiebreak fix from
+        # the old raw np.argmax behavior (which always picks the first
+        # tied index, A, regardless of question/seed).
+        row = make_normalized_row(
+            "computer_security",
+            "Which protocol is primarily used to securely browse websites variant 1?",
+            ["FTP", "HTTP", "HTTPS", "SMTP"], correct_index=2,
+        )
+        expected_id = resolve_tie(
+            seed=42, benchmark_id="mmlu", question_id=row["question_id"],
+            method_name="pride", tied_canonical_ids=[0, 1],
+        )
+        assert expected_id == 1, "fixture must exercise a non-first tie winner"
+
+        # Uniform prior (no calibration data) + A/B tied at the eval call
+        # -> Eq.8's debiasing (dividing by a uniform prior) preserves the
+        # tie exactly.
+        backend = MockBackend(
+            score_responses=[[-0.1, -0.1, -5.0, -5.0]],  # A, B tied highest
+            supports_logprobs=True,
+        )
+        runner = PriDeRunner(
+            backend=backend,
+            method_name="pride",
+            split_name="robustness",
+            prompt_version="v1",
+            prompts_dir=_PROMPTS_DIR,
+            run_id="pride_tie",
+            calibration_n=0,
+            calibration_seed=0,
+            calibration_benchmark="mmlu",
+            calibration_runs_dir=tmp_path,
+            calibration_questions=[],
+            seed=42,
+            benchmark_name="mmlu",
+        )
+
+        result = runner.run_one(row, sample_index=0)
+
+        assert result["parsed_choice"] == "B"
 
 
 class TestPriDeConstruction:
