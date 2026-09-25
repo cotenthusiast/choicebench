@@ -3,13 +3,37 @@
 # Paper-specific (eacl-2026-revision): the frozen stochasticity protocol --
 # for the 100-MMLU / 100-ARC frozen question subsets
 # (data/manifests/{mmlu,arc_challenge}_stochasticity_v2.csv), API models
-# only, runs N independent repetitions (observation 0 + 3 repeats, i.e.
-# n_repetitions=4) per question, in canonical (unrotated) option order.
-# Methods: baseline (direct_mcq), two_stage_v1 (two_stage), reasoning_mcq,
-# reasoning_two_stage. Two-stage methods do a COMPLETE independent
-# Stage1->Stage2 repeat every repetition -- stage 1 is never reused across
-# repetitions (unlike the flip-rate rotation scripts, which deliberately
-# reuse stage 1 across rotations of the SAME call).
+# only, runs N independent repetitions per question, in canonical
+# (unrotated) option order. Methods: baseline (direct_mcq), two_stage_v1
+# (two_stage), reasoning_mcq, reasoning_two_stage. Two-stage methods do a
+# COMPLETE independent Stage1->Stage2 repeat every repetition -- stage 1
+# is never reused across repetitions (unlike the flip-rate rotation
+# scripts, which deliberately reuse stage 1 across rotations of the SAME
+# call).
+#
+# UNRESOLVED SCIENTIFIC QUESTION (flagged, not silently resolved -- see
+# eacl-2026-revision memory / the 2026-09-25 overnight report): the
+# frozen spec describes "observation 0 + 3 repetitions" and separately
+# states an expected total of 14,400 additional calls. This script
+# currently implements n_repetitions as N FULLY FRESH, independent calls
+# (default 4) -- "observation 0" here is a genuine new call, not a reuse
+# of the main accuracy run's own already-collected result for that
+# question. Under that fresh-call reading, n_repetitions=4 across 200
+# questions x 4 API models x (1+2+1+2=6 calls/question across the 4
+# methods) = 19,200 calls, not 14,400. The arithmetic matches EXACTLY
+# (14,400) if "observation 0" instead means "reuse the main accuracy
+# run's own saved result for that question, make only 3 NEW calls" --
+# i.e. n_repetitions should default to 3, with a separate join step
+# pulling observation 0 from the already-completed main-run output file
+# rather than an independent call at all.
+# This script deliberately does NOT implement that reuse/join -- it is
+# functionally correct and independently defensible as "N fresh
+# independent observations" (arguably the more conservative reading: it
+# never conflates a stochasticity-dedicated call with a main-run call
+# that had different provenance/context), but it does not match the
+# frozen spec's own stated call-count expectation. DO NOT change
+# n_repetitions' default or build a main-run-reuse join without an
+# explicit decision on which interpretation is correct.
 #
 # Batch policy: direct_mcq/reasoning_mcq repetitions are batch-safe (every
 # repetition's call is independently constructible up front -- it's the
