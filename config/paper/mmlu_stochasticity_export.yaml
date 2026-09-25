@@ -1,0 +1,42 @@
+# config/paper/mmlu_stochasticity_export.yaml
+#
+# Paper-specific (eacl-2026-revision): NOT an experiment config -- exists
+# purely to give scripts/paper/export_benchmark_questions.py a
+# question_id_manifest pointing at the frozen 100-question MMLU
+# stochasticity subset (data/manifests/mmlu_stochasticity_v2.csv), so it
+# can export the full-content questions CSV
+# scripts/paper/run_stochasticity_repeats.py needs. The models: and
+# methods: blocks below are placeholders required by schema validation
+# (load_config() rejects an empty methods list) -- they are never read by
+# the export script, which only uses config.benchmarks[--benchmark-index].
+#
+# Run with:
+#   python scripts/paper/export_benchmark_questions.py \
+#       --config config/paper/mmlu_stochasticity_export.yaml --benchmark-index 0 \
+#       --output data/manifests/mmlu_stochasticity_v2_full.csv
+
+experiment:
+  name: paper_mmlu_stochasticity_export
+
+models:
+  - backend: dummy
+    model_name_or_path: unused-placeholder
+    generation_kwargs:
+      max_new_tokens: 1024
+      temperature: 0.0
+
+benchmarks:
+  - name: mmlu
+    split: test
+    transforms: [unique_question_ids_v1]
+    question_id_manifest: data/manifests/mmlu_stochasticity_v2.csv
+
+methods:
+  - name: direct_mcq
+
+metrics:
+  - accuracy
+
+run:
+  seed: 42
+  prompt_version: "v1"

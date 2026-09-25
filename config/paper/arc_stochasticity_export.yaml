@@ -1,0 +1,38 @@
+# config/paper/arc_stochasticity_export.yaml
+#
+# Paper-specific (eacl-2026-revision): NOT an experiment config -- see
+# mmlu_stochasticity_export.yaml for the full rationale. Points
+# scripts/paper/export_benchmark_questions.py at the frozen 100-question
+# ARC-Challenge stochasticity subset
+# (data/manifests/arc_challenge_stochasticity_v2.csv).
+#
+# Run with:
+#   python scripts/paper/export_benchmark_questions.py \
+#       --config config/paper/arc_stochasticity_export.yaml --benchmark-index 0 \
+#       --output data/manifests/arc_challenge_stochasticity_v2_full.csv
+
+experiment:
+  name: paper_arc_stochasticity_export
+
+models:
+  - backend: dummy
+    model_name_or_path: unused-placeholder
+    generation_kwargs:
+      max_new_tokens: 1024
+      temperature: 0.0
+
+benchmarks:
+  - name: arc_challenge
+    split: test
+    transforms: []
+    question_id_manifest: data/manifests/arc_challenge_stochasticity_v2.csv
+
+methods:
+  - name: direct_mcq
+
+metrics:
+  - accuracy
+
+run:
+  seed: 42
+  prompt_version: "v1"

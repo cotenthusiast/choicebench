@@ -33,13 +33,40 @@
 # repetition_index) pairs, one repetition's batch of pending questions at
 # a time.
 #
-# Run with:
+# Takes a plain, full-content questions CSV (same shape
+# run_text_extraction_rotations.py takes) -- not the raw 2-column
+# question_id/subject manifest at data/manifests/mmlu_stochasticity_v2.csv
+# directly. Export it once per benchmark with:
+#   load_benchmark_selection(benchmark_cfg, run_seed).questions.to_csv(...)
+# using a benchmark config whose question_id_manifest points at the
+# frozen stochasticity manifest (data/manifests/{mmlu,arc_challenge}_
+# stochasticity_v2.csv), so the exported rows are exactly that 100-question
+# subset with full content (question_text, choices_json, correct_option).
+#
+# --model-config takes an EXISTING grid config purely as a model source
+# (same pattern every other standalone script here uses) -- reuse
+# config/paper/mmlu_core_methods.yaml (API models 0-3: openai, anthropic,
+# openrouter-pinned-Llama, together) for execution_mode=sync repeats, or
+# config/paper/mmlu_core_methods_cyclic_batch.yaml (same 4 API models,
+# but index 2 is direct-deepinfra-fp8-Turbo Llama) for execution_mode=
+# batch repeats -- no dedicated stochasticity config file needed. Swap in
+# the arc_* equivalents for ARC.
+#
+# Run with (baseline/reasoning_mcq repeats, batch-safe):
 #   python scripts/paper/run_stochasticity_repeats.py \
-#       --questions-csv data/manifests/mmlu_stochasticity_v2.csv \
-#       --model-config config/paper/mmlu_stochasticity.yaml --model-index 0 \
+#       --questions-csv <exported mmlu stochasticity questions CSV> \
+#       --model-config config/paper/mmlu_core_methods_cyclic_batch.yaml --model-index 0 \
 #       --method-name direct_mcq --prompt-version v1 \
 #       --run-id <id> --output runs/<id>/stochasticity_direct_mcq_<model>_mmlu.csv \
 #       --execution-mode batch
+#
+# Run with (two_stage/reasoning_two_stage repeats, must stay synchronous):
+#   python scripts/paper/run_stochasticity_repeats.py \
+#       --questions-csv <exported mmlu stochasticity questions CSV> \
+#       --model-config config/paper/mmlu_core_methods.yaml --model-index 0 \
+#       --method-name two_stage --prompt-version v1 \
+#       --run-id <id> --output runs/<id>/stochasticity_two_stage_<model>_mmlu.csv \
+#       --execution-mode sync
 
 from __future__ import annotations
 
