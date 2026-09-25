@@ -50,6 +50,33 @@
 # repetition_index) pairs, one repetition's batch of pending questions at
 # a time.
 #
+# ⚠️ OPEN DESIGN QUESTION, deliberately NOT resolved here (flagging per
+# Karl's instruction rather than guessing at a scientific protocol change)
+# -- investigated 2026-09-25 (see clients/openrouter_client.py:142-143,
+# clients/together_client.py:134-135/174-175 vs. openai_client.py,
+# anthropic_client.py, deepinfra_client.py, none of which reference
+# request.seed at all): ONLY the OpenRouter (Llama sync) and Together
+# (Qwen sync+batch) clients forward ModelRequest.seed to the provider's
+# own API call; OpenAI/Anthropic/DeepInfra never send a seed (Anthropic's
+# Messages API has no seed parameter at all; OpenAI's Chat Completions API
+# does support one but this codebase's OpenAIClient never wires it).
+# Separately: this script passes the SAME run_seed (e.g. 42) to
+# build_backend() for every repetition -- only model_identity varies, not
+# run_seed -- so APIBackend._seed (and therefore the seed value actually
+# sent over the wire) is IDENTICAL across all fresh repetitions for
+# whichever providers DO forward it. Net effect: for Llama-sync and Qwen,
+# every fresh repetition requests the SAME seed=42 from the provider; for
+# GPT/Claude/Llama-batch, no seed is ever sent at all. Whether stochastic
+# repeatability should be measured under a FIXED seed sent identically
+# every time (current behavior, preserved as-is), an OMITTED seed, or a
+# VARIED seed per repetition is a genuine scientific protocol question
+# with more than one defensible answer -- NOT changed here. This is
+# orthogonal to (and does not compromise) the model_identity-based cache
+# isolation above: a "fresh" repetition here always means a genuinely new
+# API call was made (never served from a prior repetition's cache), even
+# on the providers where that new call happens to request the same seed
+# as the previous one.
+#
 # The output file mixes two row shapes: observation 0's reused rows carry
 # whatever condition_metadata columns the main accuracy run's grid
 # execution stamped on them (experiment_id, condition_id, ...), while
@@ -124,15 +151,56 @@ def _load_completed_pairs(output_path: Path) -> set[tuple[str, int]]:
     ))
 
 
+# two_stage/reasoning_two_stage's own stage-1/stage-2 dependency means no
+# multi-wave batching is built for them (see module header) -- running
+# them under execution_mode="batch" wouldn't corrupt data, but it would
+# silently violate the frozen policy and submit real, unbuilt-for provider
+# batch jobs for a dependency chain this script never designed batching
+# around. direct_mcq/reasoning_mcq are batch-safe either way (every call
+# is independently constructible), so only the sync-only side is enforced.
+_SYNC_ONLY_METHODS = frozenset({"two_stage", "reasoning_two_stage"})
+
+
+def _validate_execution_mode(method_name: str, execution_mode: str) -> None:
+    if method_name in _SYNC_ONLY_METHODS and execution_mode != "sync":
+        raise ValueError(
+            f"method_name={method_name!r} has its own stage-1/stage-2 dependency "
+            "per repetition and must run under execution_mode='sync' (the frozen "
+            "batch policy: two_stage/reasoning_two_stage stay synchronous) -- got "
+            f"execution_mode={execution_mode!r}. No multi-wave batching is built "
+            "for this dependency chain; running it under 'batch' would silently "
+            "submit unintended real provider batch jobs."
+        )
+
+
+_OBS0_IDENTITY_COLUMNS = ("provider", "model_name", "benchmark_name", "prompt_version")
+_OBS0_NUMERIC_IDENTITY_COLUMNS = ("temperature", "max_tokens")
+
+
 def _load_canonical_obs0_rows(
         canonical_obs0_csv: Path, method_name: str, question_ids: list[str],
+        *, expected_identity: dict[str, object],
 ) -> list[dict]:
     """Load observation 0's rows by REUSING the main accuracy run's own
     saved result for method_name -- never generating a fresh replacement.
     Fails loudly (instead of silently falling back to a fresh call) if the
     canonical artifact is missing entirely, is missing any of the
-    question_ids this run needs observation 0 for, or has no row for a
-    question_id under this exact method_name.
+    question_ids this run needs observation 0 for, has no row for a
+    question_id under this exact method_name, contains AMBIGUOUS/
+    conflicting duplicate rows for a needed question_id (never silently
+    resolved via keep="first"), or the matched rows' own recorded
+    provider/model/benchmark/prompt/generation-settings identity doesn't
+    match what THIS stochasticity run itself is about to use -- e.g. a
+    canonical Llama row saved under the sync OpenRouter->DeepInfra route
+    must never be reused as observation 0 for a batch DeepInfra-direct
+    stochasticity run, since those are different deployments even though
+    "Llama" is the same nominal model name.
+
+    Args:
+        expected_identity: this run's own {"provider", "model_name",
+            "benchmark_name", "prompt_version", "temperature",
+            "max_tokens"} -- every matched canonical row must agree with
+            all of these exactly.
     """
     if not canonical_obs0_csv.exists():
         raise ValueError(
@@ -143,15 +211,35 @@ def _load_canonical_obs0_rows(
             "first, or pass the correct --canonical-obs0-csv path."
         )
     canonical_df = pd.read_csv(canonical_obs0_csv)
-    if "method_name" not in canonical_df.columns:
+    required_columns = ("method_name", "question_id") + _OBS0_IDENTITY_COLUMNS + _OBS0_NUMERIC_IDENTITY_COLUMNS
+    missing_columns = [c for c in required_columns if c not in canonical_df.columns]
+    if missing_columns:
         raise ValueError(
-            f"Canonical observation-0 artifact {canonical_obs0_csv} has no "
-            "'method_name' column -- cannot verify it is the correct "
-            f"method's saved result for method_name={method_name!r}."
+            f"Canonical observation-0 artifact {canonical_obs0_csv} is missing "
+            f"required identity column(s) {missing_columns} -- cannot verify it "
+            f"is the correct method/model/benchmark/prompt/generation-settings "
+            "result for this run."
         )
     canonical_df = canonical_df[canonical_df["method_name"].astype(str) == str(method_name)]
-    canonical_df = canonical_df.drop_duplicates(subset="question_id", keep="first")
-    canonical_df = canonical_df.set_index(canonical_df["question_id"].astype(str))
+
+    # Reject ambiguous duplicate rows for a needed question -- never
+    # silently resolved via keep="first". A canonical artifact should have
+    # exactly one row per question_id under this method_name; more than
+    # one means the file is corrupt, was concatenated from incompatible
+    # runs, or otherwise can't be trusted to pick "the" right one.
+    dup_counts = canonical_df["question_id"].astype(str).value_counts()
+    ambiguous_needed = sorted(
+        qid for qid in dup_counts[dup_counts > 1].index if qid in question_ids
+    )
+    if ambiguous_needed:
+        raise ValueError(
+            f"Canonical observation-0 artifact {canonical_obs0_csv} has more "
+            f"than one row for method_name={method_name!r} for question_id(s) "
+            f"{ambiguous_needed[:5]} -- refusing to silently pick one among "
+            "conflicting candidates. Deduplicate the canonical artifact first."
+        )
+
+    canonical_df = canonical_df.set_index(canonical_df["question_id"].astype(str), drop=False)
 
     missing = [qid for qid in question_ids if qid not in canonical_df.index]
     if missing:
@@ -161,6 +249,34 @@ def _load_canonical_obs0_rows(
             f"method_name={method_name!r} (e.g. {missing[:5]}) -- refusing to "
             "silently generate a fresh replacement for observation 0."
         )
+
+    needed_rows = canonical_df.loc[question_ids]
+    for column in _OBS0_IDENTITY_COLUMNS:
+        expected = str(expected_identity[column])
+        mismatched = needed_rows[needed_rows[column].astype(str) != expected]
+        if len(mismatched) > 0:
+            bad_qids = sorted(mismatched["question_id"].astype(str).unique())[:5]
+            raise ValueError(
+                f"Canonical observation-0 artifact {canonical_obs0_csv} has "
+                f"{column}={sorted(mismatched[column].astype(str).unique())} for "
+                f"question_id(s) {bad_qids}, but this stochasticity run expects "
+                f"{column}={expected!r} -- refusing to reuse an observation from "
+                "a different model/provider/deployment/benchmark/prompt as "
+                "observation 0."
+            )
+    for column in _OBS0_NUMERIC_IDENTITY_COLUMNS:
+        expected_val = float(expected_identity[column])
+        mismatched = needed_rows[needed_rows[column].astype(float) != expected_val]
+        if len(mismatched) > 0:
+            bad_qids = sorted(mismatched["question_id"].astype(str).unique())[:5]
+            raise ValueError(
+                f"Canonical observation-0 artifact {canonical_obs0_csv} has "
+                f"{column}={sorted(mismatched[column].unique())} for question_id(s) "
+                f"{bad_qids}, but this stochasticity run expects "
+                f"{column}={expected_val!r} -- refusing to reuse an observation "
+                "generated under different generation settings as observation 0."
+            )
+
     return [canonical_df.loc[qid].to_dict() for qid in question_ids]
 
 
@@ -203,7 +319,12 @@ def run(
     Returns:
         Number of new (question_id, repetition_index) rows written
         (excludes pairs already present on resume).
+
+    Raises:
+        ValueError: if execution_mode is incompatible with method_name --
+            see _validate_execution_mode().
     """
+    _validate_execution_mode(method_name, execution_mode)
     source_df = pd.read_csv(questions_csv)
     if "question_text" not in source_df.columns:
         raise ValueError(
@@ -231,8 +352,17 @@ def run(
     )
     pending_df_0 = source_df[pending_mask_0]
     if len(pending_df_0) > 0:
+        expected_identity = {
+            "provider": model_config.provider,
+            "model_name": model_config.model_name_or_path,
+            "benchmark_name": source_df["benchmark_name"].iloc[0] if len(source_df) else "",
+            "prompt_version": prompt_version,
+            "temperature": model_config.generation_kwargs.temperature,
+            "max_tokens": model_config.generation_kwargs.max_new_tokens,
+        }
         obs0_rows = _load_canonical_obs0_rows(
             canonical_obs0_csv, method_name, pending_df_0["question_id"].astype(str).tolist(),
+            expected_identity=expected_identity,
         )
         for row in obs0_rows:
             row["repetition_index"] = 0
@@ -289,18 +419,26 @@ def main() -> None:
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--no-resume", action="store_true")
-    parser.add_argument("--execution-mode", choices=["batch", "sync"], default="batch")
+    parser.add_argument("--execution-mode", choices=["batch", "sync"], default=None,
+                         help="Defaults to the frozen policy's own mode for --method-name "
+                              "if omitted (sync for two_stage/reasoning_two_stage, batch "
+                              "otherwise) -- an explicit value incompatible with "
+                              "--method-name is rejected, never silently honored.")
     args = parser.parse_args()
 
     config = load_config(str(args.model_config))
     model_config = config.models[args.model_index]
+
+    execution_mode = args.execution_mode
+    if execution_mode is None:
+        execution_mode = "sync" if args.method_name in _SYNC_ONLY_METHODS else "batch"
 
     n_written = run(
         args.questions_csv, model_config, args.run_id, args.output,
         method_name=args.method_name, prompt_version=args.prompt_version,
         canonical_obs0_csv=args.canonical_obs0_csv,
         n_repetitions=args.n_repetitions, run_seed=args.seed,
-        resume=not args.no_resume, execution_mode=args.execution_mode,
+        resume=not args.no_resume, execution_mode=execution_mode,
     )
     print(f"Wrote {n_written} new rows -> {args.output}")
 

@@ -83,13 +83,24 @@ def _questions_csv(tmp_path, question_ids, n_options=4) -> Path:
     return path
 
 
+_DEFAULT_OBS0_IDENTITY = dict(
+    provider="openai", model_name="gpt-4.1-mini", benchmark_name="mmlu",
+    prompt_version="v1", temperature=0.0, max_tokens=1024,
+)
+
+
 def _canonical_obs0_csv(tmp_path, rows) -> Path:
     """rows: list of dicts, each a full canonical row as the main
     accuracy run's own saved output would contain it -- must include
     question_id and method_name, and may include extra
     condition_metadata columns (experiment_id, condition_id, ...) that
-    a freshly computed repetition row never has."""
-    df = pd.DataFrame(rows)
+    a freshly computed repetition row never has. Identity columns
+    (provider/model_name/benchmark_name/prompt_version/temperature/
+    max_tokens) default to matching _MODEL_CONFIG + the standard v1/mmlu
+    test setup unless a row overrides them -- most tests care about
+    something else and shouldn't have to restate the whole identity."""
+    filled_rows = [{**_DEFAULT_OBS0_IDENTITY, **row} for row in rows]
+    df = pd.DataFrame(filled_rows)
     path = tmp_path / "canonical_obs0.csv"
     df.to_csv(path, index=False)
     return path
@@ -177,7 +188,8 @@ class TestRunStochasticityRepeatsBaseline:
         source = _questions_csv(tmp_path, ["q1"])
         output = tmp_path / "out.csv"
         canonical = _canonical_obs0_csv(tmp_path, [
-            {"question_id": "q1", "method_name": "reasoning_mcq", "parsed_choice": "C", "is_correct": True},
+            {"question_id": "q1", "method_name": "reasoning_mcq", "parsed_choice": "C", "is_correct": True,
+             "prompt_version": "v1_reasoning"},
         ])
 
         mod.run(
@@ -405,6 +417,150 @@ class TestRunStochasticityRepeatsObs0Reuse:
                 n_repetitions=1, run_seed=42,
             )
 
+    def test_canonical_obs0_wrong_provider_fails_loudly(self, tmp_path, monkeypatch):
+        """A Llama sync (openrouter) canonical row must never be reused as
+        observation 0 for a batch (deepinfra) stochasticity run -- same
+        nominal model, different deployment, different provider."""
+        backend = _FakeAsyncBackend()
+        monkeypatch.setattr(mod, "build_backend", lambda *a, **k: backend)
+        source = _questions_csv(tmp_path, ["q1"])
+        output = tmp_path / "out.csv"
+        canonical = _canonical_obs0_csv(tmp_path, [
+            {"question_id": "q1", "method_name": "direct_mcq", "parsed_choice": "C",
+             "is_correct": True, "provider": "openrouter"},
+        ])
+
+        with pytest.raises(ValueError, match="provider"):
+            mod.run(
+                source, _MODEL_CONFIG, "test_run", output, method_name="direct_mcq",
+                prompt_version="v1", canonical_obs0_csv=canonical,
+                n_repetitions=1, run_seed=42,
+            )
+
+    def test_canonical_obs0_wrong_model_name_fails_loudly(self, tmp_path, monkeypatch):
+        backend = _FakeAsyncBackend()
+        monkeypatch.setattr(mod, "build_backend", lambda *a, **k: backend)
+        source = _questions_csv(tmp_path, ["q1"])
+        output = tmp_path / "out.csv"
+        canonical = _canonical_obs0_csv(tmp_path, [
+            {"question_id": "q1", "method_name": "direct_mcq", "parsed_choice": "C",
+             "is_correct": True, "model_name": "claude-haiku-4-5"},
+        ])
+
+        with pytest.raises(ValueError, match="model_name"):
+            mod.run(
+                source, _MODEL_CONFIG, "test_run", output, method_name="direct_mcq",
+                prompt_version="v1", canonical_obs0_csv=canonical,
+                n_repetitions=1, run_seed=42,
+            )
+
+    def test_canonical_obs0_wrong_benchmark_fails_loudly(self, tmp_path, monkeypatch):
+        backend = _FakeAsyncBackend()
+        monkeypatch.setattr(mod, "build_backend", lambda *a, **k: backend)
+        source = _questions_csv(tmp_path, ["q1"])
+        output = tmp_path / "out.csv"
+        canonical = _canonical_obs0_csv(tmp_path, [
+            {"question_id": "q1", "method_name": "direct_mcq", "parsed_choice": "C",
+             "is_correct": True, "benchmark_name": "arc_challenge"},
+        ])
+
+        with pytest.raises(ValueError, match="benchmark_name"):
+            mod.run(
+                source, _MODEL_CONFIG, "test_run", output, method_name="direct_mcq",
+                prompt_version="v1", canonical_obs0_csv=canonical,
+                n_repetitions=1, run_seed=42,
+            )
+
+    def test_canonical_obs0_wrong_prompt_version_fails_loudly(self, tmp_path, monkeypatch):
+        backend = _FakeAsyncBackend()
+        monkeypatch.setattr(mod, "build_backend", lambda *a, **k: backend)
+        source = _questions_csv(tmp_path, ["q1"])
+        output = tmp_path / "out.csv"
+        canonical = _canonical_obs0_csv(tmp_path, [
+            {"question_id": "q1", "method_name": "direct_mcq", "parsed_choice": "C",
+             "is_correct": True, "prompt_version": "v1_reasoning"},
+        ])
+
+        with pytest.raises(ValueError, match="prompt_version"):
+            mod.run(
+                source, _MODEL_CONFIG, "test_run", output, method_name="direct_mcq",
+                prompt_version="v1", canonical_obs0_csv=canonical,
+                n_repetitions=1, run_seed=42,
+            )
+
+    def test_canonical_obs0_wrong_temperature_fails_loudly(self, tmp_path, monkeypatch):
+        backend = _FakeAsyncBackend()
+        monkeypatch.setattr(mod, "build_backend", lambda *a, **k: backend)
+        source = _questions_csv(tmp_path, ["q1"])
+        output = tmp_path / "out.csv"
+        canonical = _canonical_obs0_csv(tmp_path, [
+            {"question_id": "q1", "method_name": "direct_mcq", "parsed_choice": "C",
+             "is_correct": True, "temperature": 0.7},
+        ])
+
+        with pytest.raises(ValueError, match="temperature"):
+            mod.run(
+                source, _MODEL_CONFIG, "test_run", output, method_name="direct_mcq",
+                prompt_version="v1", canonical_obs0_csv=canonical,
+                n_repetitions=1, run_seed=42,
+            )
+
+    def test_canonical_obs0_wrong_max_tokens_fails_loudly(self, tmp_path, monkeypatch):
+        backend = _FakeAsyncBackend()
+        monkeypatch.setattr(mod, "build_backend", lambda *a, **k: backend)
+        source = _questions_csv(tmp_path, ["q1"])
+        output = tmp_path / "out.csv"
+        canonical = _canonical_obs0_csv(tmp_path, [
+            {"question_id": "q1", "method_name": "direct_mcq", "parsed_choice": "C",
+             "is_correct": True, "max_tokens": 512},
+        ])
+
+        with pytest.raises(ValueError, match="max_tokens"):
+            mod.run(
+                source, _MODEL_CONFIG, "test_run", output, method_name="direct_mcq",
+                prompt_version="v1", canonical_obs0_csv=canonical,
+                n_repetitions=1, run_seed=42,
+            )
+
+    def test_canonical_obs0_missing_identity_column_fails_loudly(self, tmp_path, monkeypatch):
+        """A canonical artifact missing a whole identity column (e.g. an
+        older or hand-built file) must fail loudly, not silently skip
+        that check."""
+        backend = _FakeAsyncBackend()
+        monkeypatch.setattr(mod, "build_backend", lambda *a, **k: backend)
+        source = _questions_csv(tmp_path, ["q1"])
+        output = tmp_path / "out.csv"
+        canonical_path = tmp_path / "canonical_obs0.csv"
+        pd.DataFrame([
+            {"question_id": "q1", "method_name": "direct_mcq", "parsed_choice": "C", "is_correct": True},
+        ]).to_csv(canonical_path, index=False)  # no provider/model_name/... columns at all
+
+        with pytest.raises(ValueError, match="identity column"):
+            mod.run(
+                source, _MODEL_CONFIG, "test_run", output, method_name="direct_mcq",
+                prompt_version="v1", canonical_obs0_csv=canonical_path,
+                n_repetitions=1, run_seed=42,
+            )
+
+    def test_canonical_obs0_ambiguous_duplicate_rows_fail_loudly(self, tmp_path, monkeypatch):
+        """Two conflicting rows for the same question_id under the same
+        method_name -- must never silently pick one via keep='first'."""
+        backend = _FakeAsyncBackend()
+        monkeypatch.setattr(mod, "build_backend", lambda *a, **k: backend)
+        source = _questions_csv(tmp_path, ["q1"])
+        output = tmp_path / "out.csv"
+        canonical = _canonical_obs0_csv(tmp_path, [
+            {"question_id": "q1", "method_name": "direct_mcq", "parsed_choice": "C", "is_correct": True},
+            {"question_id": "q1", "method_name": "direct_mcq", "parsed_choice": "A", "is_correct": False},
+        ])
+
+        with pytest.raises(ValueError, match="more than one row"):
+            mod.run(
+                source, _MODEL_CONFIG, "test_run", output, method_name="direct_mcq",
+                prompt_version="v1", canonical_obs0_csv=canonical,
+                n_repetitions=1, run_seed=42,
+            )
+
     def test_reused_obs0_row_uses_canonical_values_without_a_fresh_call(self, tmp_path, monkeypatch):
         backend = _FakeAsyncBackend()
         monkeypatch.setattr(mod, "build_backend", lambda *a, **k: backend)
@@ -459,3 +615,72 @@ class TestRunStochasticityRepeatsObs0Reuse:
         obs1_row = result_df[result_df["repetition_index"] == 1].iloc[0]
         assert obs0_row["experiment_id"] == "exp1"
         assert pd.isna(obs1_row["experiment_id"])  # fresh row never had this column
+
+
+class TestRunStochasticityExecutionModePolicy:
+    """two_stage/reasoning_two_stage have their own stage-1/stage-2
+    dependency per repetition and no multi-wave batching is built for
+    them -- execution_mode='batch' must never be silently honored for
+    them, whether it arrives as an explicit argument or (previously) as
+    the script's own unconditional default."""
+
+    def test_two_stage_under_batch_execution_mode_raises(self, tmp_path, monkeypatch):
+        backend = _FakeAsyncBackend()
+        monkeypatch.setattr(mod, "build_backend", lambda *a, **k: backend)
+        source = _questions_csv(tmp_path, ["q1"])
+        output = tmp_path / "out.csv"
+        canonical = _canonical_obs0_csv(tmp_path, [
+            {"question_id": "q1", "method_name": "two_stage", "parsed_choice": "C", "is_correct": True},
+        ])
+
+        with pytest.raises(ValueError, match="execution_mode"):
+            mod.run(
+                source, _MODEL_CONFIG, "test_run", output, method_name="two_stage",
+                prompt_version="v1", canonical_obs0_csv=canonical,
+                n_repetitions=1, run_seed=42, execution_mode="batch",
+            )
+
+    def test_reasoning_two_stage_under_batch_execution_mode_raises(self, tmp_path, monkeypatch):
+        backend = _FakeAsyncBackend()
+        monkeypatch.setattr(mod, "build_backend", lambda *a, **k: backend)
+        source = _questions_csv(tmp_path, ["q1"])
+        output = tmp_path / "out.csv"
+        canonical = _canonical_obs0_csv(tmp_path, [
+            {"question_id": "q1", "method_name": "reasoning_two_stage", "parsed_choice": "C",
+             "is_correct": True, "prompt_version": "v1_reasoning"},
+        ])
+
+        with pytest.raises(ValueError, match="execution_mode"):
+            mod.run(
+                source, _MODEL_CONFIG, "test_run", output, method_name="reasoning_two_stage",
+                prompt_version="v1_reasoning", canonical_obs0_csv=canonical,
+                n_repetitions=1, run_seed=42, execution_mode="batch",
+            )
+
+    def test_direct_mcq_is_not_restricted_to_batch(self, tmp_path, monkeypatch):
+        """The sync-only restriction is specific to the dependent methods
+        -- direct_mcq/reasoning_mcq are batch-safe either way, so sync is
+        still accepted (just not the frozen-policy default)."""
+        backend = _FakeAsyncBackend()
+        monkeypatch.setattr(mod, "build_backend", lambda *a, **k: backend)
+        source = _questions_csv(tmp_path, ["q1"])
+        output = tmp_path / "out.csv"
+        canonical = _canonical_obs0_csv(tmp_path, [
+            {"question_id": "q1", "method_name": "direct_mcq", "parsed_choice": "C", "is_correct": True},
+        ])
+
+        n_written = mod.run(
+            source, _MODEL_CONFIG, "test_run", output, method_name="direct_mcq",
+            prompt_version="v1", canonical_obs0_csv=canonical,
+            n_repetitions=1, run_seed=42, execution_mode="sync",
+        )
+        assert n_written == 1
+
+    def test_validate_execution_mode_directly(self):
+        mod._validate_execution_mode("two_stage", "sync")  # must not raise
+        mod._validate_execution_mode("direct_mcq", "batch")  # must not raise
+        mod._validate_execution_mode("direct_mcq", "sync")  # must not raise
+        with pytest.raises(ValueError, match="execution_mode"):
+            mod._validate_execution_mode("two_stage", "batch")
+        with pytest.raises(ValueError, match="execution_mode"):
+            mod._validate_execution_mode("reasoning_two_stage", "batch")
