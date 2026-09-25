@@ -69,6 +69,18 @@ def test_wheel_builds_and_imports_out_of_tree(tmp_path):
     wheels = list(dist.glob("choicebench-*.whl"))
     assert len(wheels) == 1
 
+    # TEMP DIAGNOSTIC (2026-09-25): dump the wheel's own file list so a CI
+    # failure shows exactly what got packaged -- remove once the CI-only
+    # "files == []" mystery is root-caused.
+    import zipfile
+    with zipfile.ZipFile(wheels[0]) as zf:
+        names = zf.namelist()
+    prompt_names = [n for n in names if "resources/prompts" in n]
+    assert prompt_names, (
+        f"DIAGNOSTIC: builder={builder!r}, wheel has {len(names)} total "
+        f"entries, 0 under resources/prompts. Full entry list: {names}"
+    )
+
     # Out-of-tree extraction.
     wheel_root = tmp_path / "wheelroot"
     wheel_root.mkdir()
