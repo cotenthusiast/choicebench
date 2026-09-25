@@ -268,7 +268,7 @@ models:                         # one or more; every model runs every benchmark
       do_sample: false
 
   - backend: api                # API-backed model; no GPU required
-    provider: openai            # "anthropic" | "openai" | "gemini" | "groq" | "together" | "vllm" | "openrouter"
+    provider: openai            # "anthropic" | "openai" | "gemini" | "groq" | "together" | "vllm" | "openrouter" | "deepinfra"
     model_name_or_path: gpt-4.1-mini
     generation_kwargs:
       max_new_tokens: 512
@@ -321,6 +321,9 @@ benchmarks:                     # a non-empty list (one entry per benchmark)
 methods:
   - name: direct_mcq            # built-in; or "module.path:ClassName" for external
   - name: cyclic_permutation
+    # execution_mode: batch     # optional, default "sync" -- see Batch execution below.
+    # Only safe for a method whose every call is independently constructible
+    # up front (no call N+1 needs call N's own result).
   - name: two_stage
     # Optional: adds a 3rd call if stage 2 is unparseable.
     # params:
@@ -355,6 +358,50 @@ run:
 ```
 
 ---
+
+## Batch execution
+
+A method whose calls are all independently constructible up front (no call
+depends on another call's own result -- e.g. every cyclic-permutation
+rotation, every independent-hypothesis option) can set
+`execution_mode: batch` on its `methods:` entry. Instead of the default
+concurrent per-request dispatch, every call goes through the provider's
+real asynchronous Batch API: submitted as one job, polled, and fetched once
+complete -- typically a 50% cost reduction, at the cost of the job's own
+turnaround window (minutes to ~24h, provider-dependent).
+
+**Only mark a method `batch` if every one of its calls can be built before
+any of them run.** A method that constructs call N+1 from call N's own
+output (e.g. a two-stage method's stage 2, built from stage 1's answer)
+cannot safely batch across that dependency -- submitting stage 1 as a
+batch, waiting, then constructing and submitting stage 2 as a second batch
+is a valid but far more complex pattern this framework does not currently
+implement. Leave such a method's `execution_mode` at the default `"sync"`.
+
+Batch-capable providers: `openai`, `anthropic`, `together`, `deepinfra`
+(each client implements `submit_batch`/`poll_batch`/`fetch_batch_results`;
+`gemini`, `groq`, `vllm`, and `openrouter` do not, and `execution_mode:
+batch` against one of them fails at runtime, not at config-load time).
+`deepinfra` exists specifically for this: a DeepInfra-hosted model whose
+synchronous execution goes through `openrouter` with `upstream_provider:
+deepinfra` pinning still needs the direct `deepinfra` client for batch,
+since DeepInfra's Batch API isn't reachable through OpenRouter's proxy.
+Same underlying weights either way.
+
+Batch and synchronous execution return the identical `ModelResponse`
+shape and flow through the identical `run_many_async()` /
+`_build_result_row()` path -- a method's own code never branches on which
+one it's running under, and switching `execution_mode` never changes a
+result row's schema.
+
+Batch execution is resumable across a process restart: the exact set of
+not-yet-cached requests for a call is content-hashed to a small state file
+under `runs/<run_id>/batch_state/<model>/`, so a restart recomputes the
+same hash, finds the existing file, and polls the SAME batch job instead
+of submitting a duplicate one. The state file is cleared once the job
+reaches either terminal outcome (results fetched and cached, or the job
+failed), so a genuinely different request set never collides and a retry
+after a failure submits fresh.
 
 ## Extending the Framework: The Plugin System
 
