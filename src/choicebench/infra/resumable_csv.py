@@ -29,6 +29,12 @@ Either mode can be combined with expected_method_name, which additionally
 refuses to resume if the file contains rows for a different method_name
 -- the "wrong file entirely" case, distinct from legitimate schema
 variation within one correctly-identified file.
+
+Also provides detect_conflicting_ids()/load_completed_ids_excluding_
+conflicts(): a resumable script's own "which ids are already done" check
+must never silently collapse two DISAGREEING rows for the same id into a
+single "completed" verdict (a corrupted/concatenated output file
+symptom) -- see each function's own docstring.
 """
 
 from __future__ import annotations
@@ -83,3 +89,53 @@ def check_resume_compatible(
                 f"but this run is producing {method_name_column}={expected_method_name!r}. "
                 "This looks like the wrong output file -- refusing to mix runs."
             )
+
+
+def detect_conflicting_ids(output_path: Path, *, id_column: str = "question_id") -> set[str]:
+    """Return the set of id_column values that have more than one row in
+    output_path where those rows DON'T all agree (some other field
+    differs) -- a corrupted/concatenated output file symptom, distinct
+    from a harmless exact-duplicate double-write (e.g. two byte-identical
+    rows from a retried write), which is not flagged.
+
+    No-op (empty set) if the file doesn't exist or has no id_column.
+    """
+    if not output_path.exists():
+        return set()
+    existing = pd.read_csv(output_path)
+    if id_column not in existing.columns:
+        return set()
+    existing = existing.copy()
+    existing[id_column] = existing[id_column].astype(str)
+    conflicting: set[str] = set()
+    for qid, group in existing.groupby(id_column):
+        if len(group) < 2:
+            continue
+        distinct_rows = group.drop(columns=[id_column]).drop_duplicates()
+        if len(distinct_rows) > 1:
+            conflicting.add(qid)
+    return conflicting
+
+
+def load_completed_ids_excluding_conflicts(
+        output_path: Path, *, id_column: str = "question_id",
+) -> set[str]:
+    """Safe (never-raises) resume-completeness check: an id_column value
+    with MULTIPLE rows that don't all agree is excluded from the returned
+    "completed" set entirely, rather than silently collapsed into a single
+    verdict for whichever row happened to load first (pandas' own
+    behavior when treating a DataFrame column as a set).
+
+    This function's own contract is "what does the file say is safely
+    completed" -- it never raises. A caller that wants to fail loudly on
+    the same condition (recommended for any resumable run() before it
+    starts skipping "completed" work) should separately call
+    detect_conflicting_ids() and raise on a non-empty result.
+    """
+    if not output_path.exists():
+        return set()
+    existing = pd.read_csv(output_path)
+    if id_column not in existing.columns:
+        return set()
+    ids = set(existing[id_column].astype(str))
+    return ids - detect_conflicting_ids(output_path, id_column=id_column)

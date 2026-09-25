@@ -29,19 +29,18 @@ import pandas as pd
 
 from choicebench.cli.run_experiment import build_backend
 from choicebench.config.schema import load_config
-from choicebench.infra.resumable_csv import check_resume_compatible
+from choicebench.infra.resumable_csv import (
+    check_resume_compatible,
+    detect_conflicting_ids,
+    load_completed_ids_excluding_conflicts,
+)
 from choicebench.methods.library.visible_llm_matcher import VisibleLLMMatcherRunner
 
 METHOD_NAME = "visible_llm_matcher"
 
 
 def _load_completed_question_ids(output_path: Path) -> set[str]:
-    if not output_path.exists():
-        return set()
-    existing = pd.read_csv(output_path)
-    if "question_id" not in existing.columns:
-        return set()
-    return set(existing["question_id"].astype(str))
+    return load_completed_ids_excluding_conflicts(output_path, id_column="question_id")
 
 
 def run(
@@ -65,7 +64,21 @@ def run(
             "column -- expected a saved run_text_extraction_rotations.py result CSV."
         )
 
-    completed_ids = _load_completed_question_ids(output_path) if resume else set()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if resume:
+        conflicting = detect_conflicting_ids(output_path, id_column="question_id")
+        if conflicting:
+            raise ValueError(
+                f"{output_path} has conflicting duplicate rows for question_id(s) "
+                f"{sorted(conflicting)[:5]} -- refusing to resume from a file with "
+                "ambiguous completed-question state. Move or delete the file, or "
+                "manually resolve the conflicting rows, before resuming."
+            )
+        completed_ids = _load_completed_question_ids(output_path)
+    else:
+        completed_ids = set()
+        if output_path.exists():
+            output_path.unlink()  # --no-resume means start fresh, never append duplicate rows
 
     backend = build_backend(model_config, run_id, run_seed=run_seed)
     runner = VisibleLLMMatcherRunner(
@@ -76,7 +89,6 @@ def run(
         max_tokens=model_config.generation_kwargs.max_new_tokens,
     )
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
     file_exists = output_path.exists()
     n_written = 0
 
@@ -88,6 +100,16 @@ def run(
                 continue
 
             per_rotation_text = json.loads(source_row["per_rotation_raw_text_json"])
+            # Stamps the source text_extraction_rotations row's OWN
+            # recorded producer identity, so VisibleLLMMatcherRunner.
+            # _validate_extracted_text_source can catch
+            # --text-extraction-rotations-csv accidentally pointing at the
+            # wrong model/benchmark's saved output -- values already
+            # present on every saved text_extraction row.
+            source_row = dict(source_row)
+            source_row["extracted_text_source_model"] = source_row.get("model_name")
+            source_row["extracted_text_source_benchmark"] = source_row.get("benchmark_name")
+            source_row["extracted_text_source_method"] = source_row.get("method_name")
             result = runner.run_matching_rotations(source_row, per_rotation_text, sample_index)
 
             if writer is None:

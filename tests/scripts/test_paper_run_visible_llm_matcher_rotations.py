@@ -129,6 +129,34 @@ class TestRunVisibleLLMMatcherRotations:
         n_written = mod.run(source2, _DUMMY_MODEL_CONFIG, "test_run", output, run_seed=42)
         assert n_written == 1
 
+    def test_no_resume_against_existing_output_does_not_duplicate_rows(self, tmp_path):
+        source = _text_extraction_rotations_csv(tmp_path, [
+            ("q1", ["HTTPS"] * 4), ("q2", ["FTP"] * 4),
+        ])
+        output = tmp_path / "out.csv"
+
+        mod.run(source, _DUMMY_MODEL_CONFIG, "test_run", output, run_seed=42, resume=True)
+        mod.run(source, _DUMMY_MODEL_CONFIG, "test_run", output, run_seed=42, resume=False)
+
+        result_df = pd.read_csv(output)
+        assert not result_df["question_id"].duplicated().any(), (
+            f"--no-resume duplicated rows: {result_df['question_id'].value_counts().to_dict()}"
+        )
+
+    def test_conflicting_duplicate_rows_in_existing_output_raise_on_resume(self, tmp_path):
+        source = _text_extraction_rotations_csv(tmp_path, [
+            ("q1", ["HTTPS"] * 4), ("q2", ["FTP"] * 4),
+        ])
+        output = tmp_path / "out.csv"
+        conflicting = pd.DataFrame([
+            {"question_id": "q1", "parsed_choice": "A", "method_name": "visible_llm_matcher"},
+            {"question_id": "q1", "parsed_choice": "B", "method_name": "visible_llm_matcher"},
+        ])
+        conflicting.to_csv(output, index=False)
+
+        with pytest.raises(ValueError, match="conflicting"):
+            mod.run(source, _DUMMY_MODEL_CONFIG, "test_run", output, run_seed=42, resume=True)
+
     def test_missing_per_rotation_raw_text_json_column_raises_clear_error(self, tmp_path):
         df = pd.DataFrame([{"question_id": "q1"}])
         path = tmp_path / "bad.csv"

@@ -122,6 +122,30 @@ class TestRunTwoStageRotations:
         n_written = mod.run(source2, _DUMMY_MODEL_CONFIG, "test_run", output, run_seed=42)
         assert n_written == 1  # only q3 was actually new work
 
+    def test_no_resume_against_existing_output_does_not_duplicate_rows(self, tmp_path):
+        source = _two_stage_csv(tmp_path, [("q1", "HTTPS"), ("q2", "FTP")])
+        output = tmp_path / "out.csv"
+
+        mod.run(source, _DUMMY_MODEL_CONFIG, "test_run", output, run_seed=42, resume=True)
+        mod.run(source, _DUMMY_MODEL_CONFIG, "test_run", output, run_seed=42, resume=False)
+
+        result_df = pd.read_csv(output)
+        assert not result_df["question_id"].duplicated().any(), (
+            f"--no-resume duplicated rows: {result_df['question_id'].value_counts().to_dict()}"
+        )
+
+    def test_conflicting_duplicate_rows_in_existing_output_raise_on_resume(self, tmp_path):
+        source = _two_stage_csv(tmp_path, [("q1", "HTTPS"), ("q2", "FTP")])
+        output = tmp_path / "out.csv"
+        conflicting = pd.DataFrame([
+            {"question_id": "q1", "parsed_choice": "A", "method_name": "two_stage"},
+            {"question_id": "q1", "parsed_choice": "B", "method_name": "two_stage"},
+        ])
+        conflicting.to_csv(output, index=False)
+
+        with pytest.raises(ValueError, match="conflicting"):
+            mod.run(source, _DUMMY_MODEL_CONFIG, "test_run", output, run_seed=42, resume=True)
+
     def test_a_schema_mismatched_existing_output_file_raises_clearly(self, tmp_path):
         """A stale output file from an older script version (fewer/
         different columns) must fail loudly, not silently have new-format

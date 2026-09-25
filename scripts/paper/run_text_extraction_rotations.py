@@ -34,19 +34,18 @@ import pandas as pd
 
 from choicebench.cli.run_experiment import build_backend
 from choicebench.config.schema import load_config
-from choicebench.infra.resumable_csv import check_resume_compatible
+from choicebench.infra.resumable_csv import (
+    check_resume_compatible,
+    detect_conflicting_ids,
+    load_completed_ids_excluding_conflicts,
+)
 from choicebench.methods.library.text_extraction import TextExtractionRunner
 
 METHOD_NAME = "text_extraction"
 
 
 def _load_completed_question_ids(output_path: Path) -> set[str]:
-    if not output_path.exists():
-        return set()
-    existing = pd.read_csv(output_path)
-    if "question_id" not in existing.columns:
-        return set()
-    return set(existing["question_id"].astype(str))
+    return load_completed_ids_excluding_conflicts(output_path, id_column="question_id")
 
 
 def _write_results(results: list[dict], output_path: Path, file_exists: bool) -> int:
@@ -104,7 +103,27 @@ def run(
             "exported benchmark questions CSV."
         )
 
-    completed_ids = _load_completed_question_ids(output_path) if resume else set()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if resume:
+        # Fail loudly BEFORE silently deciding which questions are "already
+        # completed" -- a question_id with disagreeing rows (a corrupted/
+        # concatenated output file) must never have one of those rows
+        # arbitrarily treated as authoritative.
+        conflicting = detect_conflicting_ids(output_path, id_column="question_id")
+        if conflicting:
+            raise ValueError(
+                f"{output_path} has conflicting duplicate rows for question_id(s) "
+                f"{sorted(conflicting)[:5]} -- refusing to resume from a file with "
+                "ambiguous completed-question state. Move or delete the file, or "
+                "manually resolve the conflicting rows, before resuming."
+            )
+        completed_ids = _load_completed_question_ids(output_path)
+    else:
+        completed_ids = set()
+        if output_path.exists():
+            # --no-resume means start fresh -- never append scientifically
+            # duplicate rows onto a stale/existing output.
+            output_path.unlink()
     completed_mask = source_df["question_id"].astype(str).isin(completed_ids)
     pending_df = source_df[~completed_mask].reset_index(drop=True)
 
@@ -117,7 +136,6 @@ def run(
         max_tokens=model_config.generation_kwargs.max_new_tokens,
     )
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
     file_exists = output_path.exists()
 
     if len(pending_df) == 0:

@@ -3,7 +3,11 @@
 import pandas as pd
 import pytest
 
-from choicebench.infra.resumable_csv import check_resume_compatible
+from choicebench.infra.resumable_csv import (
+    check_resume_compatible,
+    detect_conflicting_ids,
+    load_completed_ids_excluding_conflicts,
+)
 
 
 def _write(path, rows):
@@ -94,3 +98,71 @@ class TestMethodNameIdentityCheck:
         path = tmp_path / "out.csv"
         _write(path, [{"question_id": "q1", "method_name": "anything"}])
         check_resume_compatible(path, required_columns=["question_id"])
+
+
+class TestDetectConflictingIds:
+    def test_no_conflict_for_a_single_row_per_id(self, tmp_path):
+        path = tmp_path / "out.csv"
+        _write(path, [{"question_id": "q1", "parsed_choice": "A"}, {"question_id": "q2", "parsed_choice": "B"}])
+        assert detect_conflicting_ids(path) == set()
+
+    def test_no_conflict_for_exact_duplicate_rows(self, tmp_path):
+        """Byte-identical duplicate rows (e.g. a harmless retried write)
+        are NOT a conflict -- only disagreeing content is."""
+        path = tmp_path / "out.csv"
+        _write(path, [{"question_id": "q1", "parsed_choice": "A"}, {"question_id": "q1", "parsed_choice": "A"}])
+        assert detect_conflicting_ids(path) == set()
+
+    def test_conflict_when_rows_disagree(self, tmp_path):
+        path = tmp_path / "out.csv"
+        _write(path, [{"question_id": "q1", "parsed_choice": "A"}, {"question_id": "q1", "parsed_choice": "B"}])
+        assert detect_conflicting_ids(path) == {"q1"}
+
+    def test_only_the_conflicting_id_is_returned_not_the_whole_file(self, tmp_path):
+        path = tmp_path / "out.csv"
+        _write(path, [
+            {"question_id": "q1", "parsed_choice": "A"}, {"question_id": "q1", "parsed_choice": "B"},
+            {"question_id": "q2", "parsed_choice": "C"},
+        ])
+        assert detect_conflicting_ids(path) == {"q1"}
+
+    def test_no_op_when_file_missing(self, tmp_path):
+        assert detect_conflicting_ids(tmp_path / "missing.csv") == set()
+
+    def test_no_op_when_id_column_absent(self, tmp_path):
+        path = tmp_path / "out.csv"
+        _write(path, [{"other_col": "x"}])
+        assert detect_conflicting_ids(path) == set()
+
+    def test_custom_id_column(self, tmp_path):
+        path = tmp_path / "out.csv"
+        _write(path, [{"qid": "q1", "v": "A"}, {"qid": "q1", "v": "B"}])
+        assert detect_conflicting_ids(path, id_column="qid") == {"q1"}
+
+
+class TestLoadCompletedIdsExcludingConflicts:
+    def test_returns_all_ids_when_no_conflicts(self, tmp_path):
+        path = tmp_path / "out.csv"
+        _write(path, [{"question_id": "q1", "parsed_choice": "A"}, {"question_id": "q2", "parsed_choice": "B"}])
+        assert load_completed_ids_excluding_conflicts(path) == {"q1", "q2"}
+
+    def test_excludes_only_the_conflicting_id(self, tmp_path):
+        path = tmp_path / "out.csv"
+        _write(path, [
+            {"question_id": "q1", "parsed_choice": "A"}, {"question_id": "q1", "parsed_choice": "B"},
+            {"question_id": "q2", "parsed_choice": "C"},
+        ])
+        assert load_completed_ids_excluding_conflicts(path) == {"q2"}
+
+    def test_exact_duplicate_rows_still_count_as_completed(self, tmp_path):
+        path = tmp_path / "out.csv"
+        _write(path, [{"question_id": "q1", "parsed_choice": "A"}, {"question_id": "q1", "parsed_choice": "A"}])
+        assert load_completed_ids_excluding_conflicts(path) == {"q1"}
+
+    def test_no_op_when_file_missing(self, tmp_path):
+        assert load_completed_ids_excluding_conflicts(tmp_path / "missing.csv") == set()
+
+    def test_no_op_when_id_column_absent(self, tmp_path):
+        path = tmp_path / "out.csv"
+        _write(path, [{"other_col": "x"}])
+        assert load_completed_ids_excluding_conflicts(path) == set()

@@ -100,6 +100,38 @@ class TestRunTextExtractionRotations:
         n_written = mod.run(source2, _DUMMY_MODEL_CONFIG, "test_run", output, run_seed=42)
         assert n_written == 1
 
+    def test_no_resume_against_existing_output_does_not_duplicate_rows(self, tmp_path):
+        """Confirmed conformance gap: --no-resume previously appended fresh
+        rows onto a pre-existing output without truncating it first,
+        producing scientifically duplicate rows for the same questions."""
+        source = _questions_csv(tmp_path, ["q1", "q2"])
+        output = tmp_path / "out.csv"
+
+        mod.run(source, _DUMMY_MODEL_CONFIG, "test_run", output, run_seed=42, resume=True)
+        mod.run(source, _DUMMY_MODEL_CONFIG, "test_run", output, run_seed=42, resume=False)
+
+        result_df = pd.read_csv(output)
+        assert not result_df["question_id"].duplicated().any(), (
+            f"--no-resume duplicated rows: {result_df['question_id'].value_counts().to_dict()}"
+        )
+        assert sorted(result_df["question_id"]) == ["q1", "q2"]
+
+    def test_conflicting_duplicate_rows_in_existing_output_raise_on_resume(self, tmp_path):
+        """Confirmed conformance gap: a corrupted/concatenated output file
+        with two disagreeing rows for the same question_id was silently
+        treated as "already completed" rather than surfaced as a
+        conflict."""
+        source = _questions_csv(tmp_path, ["q1", "q2"])
+        output = tmp_path / "out.csv"
+        conflicting = pd.DataFrame([
+            {"question_id": "q1", "parsed_choice": "A", "method_name": "text_extraction"},
+            {"question_id": "q1", "parsed_choice": "B", "method_name": "text_extraction"},
+        ])
+        conflicting.to_csv(output, index=False)
+
+        with pytest.raises(ValueError, match="conflicting"):
+            mod.run(source, _DUMMY_MODEL_CONFIG, "test_run", output, run_seed=42, resume=True)
+
     def test_missing_question_text_column_raises_clear_error(self, tmp_path):
         df = pd.DataFrame([{"question_id": "q1"}])
         path = tmp_path / "bad.csv"

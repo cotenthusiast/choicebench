@@ -104,16 +104,39 @@ class TestRunVisibleLLMMatcher:
         assert n_written == 1  # only q3 was actually new work
 
     def test_no_resume_flag_reprocesses_everything(self, tmp_path):
+        """Corrected 2026-09-25 (confirmed conformance gap): --no-resume is
+        a "start fresh" escape hatch -- it must truncate any pre-existing
+        output first, never append scientifically duplicate rows onto it."""
         source = _text_extraction_csv(tmp_path, [("q1", "HTTPS")])
         output = tmp_path / "out.csv"
         mod.run(source, _DUMMY_MODEL_CONFIG, "test_run", output, run_seed=42)
         n_second = mod.run(source, _DUMMY_MODEL_CONFIG, "test_run", output, run_seed=42, resume=False)
         assert n_second == 1
-        # Non-resumed run appends again -- this is a deliberate "start over"
-        # escape hatch, not the default path, so duplicate rows here are
-        # expected/intentional, not a bug.
         result_df = pd.read_csv(output)
-        assert len(result_df) == 2
+        assert len(result_df) == 1
+        assert not result_df["question_id"].duplicated().any()
+
+    def test_no_resume_against_existing_output_with_multiple_questions_does_not_duplicate(self, tmp_path):
+        source = _text_extraction_csv(tmp_path, [("q1", "HTTPS"), ("q2", "FTP")])
+        output = tmp_path / "out.csv"
+        mod.run(source, _DUMMY_MODEL_CONFIG, "test_run", output, run_seed=42, resume=True)
+        mod.run(source, _DUMMY_MODEL_CONFIG, "test_run", output, run_seed=42, resume=False)
+        result_df = pd.read_csv(output)
+        assert not result_df["question_id"].duplicated().any(), (
+            f"--no-resume duplicated rows: {result_df['question_id'].value_counts().to_dict()}"
+        )
+
+    def test_conflicting_duplicate_rows_in_existing_output_raise_on_resume(self, tmp_path):
+        source = _text_extraction_csv(tmp_path, [("q1", "HTTPS"), ("q2", "FTP")])
+        output = tmp_path / "out.csv"
+        conflicting = pd.DataFrame([
+            {"question_id": "q1", "parsed_choice": "A", "method_name": "visible_llm_matcher"},
+            {"question_id": "q1", "parsed_choice": "B", "method_name": "visible_llm_matcher"},
+        ])
+        conflicting.to_csv(output, index=False)
+
+        with pytest.raises(ValueError, match="conflicting"):
+            mod.run(source, _DUMMY_MODEL_CONFIG, "test_run", output, run_seed=42, resume=True)
 
     def test_missing_raw_text_column_raises_clear_error(self, tmp_path):
         df = pd.DataFrame([{"question_id": "q1"}])
@@ -121,6 +144,19 @@ class TestRunVisibleLLMMatcher:
         df.to_csv(path, index=False)
         with pytest.raises(ValueError, match="raw_text"):
             mod.run(path, _DUMMY_MODEL_CONFIG, "test_run", tmp_path / "out.csv", run_seed=42)
+
+    def test_wrong_model_text_extraction_csv_is_rejected(self, tmp_path):
+        """--text-extraction-csv accidentally pointing at a DIFFERENT
+        model's saved output (a real, plausible operational mistake) must
+        be rejected, not silently mixed in as this run's Stage 1."""
+        source = _text_extraction_csv(tmp_path, [("q1", "HTTPS")])
+        df = pd.read_csv(source)
+        df["model_name"] = "some-other-model-entirely"  # not "dummy-model"
+        df.to_csv(source, index=False)
+        output = tmp_path / "out.csv"
+
+        with pytest.raises(ValueError, match="extracted_text_source_model"):
+            mod.run(source, _DUMMY_MODEL_CONFIG, "test_run", output, run_seed=42)
 
     def test_a_schema_mismatched_existing_output_file_raises_clearly(self, tmp_path):
         """A stale output file from an older script version (fewer/

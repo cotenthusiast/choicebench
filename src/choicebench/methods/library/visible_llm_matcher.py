@@ -46,6 +46,7 @@ class VisibleLLMMatcherRunner(ExperimentRunner):
                 "(text_extraction's reused Stage-1 output) -- join it in upstream "
                 "before this method runs; this runner never re-issues that call."
             )
+        self._validate_extracted_text_source(question_row)
         extracted_text = question_row["extracted_text"]
 
         prompt = self._build_prompt(question_row, extracted_text)
@@ -100,6 +101,16 @@ class VisibleLLMMatcherRunner(ExperimentRunner):
         canonical_options = self._build_options(question_row)
         canonical_letters = list(canonical_options.keys())
         rotations = build_rotations(canonical_options)
+
+        if len(per_rotation_extracted_text) != len(rotations):
+            raise ValueError(
+                "VisibleLLMMatcherRunner.run_matching_rotations: expected "
+                f"{len(rotations)} per_rotation_extracted_text entries (one per "
+                f"rotation, matching this question's {len(rotations)} options), "
+                f"got {len(per_rotation_extracted_text)} -- refusing to silently "
+                "zip/truncate a mismatched trace."
+            )
+        self._validate_extracted_text_source(question_row)
 
         canonical_choices: list[str | None] = []
         representative_prompt: str | None = None
@@ -159,6 +170,43 @@ class VisibleLLMMatcherRunner(ExperimentRunner):
         )
         row["per_rotation_choices_json"] = json.dumps(canonical_choices)
         return row
+
+    def _validate_extracted_text_source(self, question_row: Any) -> None:
+        """Reject a reused extracted_text whose own recorded producer
+        (model/benchmark/method) doesn't match this run -- cross-model or
+        cross-condition artifacts must never silently mix. All three
+        fields are OPTIONAL (additive, versioned convention): a
+        question_row without them is unvalidated exactly as before this
+        existed, since a real production join predating this field never
+        populated it -- see run_visible_llm_matcher.py/
+        run_visible_llm_matcher_rotations.py, which now stamp it (see their
+        own headers).
+        """
+        source_model = question_row.get("extracted_text_source_model")
+        if source_model is not None:
+            expected_model = self.model_label or self.backend.model_name
+            if str(source_model) != str(expected_model):
+                raise ValueError(
+                    "VisibleLLMMatcherRunner: question_row['extracted_text_source_model']="
+                    f"{source_model!r} does not match this run's own model "
+                    f"{expected_model!r} -- refusing to reuse a different model's "
+                    "extracted_text as this run's Stage 1."
+                )
+        source_benchmark = question_row.get("extracted_text_source_benchmark")
+        if source_benchmark is not None and str(source_benchmark) != str(self.benchmark_name):
+            raise ValueError(
+                "VisibleLLMMatcherRunner: question_row['extracted_text_source_benchmark']="
+                f"{source_benchmark!r} does not match this run's own benchmark "
+                f"{self.benchmark_name!r} -- refusing to reuse a different "
+                "benchmark's extracted_text as this run's Stage 1."
+            )
+        source_method = question_row.get("extracted_text_source_method")
+        if source_method is not None and str(source_method) != "text_extraction":
+            raise ValueError(
+                "VisibleLLMMatcherRunner: question_row['extracted_text_source_method']="
+                f"{source_method!r} -- extracted_text must come from a "
+                "text_extraction run, refusing to reuse a different method's output."
+            )
 
     def _build_prompt(self, question_row: Any, extracted_text: str) -> str:
         return build_option_matching_prompt(

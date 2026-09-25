@@ -747,3 +747,79 @@ class TestRunStochasticityExecutionModePolicy:
             mod._validate_execution_mode("two_stage", "batch")
         with pytest.raises(ValueError, match="execution_mode"):
             mod._validate_execution_mode("reasoning_two_stage", "batch")
+
+
+class TestStochasticityResumeSafety:
+    """Confirmed conformance gaps, applied here per "apply to analogous
+    paper scripts, not only the one named by the test": --no-resume
+    against an existing output must not duplicate rows, and conflicting
+    duplicate (question_id, repetition_index) rows in an existing output
+    must fail loudly on resume rather than being silently collapsed."""
+
+    def test_no_resume_against_existing_output_does_not_duplicate_rows(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(mod, "build_backend", lambda *a, **k: _FakeAsyncBackend())
+        source = _questions_csv(tmp_path, ["q1", "q2"])
+        output = tmp_path / "out.csv"
+        canonical = _canonical_obs0_csv(tmp_path, [
+            {"question_id": "q1", "method_name": "direct_mcq", "parsed_choice": "C", "is_correct": True},
+            {"question_id": "q2", "method_name": "direct_mcq", "parsed_choice": "A", "is_correct": False},
+        ])
+
+        mod.run(
+            source, _MODEL_CONFIG, "test_run", output, method_name="direct_mcq",
+            prompt_version="v1", canonical_obs0_csv=canonical, n_repetitions=2, run_seed=42, resume=True,
+        )
+        mod.run(
+            source, _MODEL_CONFIG, "test_run", output, method_name="direct_mcq",
+            prompt_version="v1", canonical_obs0_csv=canonical, n_repetitions=2, run_seed=42, resume=False,
+        )
+
+        result_df = pd.read_csv(output)
+        pairs = list(zip(result_df["question_id"], result_df["repetition_index"]))
+        assert len(pairs) == len(set(pairs)), f"--no-resume duplicated (question_id, repetition_index) pairs: {pairs}"
+
+    def test_conflicting_duplicate_pairs_in_existing_output_raise_on_resume(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(mod, "build_backend", lambda *a, **k: _FakeAsyncBackend())
+        source = _questions_csv(tmp_path, ["q1"])
+        output = tmp_path / "out.csv"
+        canonical = _canonical_obs0_csv(tmp_path, [
+            {"question_id": "q1", "method_name": "direct_mcq", "parsed_choice": "C", "is_correct": True},
+        ])
+        conflicting = pd.DataFrame([
+            {"question_id": "q1", "repetition_index": 0, "method_name": "direct_mcq", "parsed_choice": "A"},
+            {"question_id": "q1", "repetition_index": 0, "method_name": "direct_mcq", "parsed_choice": "B"},
+        ])
+        conflicting.to_csv(output, index=False)
+
+        with pytest.raises(ValueError, match="conflicting"):
+            mod.run(
+                source, _MODEL_CONFIG, "test_run", output, method_name="direct_mcq",
+                prompt_version="v1", canonical_obs0_csv=canonical, n_repetitions=1, run_seed=42, resume=True,
+            )
+
+    def test_exact_duplicate_pairs_do_not_raise_and_still_count_as_completed(self, tmp_path, monkeypatch):
+        """Byte-identical duplicate rows for the same pair (a harmless
+        retried write) are not a conflict -- must not raise, and the pair
+        must still be treated as completed (no fresh call for it)."""
+        backend = _FakeAsyncBackend()
+        monkeypatch.setattr(mod, "build_backend", lambda *a, **k: backend)
+        source = _questions_csv(tmp_path, ["q1"])
+        output = tmp_path / "out.csv"
+        canonical = _canonical_obs0_csv(tmp_path, [
+            {"question_id": "q1", "method_name": "direct_mcq", "parsed_choice": "C", "is_correct": True},
+        ])
+        exact_dup = pd.DataFrame([
+            {"question_id": "q1", "repetition_index": 1, "method_name": "direct_mcq", "parsed_choice": "A"},
+            {"question_id": "q1", "repetition_index": 1, "method_name": "direct_mcq", "parsed_choice": "A"},
+        ])
+        exact_dup.to_csv(output, index=False)
+
+        n_written = mod.run(
+            source, _MODEL_CONFIG, "test_run", output, method_name="direct_mcq",
+            prompt_version="v1", canonical_obs0_csv=canonical, n_repetitions=2, run_seed=42, resume=True,
+        )
+        # Only obs0 was still pending (rep 1 already "completed") -- no
+        # fresh call needed for either, since obs0 is reused and rep1
+        # exact-duplicate pair is treated as done.
+        assert n_written == 1
+        assert backend.generate_batch_calls == []

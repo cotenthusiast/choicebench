@@ -119,3 +119,110 @@ class TestDerivedRotationTrace:
         derived = derive_matched_results(df, method_name="semantic_matching_v1", embed_fn=_no_match_embed_fn)
         per_rotation = json.loads(derived.iloc[0]["per_rotation_choices_json"])
         assert len(per_rotation) == 3
+
+
+class TestNormalizedTextIsPersisted:
+    """Confirmed conformance gap: normalized_text was never assigned into
+    the derived row at all -- dict(row) silently left a real source row's
+    own (stale, unrelated) normalized_text in place, or left the key
+    missing entirely for a source row that didn't have one."""
+
+    def test_matched_free_text_normalized_text_is_this_derivations_own_value(self):
+        df = pd.DataFrame([_source_row(free_text_response="HTTPS", normalized_text="STALE STAGE-2 VALUE")])
+        derived = derive_matched_results(df, method_name="semantic_matching_v1", embed_fn=_no_match_embed_fn)
+        assert derived.iloc[0]["normalized_text"] == "HTTPS"
+
+    def test_unmatched_free_text_normalized_text_is_still_the_free_text(self):
+        df = pd.DataFrame([_source_row(free_text_response="gibberish unrelated text")])
+        derived = derive_matched_results(df, method_name="semantic_matching_v1", embed_fn=_no_match_embed_fn)
+        assert derived.iloc[0]["normalized_text"] == "gibberish unrelated text"
+
+
+class TestNanFreeTextHandling:
+    """Confirmed conformance gap: a pandas NaN (float('nan'), the real
+    shape an empty CSV cell round-trips to -- not Python None, not the
+    string "nan") is "not None", so the old str(free_text) check produced
+    the literal string "nan" -- or, before that string ever got used,
+    crashed inside the matcher (str(nan).strip() != "" is True, so the
+    RAW nan float, never stringified, got passed into match_text_to_options,
+    which called .strip() directly on it)."""
+
+    def test_nan_free_text_does_not_crash(self):
+        df = pd.DataFrame([_source_row(free_text_response=float("nan"))])
+        derived = derive_matched_results(df, method_name="semantic_matching_v1", embed_fn=_no_match_embed_fn)
+        assert derived.iloc[0]["parsed_choice"] is None
+
+    def test_nan_free_text_normalized_text_is_none_not_the_string_nan(self):
+        df = pd.DataFrame([_source_row(free_text_response=float("nan"))])
+        derived = derive_matched_results(df, method_name="semantic_matching_v1", embed_fn=_no_match_embed_fn)
+        assert derived.iloc[0]["normalized_text"] is None
+        assert derived.iloc[0]["normalized_text"] != "nan"
+
+    def test_real_csv_round_tripped_empty_cell_does_not_crash(self):
+        """The exact real-world shape: an empty free_text_response CSV
+        cell reloads as a numpy.float64 NaN, not Python None."""
+        import tempfile
+        from pathlib import Path
+
+        df = pd.DataFrame([_source_row(free_text_response="placeholder")])
+        with tempfile.TemporaryDirectory() as tmpdir:
+            csv_path = Path(tmpdir) / "source.csv"
+            df.to_csv(csv_path, index=False)
+            reloaded = pd.read_csv(csv_path)
+            reloaded.loc[0, "free_text_response"] = float("nan")
+            reloaded.to_csv(csv_path, index=False)
+            nan_df = pd.read_csv(csv_path)
+
+        derived = derive_matched_results(nan_df, method_name="semantic_matching_v1", embed_fn=_no_match_embed_fn)
+        assert derived.iloc[0]["parsed_choice"] is None
+        assert derived.iloc[0]["normalized_text"] != "nan"
+
+
+class TestSourceIdentityValidation:
+    """Confirmed conformance gap: no source-identity validation existed at
+    all -- any DataFrame with a free_text_response column was accepted
+    regardless of which method/model/benchmark actually produced it."""
+
+    def test_wrong_source_method_is_rejected(self):
+        df = pd.DataFrame([_source_row(method_name="totally_unrelated_method")])
+        with pytest.raises(ValueError, match="method_name"):
+            derive_matched_results(df, method_name="semantic_matching_v1", embed_fn=_no_match_embed_fn)
+
+    def test_reasoning_two_stage_source_is_rejected(self):
+        """reasoning_two_stage also produces a free_text_response, but is a
+        scientifically different condition (different prompt content) from
+        two_stage -- semantic_matching_v1 must not derive from it."""
+        df = pd.DataFrame([_source_row(method_name="reasoning_two_stage")])
+        with pytest.raises(ValueError, match="method_name"):
+            derive_matched_results(df, method_name="semantic_matching_v1", embed_fn=_no_match_embed_fn)
+
+    def test_two_stage_registry_key_is_accepted(self):
+        df = pd.DataFrame([_source_row(method_name="two_stage")])
+        derive_matched_results(df, method_name="semantic_matching_v1", embed_fn=_no_match_embed_fn)  # must not raise
+
+    def test_two_stage_v1_historical_name_is_accepted_for_backward_compatibility(self):
+        df = pd.DataFrame([_source_row(method_name="two_stage_v1")])
+        derive_matched_results(df, method_name="semantic_matching_v1", embed_fn=_no_match_embed_fn)  # must not raise
+
+    def test_mixed_model_name_in_one_source_df_is_rejected(self):
+        df = pd.DataFrame([
+            _source_row(question_id="q1", model_name="gpt-4.1-mini"),
+            _source_row(question_id="q2", model_name="claude-haiku-4-5"),
+        ])
+        with pytest.raises(ValueError, match="model_name"):
+            derive_matched_results(df, method_name="semantic_matching_v1", embed_fn=_no_match_embed_fn)
+
+    def test_mixed_benchmark_name_in_one_source_df_is_rejected(self):
+        df = pd.DataFrame([
+            _source_row(question_id="q1", benchmark_name="mmlu"),
+            _source_row(question_id="q2", benchmark_name="arc_challenge"),
+        ])
+        with pytest.raises(ValueError, match="benchmark_name"):
+            derive_matched_results(df, method_name="semantic_matching_v1", embed_fn=_no_match_embed_fn)
+
+    def test_unvalidated_derived_method_name_is_not_restricted(self):
+        """Only semantic_matching_v1 has a registered valid-source set --
+        an unrecognized output method_name must not be newly restricted,
+        preserving prior behavior for any other/future caller."""
+        df = pd.DataFrame([_source_row(method_name="totally_unrelated_method")])
+        derive_matched_results(df, method_name="some_other_derived_method", embed_fn=_no_match_embed_fn)  # must not raise

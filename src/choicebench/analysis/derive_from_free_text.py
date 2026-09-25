@@ -28,14 +28,69 @@ from choicebench.scoring.text_matcher import EmbedFn, default_embed_fn, match_te
 
 _REQUIRED_SOURCE_COLUMN = "free_text_response"
 
+# semantic_matching_v1 derives from two_stage's own saved Stage-1 free-text
+# output -- "two_stage" is the METHOD_REGISTRY key production rows are
+# stamped with; "two_stage_v1" (the paper's published name for the same
+# method) is accepted too, for backward compatibility with historical/v1-
+# era saved artifacts that used it as the stamped method_name. Any other
+# source method_name (e.g. reasoning_two_stage -- a scientifically
+# different condition, different prompt content, despite also producing a
+# free_text_response) is rejected.
+_VALID_SOURCE_METHODS_BY_DERIVED_METHOD: dict[str, frozenset[str]] = {
+    "semantic_matching_v1": frozenset({"two_stage", "two_stage_v1"}),
+}
+
+
+def _validate_source_identity(source_df: pd.DataFrame, method_name: str) -> None:
+    """Refuse to derive from a source artifact whose own identity doesn't
+    match what this derivation is defined over -- wrong producing method,
+    or an internally heterogeneous (mixed-model/mixed-benchmark) source_df.
+    Only method_name is validated against a known-valid set (only
+    semantic_matching_v1 has one registered); model_name/benchmark_name are
+    checked for internal consistency only, since there's no external
+    "expected" value to compare them against here. No-ops (as before) for
+    any source_df/method_name this doesn't have enough information to
+    validate -- never a NEW false rejection of previously-accepted input.
+    """
+    valid_methods = _VALID_SOURCE_METHODS_BY_DERIVED_METHOD.get(method_name)
+    if valid_methods is not None and "method_name" in source_df.columns:
+        actual_methods = set(source_df["method_name"].astype(str).unique())
+        invalid = actual_methods - valid_methods
+        if invalid:
+            raise ValueError(
+                f"derive_matched_results: source_df contains method_name="
+                f"{sorted(invalid)}, but {method_name!r} may only be derived "
+                f"from {sorted(valid_methods)} -- refusing to derive from an "
+                "unrelated source method."
+            )
+    for column in ("model_name", "benchmark_name"):
+        if column not in source_df.columns:
+            continue
+        distinct = sorted(source_df[column].dropna().astype(str).unique())
+        if len(distinct) > 1:
+            raise ValueError(
+                f"derive_matched_results: source_df mixes multiple {column} "
+                f"values {distinct} -- refusing to derive from a "
+                "heterogeneous/mixed-source artifact."
+            )
+
 
 def _derive_one_row(row: dict[str, Any], *, method_name: str, embed_fn: EmbedFn) -> dict[str, Any]:
     free_text = row.get(_REQUIRED_SOURCE_COLUMN)
+    # A pandas NaN (float('nan'), read back from an empty CSV cell) is
+    # "not None" but must still be treated as missing -- str(float('nan'))
+    # is the literal string "nan", non-empty, which would otherwise both
+    # get fed into the matcher as if it were genuine model text AND get
+    # persisted as normalized_text="nan", indistinguishable from a real
+    # (if oddly-worded) answer.
+    is_missing_free_text = free_text is None or (
+        isinstance(free_text, float) and pd.isna(free_text)
+    )
     options = build_option_map(row)
     label_to_source_index = build_label_to_source_index(row)
 
     matched_letter = None
-    if free_text is not None and str(free_text).strip() != "":
+    if not is_missing_free_text and str(free_text).strip() != "":
         matched_letter = match_text_to_options(
             free_text, options,
             embed_fn=embed_fn,
@@ -48,7 +103,7 @@ def _derive_one_row(row: dict[str, Any], *, method_name: str, embed_fn: EmbedFn)
         final_choice=matched_letter,
         status=PARSE_OK if matched_letter is not None else PARSE_MISSING,
         raw_text=free_text,
-        normalized_text=str(free_text) if free_text is not None else None,
+        normalized_text=None if is_missing_free_text else str(free_text),
         reason="derived_text_matcher_cascade",
     )
     scored = score_prediction(parsed, row.get("correct_option"))
@@ -60,6 +115,11 @@ def _derive_one_row(row: dict[str, Any], *, method_name: str, embed_fn: EmbedFn)
     derived["parsed_choice"] = parsed.final_choice
     derived["parse_status"] = parsed.status
     derived["parse_reason"] = parsed.reason
+    # Previously never assigned here at all -- for a source row that
+    # already carried its OWN normalized_text (e.g. a real two_stage row's
+    # own stage-2 field), dict(row) would silently leave that stale,
+    # unrelated value in place instead of this derivation's own.
+    derived["normalized_text"] = parsed.normalized_text
     derived["is_correct"] = scored.is_correct
     derived["score_status"] = scored.status
     # Text-matching cascade is a pure function of option TEXT content -- it
@@ -99,13 +159,18 @@ def derive_matched_results(
         parse_reason/is_correct/score_status overwritten by the derivation.
 
     Raises:
-        ValueError: if source_df lacks a free_text_response column.
+        ValueError: if source_df lacks a free_text_response column, was
+            produced by a method_name not valid as this derivation's source
+            (only checked for method_name values with a registered valid
+            set -- currently semantic_matching_v1), or mixes multiple
+            model_name/benchmark_name values in one source_df.
     """
     if _REQUIRED_SOURCE_COLUMN not in source_df.columns:
         raise ValueError(
             f"derive_matched_results requires a {_REQUIRED_SOURCE_COLUMN!r} column "
             f"in source_df; got columns {list(source_df.columns)}."
         )
+    _validate_source_identity(source_df, method_name)
     effective_embed_fn = embed_fn or default_embed_fn
     rows = source_df.to_dict(orient="records")
     derived_rows = [

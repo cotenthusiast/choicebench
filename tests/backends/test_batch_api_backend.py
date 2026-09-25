@@ -30,11 +30,12 @@ class _FakeBatchClient:
     request payload so fetch_batch_results can answer regardless of the
     (arbitrary, provider-realistic) order requests are passed in."""
 
-    def __init__(self, poll_sequence, result_by_payload):
+    def __init__(self, poll_sequence, result_by_payload, result_count_delta: int = 0):
         self.provider = "fake"
         self.model_name = "fake-model"
         self._poll_sequence = list(poll_sequence)
         self._result_by_payload = result_by_payload
+        self._result_count_delta = result_count_delta
         self.submit_batch_calls: list[list[ModelRequest]] = []
         self.poll_batch_calls: list[str] = []
         self.fetch_batch_results_calls: list[str] = []
@@ -52,13 +53,18 @@ class _FakeBatchClient:
 
     async def fetch_batch_results(self, batch_id: str, requests: list[ModelRequest]) -> list[ModelResponse]:
         self.fetch_batch_results_calls.append(batch_id)
-        return [
+        results = [
             ModelResponse(
                 provider=req.provider, model_name=req.model_name, status=SUCCESS_STATUS,
                 latency_seconds=0.0, raw_text=self._result_by_payload[req.payload],
             )
             for req in requests
         ]
+        if self._result_count_delta < 0:
+            results = results[: len(results) + self._result_count_delta]
+        elif self._result_count_delta > 0 and results:
+            results = results + [results[-1]] * self._result_count_delta
+        return results
 
 
 async def _noop_sleep(_seconds: float) -> None:
@@ -189,6 +195,50 @@ class TestGenerateBatchResumability:
         assert list(state_dir.glob("*.json")) == []
 
 
+class TestGenerateBatchResultCardinality:
+    """Confirmed conformance gap: fetch_batch_results()'s return value had
+    no length check before being zipped onto uncached_indices -- a client
+    returning fewer results than requested silently truncated (the missing
+    slots stayed None) instead of raising."""
+
+    @pytest.mark.asyncio
+    async def test_fewer_results_than_requests_raises(self, tmp_path):
+        client = _FakeBatchClient(
+            poll_sequence=[BATCH_COMPLETED],
+            result_by_payload={"q1": "A", "q2": "B", "q3": "C"},
+            result_count_delta=-1,  # one fewer result than requested
+        )
+        backend = _make_backend(tmp_path, client)
+
+        with pytest.raises(RuntimeError, match="3 request"):
+            await backend.generate_batch(["q1", "q2", "q3"])
+
+    @pytest.mark.asyncio
+    async def test_more_results_than_requests_also_raises(self, tmp_path):
+        client = _FakeBatchClient(
+            poll_sequence=[BATCH_COMPLETED],
+            result_by_payload={"q1": "A", "q2": "B"},
+            result_count_delta=1,
+        )
+        backend = _make_backend(tmp_path, client)
+
+        with pytest.raises(RuntimeError):
+            await backend.generate_batch(["q1", "q2"])
+
+    @pytest.mark.asyncio
+    async def test_exact_matching_count_still_works(self, tmp_path):
+        """Regression guard: the cardinality check itself must not reject
+        a correctly-sized result set."""
+        client = _FakeBatchClient(
+            poll_sequence=[BATCH_COMPLETED],
+            result_by_payload={"q1": "A", "q2": "B"},
+        )
+        backend = _make_backend(tmp_path, client)
+
+        results = await backend.generate_batch(["q1", "q2"])
+        assert [r.raw_text for r in results] == ["A", "B"]
+
+
 class TestGenerateBatchFailure:
     @pytest.mark.asyncio
     async def test_a_failed_batch_job_produces_a_failure_response_per_request(self, tmp_path):
@@ -264,3 +314,42 @@ class TestGenerateBatchUpstreamProviderIdentity:
         # see the deepinfra-pinned response as a cache hit.
         assert len(together_client.submit_batch_calls) == 1
         assert results[0].raw_text == "B"
+
+    @pytest.mark.asyncio
+    async def test_different_upstream_pinning_never_shares_a_batch_state_path(self, tmp_path):
+        """Confirmed conformance gap: _batch_state_path() called _cache_key
+        with NO extra_identity at all -- unlike generate_batch()'s own
+        response-cache lookups. Two differently-pinned clients would
+        compute the IDENTICAL state path, so a restart could poll/resume
+        the WRONG pinned deployment's in-flight batch job."""
+        state_dir = tmp_path / "batch_state"
+
+        deepinfra_client = _FakePinnedBatchClient(
+            poll_sequence=[BATCH_IN_PROGRESS], result_by_payload={},
+            upstream_provider="deepinfra",
+        )
+        deepinfra_backend = BatchAPIBackend(
+            provider="openrouter", model_name="meta-llama/llama-3.1-8b-instruct",
+            client=deepinfra_client, cache_dir=tmp_path / "cache_a", temperature=0.0, max_tokens=16,
+            seed=None, batch_state_dir=state_dir,
+            poll_interval_seconds=0.0, sleep_fn=_noop_sleep,
+        )
+        deepinfra_path = deepinfra_backend._batch_state_path(
+            [deepinfra_backend._make_request("q1")]
+        )
+
+        together_client = _FakePinnedBatchClient(
+            poll_sequence=[BATCH_IN_PROGRESS], result_by_payload={},
+            upstream_provider="together",
+        )
+        together_backend = BatchAPIBackend(
+            provider="openrouter", model_name="meta-llama/llama-3.1-8b-instruct",
+            client=together_client, cache_dir=tmp_path / "cache_a", temperature=0.0, max_tokens=16,
+            seed=None, batch_state_dir=state_dir,
+            poll_interval_seconds=0.0, sleep_fn=_noop_sleep,
+        )
+        together_path = together_backend._batch_state_path(
+            [together_backend._make_request("q1")]
+        )
+
+        assert deepinfra_path != together_path

@@ -140,15 +140,44 @@ from choicebench.infra.resumable_csv import check_resume_compatible
 from choicebench.registry import METHOD_REGISTRY
 
 
-def _load_completed_pairs(output_path: Path) -> set[tuple[str, int]]:
+def _detect_conflicting_pairs(existing: pd.DataFrame) -> set[tuple[str, int]]:
+    """A (question_id, repetition_index) pair with more than one row where
+    those rows don't all agree is a conflict -- must never be silently
+    treated as a single "completed" verdict for whichever row happened to
+    load first. NaN-vs-NaN in the same field counts as agreement (fillna
+    before comparing), so the legitimate schema heterogeneity between a
+    reused obs0 row and a freshly-computed row (see
+    _append_rows_with_schema_union) doesn't itself look like a conflict --
+    only an actual disagreeing field value does.
+    """
+    conflicting: set[tuple[str, int]] = set()
+    for key, group in existing.groupby(["question_id", "repetition_index"]):
+        if len(group) < 2:
+            continue
+        comparable = group.drop(columns=["question_id", "repetition_index"]).fillna("__NA__")
+        if len(comparable.drop_duplicates()) > 1:
+            conflicting.add(key)
+    return conflicting
+
+
+def _load_existing_pairs_df(output_path: Path) -> pd.DataFrame | None:
     if not output_path.exists():
-        return set()
+        return None
     existing = pd.read_csv(output_path)
     if "question_id" not in existing.columns or "repetition_index" not in existing.columns:
+        return None
+    existing = existing.copy()
+    existing["question_id"] = existing["question_id"].astype(str)
+    existing["repetition_index"] = existing["repetition_index"].astype(int)
+    return existing
+
+
+def _load_completed_pairs(output_path: Path) -> set[tuple[str, int]]:
+    existing = _load_existing_pairs_df(output_path)
+    if existing is None:
         return set()
-    return set(zip(
-        existing["question_id"].astype(str), existing["repetition_index"].astype(int),
-    ))
+    pairs = set(zip(existing["question_id"], existing["repetition_index"]))
+    return pairs - _detect_conflicting_pairs(existing)
 
 
 # two_stage/reasoning_two_stage's own stage-1/stage-2 dependency means no
@@ -333,15 +362,31 @@ def run(
         )
 
     runner_cls = METHOD_REGISTRY[method_name]
-    completed_pairs = _load_completed_pairs(output_path) if resume else set()
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    file_exists = output_path.exists()
-    if file_exists:
-        check_resume_compatible(
-            output_path, required_columns=["question_id", "repetition_index"],
-            expected_method_name=method_name,
-        )
+    if resume:
+        file_exists = output_path.exists()
+        if file_exists:
+            check_resume_compatible(
+                output_path, required_columns=["question_id", "repetition_index"],
+                expected_method_name=method_name,
+            )
+            existing = _load_existing_pairs_df(output_path)
+            conflicting = _detect_conflicting_pairs(existing) if existing is not None else set()
+            if conflicting:
+                raise ValueError(
+                    f"{output_path} has conflicting duplicate rows for (question_id, "
+                    f"repetition_index) pair(s) {sorted(conflicting)[:5]} -- refusing to "
+                    "resume from a file with ambiguous completed-observation state. Move "
+                    "or delete the file, or manually resolve the conflicting rows, "
+                    "before resuming."
+                )
+        completed_pairs = _load_completed_pairs(output_path)
+    else:
+        completed_pairs = set()
+        if output_path.exists():
+            output_path.unlink()  # --no-resume means start fresh, never append duplicate rows
+        file_exists = False
 
     new_rows: list[dict] = []
 

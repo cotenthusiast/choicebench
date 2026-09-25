@@ -3,6 +3,7 @@
 import math
 
 import pandas as pd
+import pytest
 
 from choicebench.analysis.agreement import compute_agreement_rate
 
@@ -79,3 +80,54 @@ class TestComputeAgreementRate:
         ])
         out = compute_agreement_rate(df, group_by="qid", answer_col="answer")
         assert out["agreement_rate"] == 1.0
+
+
+class TestRepetitionIndexCompleteness:
+    """Confirmed conformance gap: a group missing a repetition_index, or
+    with a duplicate one, was silently accepted as a valid group."""
+
+    def test_missing_repetition_index_raises(self):
+        df = pd.DataFrame([
+            _row("q1", 0, "A"), _row("q1", 1, "A"), _row("q1", 3, "A"),  # missing index 2
+        ])
+        with pytest.raises(ValueError, match="repetition_index"):
+            compute_agreement_rate(df)
+
+    def test_duplicate_repetition_index_raises(self):
+        df = pd.DataFrame([
+            _row("q1", 0, "A"), _row("q1", 1, "A"), _row("q1", 2, "A"),
+            _row("q1", 3, "A"), _row("q1", 3, "B"),  # 3 duplicated, 4 missing
+        ])
+        with pytest.raises(ValueError, match="repetition_index"):
+            compute_agreement_rate(df)
+
+    def test_complete_0_to_3_range_still_works(self):
+        """Regression guard: the check itself must not reject a genuinely
+        complete, duplicate-free group."""
+        df = pd.DataFrame([
+            _row("q1", 0, "A"), _row("q1", 3, "A"), _row("q1", 1, "A"), _row("q1", 2, "A"),
+        ])
+        out = compute_agreement_rate(df)
+        assert out["agreement_rate"] == 1.0
+        assert out["n_groups"] == 1
+
+    def test_absent_repetition_index_column_is_unchecked(self):
+        """Backward compatibility: a caller not using repetition_index at
+        all (any non-stochasticity agreement use case) is unaffected."""
+        df = pd.DataFrame([
+            {"question_id": "q1", "parsed_choice": "A"},
+            {"question_id": "q1", "parsed_choice": "A"},
+        ])
+        out = compute_agreement_rate(df)  # must not raise
+        assert out["agreement_rate"] == 1.0
+
+    def test_check_only_applies_to_counted_groups(self):
+        """A single-row group is excluded before the repetition_index
+        check runs -- its own repetition_index value (even if it "looks
+        wrong" in isolation, e.g. index 2 alone) must not raise."""
+        df = pd.DataFrame([
+            _row("q1", 0, "A"), _row("q1", 1, "A"),  # valid 2-observation group
+            _row("q2", 2, "A"),  # single row, excluded regardless of its index
+        ])
+        out = compute_agreement_rate(df)  # must not raise
+        assert out["n_groups"] == 1

@@ -51,6 +51,25 @@ class BatchAPIBackend(APIBackend):
     the response cache is never included in the batch at all, and a
     successful batch result is written to the same cache other backends
     share, on the same content-addressed key.
+
+    KNOWN LIMITATION -- unresolved crash window: there is a real gap
+    between the provider accepting a submitted batch (_raw_client.
+    submit_batch() returns a batch_id) and this backend persisting that
+    batch_id to its local state file (_resolve_or_submit_batch()'s
+    state_path.write_text() call). A process crash inside that window
+    submits a real, billable provider job with NO local record of it --
+    the provider has already accepted and will run it, but a subsequent
+    resume attempt has no batch_id to reattach to and will submit a
+    duplicate job for the same content-hashed request set. This is not
+    fixed here: no local write can happen strictly atomically with a
+    remote provider's own acceptance of the submission (there is no cross-
+    process/cross-machine transaction spanning both), so eliminating the
+    window would require provider-side idempotency (e.g. a client-supplied
+    idempotency key the provider itself deduplicates on) that is out of
+    this backend's control and not assumed to exist. Documented here as a
+    residual operational risk to watch for during real batch smoke
+    testing (a stray duplicate/orphaned batch job after a crash), not
+    something this class currently detects or prevents.
     """
 
     def __init__(
@@ -134,7 +153,18 @@ class BatchAPIBackend(APIBackend):
         while True:
             status = await self._raw_client.poll_batch(batch_id)
             if status == BATCH_COMPLETED:
-                return await self._raw_client.fetch_batch_results(batch_id, requests)
+                fetched = await self._raw_client.fetch_batch_results(batch_id, requests)
+                if len(fetched) != len(requests):
+                    raise RuntimeError(
+                        f"Batch {batch_id}: fetch_batch_results() returned "
+                        f"{len(fetched)} result(s) for {len(requests)} request(s) -- "
+                        "refusing to zip a mismatched-cardinality result set onto "
+                        "requests (a missing or duplicated result ID would silently "
+                        "shift every subsequent request's response onto the wrong "
+                        "row). The client's reassembly is expected to already match "
+                        "`requests` one-to-one by custom_id, per its own contract."
+                    )
+                return fetched
             if status == BATCH_FAILED:
                 return [
                     ModelResponse(
@@ -154,7 +184,15 @@ class BatchAPIBackend(APIBackend):
             await self._sleep_fn(self._poll_interval_seconds)
 
     def _batch_state_path(self, requests: list[ModelRequest]) -> Path:
-        keys = sorted(_cache_key(request) for request in requests)
+        # Must fold in the same client_extra_identity (e.g. OpenRouter's
+        # upstream_provider/allow_fallbacks pinning) as the response-cache
+        # lookups in generate_batch() do -- otherwise two differently-
+        # pinned clients that otherwise share provider/model_name/prompt/
+        # temperature/seed would compute the IDENTICAL state path, and a
+        # restart could poll/resume the wrong pinned deployment's in-flight
+        # batch job.
+        extra_identity = client_extra_identity(self._raw_client)
+        keys = sorted(_cache_key(request, extra_identity=extra_identity) for request in requests)
         fingerprint = json.dumps(
             {"provider": self._provider, "model_name": self._model_name, "request_keys": keys},
             sort_keys=True,
