@@ -17,7 +17,14 @@ dependencies = [
     "datasets",
     "python-dotenv",
     "anthropic>=0.20.0",
-    "openai",
+    # openai_client.py's Batch API result parsing (OpenAIResponsesResponse.
+    # model_validate) silently breaks (parsed fields come back None
+    # instead of raising) somewhere between openai 2.33.0 and 2.54.0 --
+    # confirmed 2.33.0 passes tests/clients/test_openai_client.py and
+    # tests/integration/test_batch_execution_end_to_end.py cleanly, 2.54.0
+    # does not. Pinned exactly to the verified-working version until the
+    # parsing is updated for whatever changed.
+    "openai==2.33.0",
     "google-genai",
     "groq",
     "pyyaml",
