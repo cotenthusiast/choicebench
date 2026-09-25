@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock
 import pandas as pd
 import pytest
 
+from choicebench.backends.api_backend import APIBackend
 from choicebench.backends.batch_api_backend import BatchAPIBackend
 from choicebench.clients.openai_client import OpenAIClient
 from choicebench.methods.library.permutation import PermutationRunner
@@ -145,3 +146,85 @@ async def test_a_failed_batch_job_produces_a_scorable_but_incorrect_row_not_a_cr
     assert len(results) == 1
     assert results[0]["parsed_choice"] is None
     assert results[0]["answer_status"] == "failure"
+
+
+def _question_df() -> pd.DataFrame:
+    return pd.DataFrame([{
+        "question_id": "q1", "subject": "computer_security",
+        "question_text": "Which protocol is primarily used to securely browse websites?",
+        "choices_json": json.dumps([
+            {"text": "FTP", "source_index": 0}, {"text": "HTTP", "source_index": 1},
+            {"text": "HTTPS", "source_index": 2}, {"text": "SMTP", "source_index": 3},
+        ]),
+        "correct_option": "C",
+    }])
+
+
+def _https_letters() -> list[str]:
+    canonical = {"A": "FTP", "B": "HTTP", "C": "HTTPS", "D": "SMTP"}
+    rotations = [r.mapping for r in PermutationRunner._generate_rotations(canonical)]
+    letters = []
+    for rotation in rotations:
+        for letter, text in rotation.items():
+            if text == "HTTPS":
+                letters.append(letter)
+                break
+    return letters
+
+
+@pytest.mark.asyncio
+async def test_sync_and_batch_backends_produce_identical_result_row_schema(tmp_path):
+    """Batch vs synchronous transport must never create a different
+    downstream schema -- a method's own code (and any analysis reading
+    its output) must never need to branch on which one produced a row."""
+    https_letters = _https_letters()
+
+    # Batch path.
+    batch_client = OpenAIClient(model_name="gpt-4.1-mini", api_key="test-key")
+    batch_client.client.files.create = AsyncMock(return_value=SimpleNamespace(id="file_abc"))
+    batch_client.client.batches.create = AsyncMock(return_value=SimpleNamespace(id="batch_abc"))
+    batch_client.client.batches.retrieve = AsyncMock(return_value=SimpleNamespace(
+        status="completed", output_file_id="out_1", error_file_id=None,
+    ))
+    batch_client.client.files.content = AsyncMock(return_value=SimpleNamespace(
+        text="\n".join(_output_line(str(i), letter) for i, letter in enumerate(https_letters))
+    ))
+    batch_backend = BatchAPIBackend(
+        provider="openai", model_name="gpt-4.1-mini", client=batch_client,
+        cache_dir=tmp_path / "batch_cache", temperature=0.0, max_tokens=64, seed=42,
+        batch_state_dir=tmp_path / "batch_state", poll_interval_seconds=0.0,
+    )
+    batch_runner = PermutationRunner(
+        backend=batch_backend, method_name="cyclic_permutation", split_name="test",
+        prompt_version="v1", prompts_dir=_PROMPTS_DIR, run_id="schema_test",
+        seed=42, benchmark_name="mmlu",
+    )
+    batch_results = await batch_runner.run_many_async(_question_df())
+
+    # Synchronous path -- same client class, same underlying model, but
+    # via generate()/responses.create() (concurrent dispatch), never the
+    # batch endpoints.
+    sync_client = OpenAIClient(model_name="gpt-4.1-mini", api_key="test-key")
+    call_index = {"i": 0}
+
+    async def _fake_create(**kwargs):
+        letter = https_letters[call_index["i"] % len(https_letters)]
+        call_index["i"] += 1
+        return SimpleNamespace(output_text=letter, usage=None)
+
+    sync_client.client.responses.create = _fake_create
+    sync_backend = APIBackend(
+        "openai", "gpt-4.1-mini", sync_client,
+        tmp_path / "sync_cache", 0.0, 64, 42, 10, None,
+    )
+    sync_runner = PermutationRunner(
+        backend=sync_backend, method_name="cyclic_permutation", split_name="test",
+        prompt_version="v1", prompts_dir=_PROMPTS_DIR, run_id="schema_test",
+        seed=42, benchmark_name="mmlu",
+    )
+    sync_results = await sync_runner.run_many_async(_question_df())
+
+    assert len(batch_results) == len(sync_results) == 1
+    assert set(batch_results[0].keys()) == set(sync_results[0].keys())
+    for field in ["parsed_choice", "is_correct", "answer_status", "score_status"]:
+        assert batch_results[0][field] == sync_results[0][field], field
