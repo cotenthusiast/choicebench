@@ -19,6 +19,20 @@ export HF_HUB_CACHE="${HF_HUB_CACHE:-$HF_HOME/hub}"
 export CHOICEBENCH_PYTHON_MODULE="${CHOICEBENCH_PYTHON_MODULE:-}"
 export PYTHON_BIN="${PYTHON_BIN:-}"
 
+# Provider API keys live outside the repo (never git-tracked) at
+# CHOICEBENCH_SECRETS_ENV -- sourced into the shell environment here so
+# providers.py's load_dotenv(ROOT_DIR / ".env") picks them up via
+# os.getenv() without ever needing a .env file inside the repo itself.
+# load_dotenv() does not override already-set variables, so this is safe
+# regardless of whether a repo-local .env also exists.
+export CHOICEBENCH_SECRETS_ENV="${CHOICEBENCH_SECRETS_ENV:-$HOME/.config/choicebench/.env}"
+if [[ -f "$CHOICEBENCH_SECRETS_ENV" ]]; then
+    set -a
+    # shellcheck source=/dev/null
+    source "$CHOICEBENCH_SECRETS_ENV"
+    set +a
+fi
+
 if [[ -n "$CHOICEBENCH_PYTHON_MODULE" ]]; then
     if type module >/dev/null 2>&1; then
         module load "$CHOICEBENCH_PYTHON_MODULE"
