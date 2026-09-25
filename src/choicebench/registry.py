@@ -6,7 +6,7 @@
 # External methods and metrics can be registered without touching this file —
 # use "module.path:ClassName" syntax in the YAML config instead.
 
-from choicebench.clients import AnthropicClient, GeminiClient, GroqClient, OpenAIClient, OpenRouterClient, TogetherAIClient, VLLMClient
+from choicebench.clients import AnthropicClient, DeepInfraClient, GeminiClient, GroqClient, OpenAIClient, OpenRouterClient, TogetherAIClient, VLLMClient
 from choicebench.methods import (
     CyclicLogprobRunner,
     DirectLogprobRunner,
@@ -56,4 +56,5 @@ CLIENT_REGISTRY: dict[str, type] = {
     "together": TogetherAIClient,
     "vllm": VLLMClient,
     "openrouter": OpenRouterClient,
+    "deepinfra": DeepInfraClient,
 }
