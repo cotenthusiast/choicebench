@@ -9,8 +9,11 @@
 # is independently constructible up front, no cross-call dependency) --
 # runs under execution_mode: batch. Llama routes through the direct
 # `deepinfra` client rather than `openrouter` + upstream_provider pinning,
-# since DeepInfra's Batch API is not reachable through OpenRouter's proxy
-# (same underlying DeepInfra-hosted weights either way).
+# since DeepInfra's Batch API is not reachable through OpenRouter's proxy.
+# Deployment identity (same fp8 model either route) VERIFIED 2026-09-25 --
+# see mmlu_core_methods_cyclic_batch.yaml's header for the full method;
+# this config pins meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo, NOT the
+# plain (deprecated, bfloat16) ID, for the same reason.
 #
 # Run with:
 #   python scripts/run_experiment.py --config config/paper/mmlu_independent_hypothesis.yaml --run-id <id>
@@ -37,7 +40,7 @@ models:
 
   - backend: api
     provider: deepinfra
-    model_name_or_path: meta-llama/Meta-Llama-3.1-8B-Instruct
+    model_name_or_path: meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo
     concurrency_limit: 10
     generation_kwargs:
       max_new_tokens: 1024

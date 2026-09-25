@@ -15,9 +15,28 @@
 # Llama routing differs from every synchronous config: DeepInfra's Batch
 # API is not reachable through OpenRouter's proxy, so this uses the
 # direct `deepinfra` client instead of `openrouter` + upstream_provider
-# pinning. Same underlying DeepInfra-hosted weights either way -- this
-# removes a routing hop for the batch path, it does not change which
-# provider ultimately serves the model.
+# pinning.
+#
+# Deployment identity VERIFIED 2026-09-25, not assumed -- confirmed both
+# routes hit the identical fp8 deployment before using this model ID:
+#   - OpenRouter's own endpoint listing for meta-llama/llama-3.1-8b-instruct
+#     (GET /api/v1/models/meta-llama/llama-3.1-8b-instruct/endpoints)
+#     reports DeepInfra: quantization=fp8, context=131072.
+#   - DeepInfra's live model catalog (GET /models/list) lists TWO models
+#     in this family: meta-llama/Meta-Llama-3.1-8B-Instruct
+#     (quantization=bfloat16, DEPRECATED, replaced_by=...-Turbo) and
+#     meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo (quantization=fp8,
+#     context=131072, not deprecated).
+#   - Only "-Turbo" matches OpenRouter's reported fp8/131072; the plain
+#     (non-Turbo) ID is deprecated and cannot be what OpenRouter is
+#     actively routing to.
+# This config therefore pins model_name_or_path to
+# meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo, NOT the plain (deprecated,
+# bfloat16) ID -- an earlier draft of this config used the plain ID,
+# which would have made the batch and synchronous paths silently serve
+# different precisions of the same nominal model. Caught and fixed
+# before any run. If DeepInfra's catalog ever changes this mapping,
+# re-verify before trusting this config again.
 #
 # Run with:
 #   python scripts/run_experiment.py --config config/paper/mmlu_core_methods_cyclic_batch.yaml --run-id <id>
@@ -44,7 +63,7 @@ models:
 
   - backend: api
     provider: deepinfra
-    model_name_or_path: meta-llama/Meta-Llama-3.1-8B-Instruct
+    model_name_or_path: meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo
     concurrency_limit: 10
     generation_kwargs:
       max_new_tokens: 1024
