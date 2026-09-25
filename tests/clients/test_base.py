@@ -2,7 +2,7 @@
 
 import pytest
 
-from choicebench.clients.base import BaseClient
+from choicebench.clients.base import batch_line_failure, BaseClient
 from choicebench.clients.types import (
     ErrorInfo,
     FAILURE_STATUS,
@@ -201,3 +201,37 @@ class TestNormalizeException:
 def test_constructor_rejects_hazardous_numeric_values(kwargs):
     with pytest.raises(ValueError):
         DummyClient(provider="openai", model_name="m", **kwargs)
+
+
+class TestBatchLineFailure:
+    """Shared failure-ModelResponse builder for a batch result line --
+    used identically by every batch-capable client's fetch_batch_results()."""
+
+    @pytest.fixture
+    def requests(self) -> list[ModelRequest]:
+        return [
+            ModelRequest(provider="openai", model_name="gpt-4.1-mini", payload="q0"),
+            ModelRequest(provider="openai", model_name="gpt-4.1-mini", payload="q1"),
+        ]
+
+    def test_resolves_provider_and_model_from_the_matching_request(self, requests):
+        response = batch_line_failure(requests, "1", "boom", default_provider="fallback")
+        assert response.provider == "openai"
+        assert response.model_name == "gpt-4.1-mini"
+        assert not response.is_success()
+        assert response.error.message == "boom"
+
+    def test_unresolvable_custom_id_falls_back_to_default_provider(self, requests):
+        response = batch_line_failure(requests, "not-an-index", "boom", default_provider="fallback")
+        assert response.provider == "fallback"
+        assert response.model_name == ""
+
+    def test_out_of_range_custom_id_falls_back_to_default_provider(self, requests):
+        response = batch_line_failure(requests, "99", "boom", default_provider="fallback")
+        assert response.provider == "fallback"
+
+    def test_response_validates(self, requests):
+        # ModelResponse.validate() requires failures to carry an ErrorInfo --
+        # confirm the constructed response actually satisfies its own contract.
+        response = batch_line_failure(requests, "0", "boom", default_provider="fallback")
+        response.validate()  # must not raise

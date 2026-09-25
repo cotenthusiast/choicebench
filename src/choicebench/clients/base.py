@@ -56,6 +56,38 @@ def map_api_status_error(exc) -> Exception:
     return ProviderCallError(message)
 
 
+def batch_line_failure(
+        requests: list[ModelRequest],
+        custom_id: str,
+        message: str,
+        default_provider: str,
+) -> ModelResponse:
+    """Build a failure ModelResponse for one batch result line.
+
+    Shared by every batch-capable client's fetch_batch_results() -- a
+    per-request failure inside a completed batch job (a provider-side
+    error for that one line, or a line with no matching custom_id at all)
+    is represented identically regardless of which provider's batch API
+    produced it.
+
+    Args:
+        requests: The full original request list (custom_id is that
+            list's stringified index).
+        custom_id: The batch result line's custom_id.
+        message: Human-readable failure description.
+        default_provider: Provider name to use if custom_id doesn't
+            resolve to a request (e.g. malformed/unexpected custom_id).
+    """
+    request = requests[int(custom_id)] if custom_id.isdigit() and int(custom_id) < len(requests) else None
+    return ModelResponse(
+        provider=request.provider if request else default_provider,
+        model_name=request.model_name if request else "",
+        status=FAILURE_STATUS,
+        latency_seconds=0.0,
+        error=ErrorInfo("BatchLineError", message, True, "batch_line"),
+    )
+
+
 class BaseClient(ABC):
     """Abstract base client for provider-backed model calls.
 
