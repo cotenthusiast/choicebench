@@ -33,8 +33,9 @@ _MODEL_CONFIG = ModelConfig(
 class _FakeAsyncBackend:
     """is_async_capable()=True double: generate_batch() returns a fixed
     answer for every prompt and records exactly how it was called, so
-    tests can assert on call shape (one call per repetition, not one per
-    question) without needing a real provider."""
+    tests can assert on call shape (one call per FRESH repetition, not
+    one per question, and never one for observation 0) without needing
+    a real provider."""
 
     def __init__(self, response_text: str = "C") -> None:
         self._response_text = response_text
@@ -82,45 +83,68 @@ def _questions_csv(tmp_path, question_ids, n_options=4) -> Path:
     return path
 
 
+def _canonical_obs0_csv(tmp_path, rows) -> Path:
+    """rows: list of dicts, each a full canonical row as the main
+    accuracy run's own saved output would contain it -- must include
+    question_id and method_name, and may include extra
+    condition_metadata columns (experiment_id, condition_id, ...) that
+    a freshly computed repetition row never has."""
+    df = pd.DataFrame(rows)
+    path = tmp_path / "canonical_obs0.csv"
+    df.to_csv(path, index=False)
+    return path
+
+
 class TestRunStochasticityRepeatsBaseline:
-    """direct_mcq / reasoning_mcq: single-stage, batch-safe."""
+    """direct_mcq / reasoning_mcq: single-stage, batch-safe. Observation
+    0 is always reused from the canonical artifact -- only repetitions
+    1..n_repetitions-1 are fresh calls."""
 
     def test_writes_n_repetitions_times_n_questions_rows(self, tmp_path, monkeypatch):
         backend = _FakeAsyncBackend()
         monkeypatch.setattr(mod, "build_backend", lambda *a, **k: backend)
         source = _questions_csv(tmp_path, ["q1", "q2"])
         output = tmp_path / "out.csv"
+        canonical = _canonical_obs0_csv(tmp_path, [
+            {"question_id": "q1", "method_name": "direct_mcq", "parsed_choice": "C", "is_correct": True},
+            {"question_id": "q2", "method_name": "direct_mcq", "parsed_choice": "A", "is_correct": False},
+        ])
 
         n_written = mod.run(
             source, _MODEL_CONFIG, "test_run", output, method_name="direct_mcq",
-            prompt_version="v1", n_repetitions=4, run_seed=42,
+            prompt_version="v1", canonical_obs0_csv=canonical, n_repetitions=4, run_seed=42,
         )
 
-        assert n_written == 8  # 2 questions x 4 repetitions
+        assert n_written == 8  # 2 questions x 4 repetitions (1 reused + 3 fresh)
         result_df = pd.read_csv(output)
         assert len(result_df) == 8
         assert sorted(result_df["repetition_index"].unique().tolist()) == [0, 1, 2, 3]
         assert set(result_df["question_id"]) == {"q1", "q2"}
 
-    def test_makes_one_generate_batch_call_per_repetition(self, tmp_path, monkeypatch):
+    def test_makes_one_generate_batch_call_per_fresh_repetition(self, tmp_path, monkeypatch):
         backend = _FakeAsyncBackend()
         monkeypatch.setattr(mod, "build_backend", lambda *a, **k: backend)
         source = _questions_csv(tmp_path, ["q1", "q2", "q3"])
         output = tmp_path / "out.csv"
+        canonical = _canonical_obs0_csv(tmp_path, [
+            {"question_id": qid, "method_name": "direct_mcq", "parsed_choice": "C", "is_correct": True}
+            for qid in ["q1", "q2", "q3"]
+        ])
 
         mod.run(
             source, _MODEL_CONFIG, "test_run", output, method_name="direct_mcq",
-            prompt_version="v1", n_repetitions=4, run_seed=42,
+            prompt_version="v1", canonical_obs0_csv=canonical, n_repetitions=4, run_seed=42,
         )
 
-        # 4 repetitions -> 4 generate_batch() calls, each covering all 3
-        # questions at once (not one call per question).
-        assert len(backend.generate_batch_calls) == 4
+        # 4 repetitions, but repetition 0 is reused (no call) -- only
+        # reps 1,2,3 are fresh -> 3 generate_batch() calls, each covering
+        # all 3 questions at once (not one call per question).
+        assert len(backend.generate_batch_calls) == 3
         assert all(len(call) == 3 for call in backend.generate_batch_calls)
 
-    def test_each_repetition_gets_a_distinct_model_identity(self, tmp_path, monkeypatch):
+    def test_each_fresh_repetition_gets_a_distinct_model_identity(self, tmp_path, monkeypatch):
         """Repetitions must never share a cache bucket -- otherwise
-        repetition 2/3/4 would silently return repetition 1's cached
+        repetition 2/3 would silently return repetition 1's cached
         response instead of a genuinely independent call, defeating the
         whole point of a stochasticity measurement."""
         recorded_identities = []
@@ -132,14 +156,19 @@ class TestRunStochasticityRepeatsBaseline:
         monkeypatch.setattr(mod, "build_backend", _fake_build_backend)
         source = _questions_csv(tmp_path, ["q1"])
         output = tmp_path / "out.csv"
+        canonical = _canonical_obs0_csv(tmp_path, [
+            {"question_id": "q1", "method_name": "direct_mcq", "parsed_choice": "C", "is_correct": True},
+        ])
 
         mod.run(
             source, _MODEL_CONFIG, "test_run", output, method_name="direct_mcq",
-            prompt_version="v1", n_repetitions=4, run_seed=42,
+            prompt_version="v1", canonical_obs0_csv=canonical, n_repetitions=4, run_seed=42,
         )
 
-        assert len(recorded_identities) == 4
-        assert len(set(recorded_identities)) == 4  # all distinct
+        # Only the 3 FRESH repetitions (1,2,3) ever build a backend --
+        # observation 0 is reused and never calls build_backend at all.
+        assert len(recorded_identities) == 3
+        assert len(set(recorded_identities)) == 3  # all distinct
         assert all(i is not None for i in recorded_identities)
 
     def test_method_name_is_stamped_correctly(self, tmp_path, monkeypatch):
@@ -147,10 +176,13 @@ class TestRunStochasticityRepeatsBaseline:
         monkeypatch.setattr(mod, "build_backend", lambda *a, **k: backend)
         source = _questions_csv(tmp_path, ["q1"])
         output = tmp_path / "out.csv"
+        canonical = _canonical_obs0_csv(tmp_path, [
+            {"question_id": "q1", "method_name": "reasoning_mcq", "parsed_choice": "C", "is_correct": True},
+        ])
 
         mod.run(
             source, _MODEL_CONFIG, "test_run", output, method_name="reasoning_mcq",
-            prompt_version="v1_reasoning", n_repetitions=4, run_seed=42,
+            prompt_version="v1_reasoning", canonical_obs0_csv=canonical, n_repetitions=4, run_seed=42,
         )
 
         result_df = pd.read_csv(output)
@@ -161,10 +193,14 @@ class TestRunStochasticityRepeatsBaseline:
         monkeypatch.setattr(mod, "build_backend", lambda *a, **k: backend)
         source = _questions_csv(tmp_path, ["q1", "q2"])
         output = tmp_path / "out.csv"
+        canonical = _canonical_obs0_csv(tmp_path, [
+            {"question_id": "q1", "method_name": "direct_mcq", "parsed_choice": "C", "is_correct": True},
+            {"question_id": "q2", "method_name": "direct_mcq", "parsed_choice": "A", "is_correct": False},
+        ])
 
         n_first = mod.run(
             source, _MODEL_CONFIG, "test_run", output, method_name="direct_mcq",
-            prompt_version="v1", n_repetitions=4, run_seed=42,
+            prompt_version="v1", canonical_obs0_csv=canonical, n_repetitions=4, run_seed=42,
         )
         assert n_first == 8
 
@@ -172,7 +208,7 @@ class TestRunStochasticityRepeatsBaseline:
         monkeypatch.setattr(mod, "build_backend", lambda *a, **k: backend2)
         n_second = mod.run(
             source, _MODEL_CONFIG, "test_run", output, method_name="direct_mcq",
-            prompt_version="v1", n_repetitions=4, run_seed=42,
+            prompt_version="v1", canonical_obs0_csv=canonical, n_repetitions=4, run_seed=42,
         )
 
         assert n_second == 0
@@ -189,21 +225,26 @@ class TestRunStochasticityRepeatsBaseline:
         monkeypatch.setattr(mod, "build_backend", lambda *a, **k: backend)
         source = _questions_csv(tmp_path, ["q1", "q2"])
         output = tmp_path / "out.csv"
+        canonical = _canonical_obs0_csv(tmp_path, [
+            {"question_id": "q1", "method_name": "direct_mcq", "parsed_choice": "C", "is_correct": True},
+            {"question_id": "q2", "method_name": "direct_mcq", "parsed_choice": "A", "is_correct": False},
+        ])
 
         n_partial = mod.run(
             source, _MODEL_CONFIG, "test_run", output, method_name="direct_mcq",
-            prompt_version="v1", n_repetitions=2, run_seed=42,
+            prompt_version="v1", canonical_obs0_csv=canonical, n_repetitions=2, run_seed=42,
         )
-        assert n_partial == 4  # 2 questions x reps 0-1
+        assert n_partial == 4  # 2 questions x reps 0(reused),1(fresh)
 
         backend2 = _FakeAsyncBackend()
         monkeypatch.setattr(mod, "build_backend", lambda *a, **k: backend2)
         n_written = mod.run(
             source, _MODEL_CONFIG, "test_run", output, method_name="direct_mcq",
-            prompt_version="v1", n_repetitions=4, run_seed=42,
+            prompt_version="v1", canonical_obs0_csv=canonical, n_repetitions=4, run_seed=42,
         )
 
-        # Both questions still need reps 2,3 (2 more each) = 4.
+        # Both questions still need reps 2,3 (2 more each) = 4. Rep 0 is
+        # already done, so no canonical lookup happens on this call.
         assert n_written == 4
         result_df = pd.read_csv(output)
         assert len(result_df) == 8
@@ -218,16 +259,22 @@ class TestRunStochasticityRepeatsBaseline:
         monkeypatch.setattr(mod, "build_backend", lambda *a, **k: backend)
         source = _questions_csv(tmp_path, ["q1", "q2"])
         output = tmp_path / "out.csv"
-
-        stale = pd.DataFrame([
-            {"question_id": "q1", "repetition_index": 0, "method_name": "direct_mcq"},
+        canonical = _canonical_obs0_csv(tmp_path, [
+            {"question_id": "q1", "method_name": "direct_mcq", "parsed_choice": "C", "is_correct": True},
+            {"question_id": "q2", "method_name": "direct_mcq", "parsed_choice": "A", "is_correct": False},
         ])
+
+        # An older-version file missing the repetition_index column
+        # entirely -- required for this script's (question_id,
+        # repetition_index) resumability, so it can't legitimately be
+        # this script's own prior output.
+        stale = pd.DataFrame([{"question_id": "q1", "method_name": "direct_mcq"}])
         stale.to_csv(output, index=False)
 
         with pytest.raises(ValueError, match="schema"):
             mod.run(
                 source, _MODEL_CONFIG, "test_run", output, method_name="direct_mcq",
-                prompt_version="v1", n_repetitions=4, run_seed=42,
+                prompt_version="v1", canonical_obs0_csv=canonical, n_repetitions=4, run_seed=42,
             )
 
     def test_missing_question_text_column_raises_clear_error(self, tmp_path):
@@ -238,44 +285,177 @@ class TestRunStochasticityRepeatsBaseline:
             mod.run(
                 path, _MODEL_CONFIG, "test_run", tmp_path / "out.csv",
                 method_name="direct_mcq", prompt_version="v1",
+                canonical_obs0_csv=tmp_path / "unused_canonical.csv",
             )
 
 
 class TestRunStochasticityRepeatsTwoStage:
     """two_stage / reasoning_two_stage: dependent, stays synchronous --
     still uses run_many_async (concurrent dispatch, not provider Batch
-    API), one call per repetition just like the baseline path."""
+    API), one call pair per FRESH repetition just like the baseline
+    path's one call per fresh repetition."""
 
     def test_writes_rows_with_free_text_response_preserved(self, tmp_path, monkeypatch):
         backend = _FakeAsyncBackend(response_text="C")
         monkeypatch.setattr(mod, "build_backend", lambda *a, **k: backend)
         source = _questions_csv(tmp_path, ["q1"])
         output = tmp_path / "out.csv"
+        canonical = _canonical_obs0_csv(tmp_path, [
+            {
+                "question_id": "q1", "method_name": "two_stage", "parsed_choice": "C",
+                "is_correct": True, "free_text_response": "HTTPS",
+            },
+        ])
 
         n_written = mod.run(
             source, _MODEL_CONFIG, "test_run", output, method_name="two_stage",
-            prompt_version="v1", n_repetitions=2, run_seed=42, execution_mode="sync",
+            prompt_version="v1", canonical_obs0_csv=canonical, n_repetitions=2,
+            run_seed=42, execution_mode="sync",
         )
 
-        assert n_written == 2
+        assert n_written == 2  # rep 0 reused + rep 1 fresh
         result_df = pd.read_csv(output)
         assert "free_text_response" in result_df.columns
         assert (result_df["method_name"] == "two_stage").all()
 
-    def test_each_repetition_reruns_both_stages_independently(self, tmp_path, monkeypatch):
+    def test_each_fresh_repetition_reruns_both_stages_independently(self, tmp_path, monkeypatch):
         """"Complete independent Stage1->Stage2 repeats" -- stage 1 must
-        be re-elicited every repetition, never reused across repetitions
-        the way the flip-rate rotation scripts reuse it across rotations."""
+        be re-elicited every FRESH repetition, never reused across
+        repetitions the way the flip-rate rotation scripts reuse it
+        across rotations of the same call."""
         backend = _FakeAsyncBackend(response_text="C")
         monkeypatch.setattr(mod, "build_backend", lambda *a, **k: backend)
         source = _questions_csv(tmp_path, ["q1"])
         output = tmp_path / "out.csv"
+        canonical = _canonical_obs0_csv(tmp_path, [
+            {
+                "question_id": "q1", "method_name": "two_stage", "parsed_choice": "C",
+                "is_correct": True, "free_text_response": "HTTPS",
+            },
+        ])
 
         mod.run(
             source, _MODEL_CONFIG, "test_run", output, method_name="two_stage",
-            prompt_version="v1", n_repetitions=3, run_seed=42, execution_mode="sync",
+            prompt_version="v1", canonical_obs0_csv=canonical, n_repetitions=4,
+            run_seed=42, execution_mode="sync",
         )
 
-        # 3 repetitions x 2 calls (stage1 + stage2) = 6 total prompts, as
-        # 3 pairs of generate_batch() calls (one pair per repetition).
+        # Reps 1,2,3 are fresh (rep 0 reused, no calls) x 2 calls
+        # (stage1 + stage2) each = 6 total prompts, as 3 pairs of
+        # generate_batch() calls (one pair per fresh repetition).
         assert len(backend.generate_batch_calls) == 6
+
+
+class TestRunStochasticityRepeatsObs0Reuse:
+    """Observation 0 must reuse the main accuracy run's own saved result,
+    never a freshly generated replacement -- and must fail loudly, not
+    silently substitute a fresh call, if that canonical artifact is
+    missing or doesn't actually cover what's needed."""
+
+    def test_missing_canonical_obs0_artifact_fails_loudly(self, tmp_path, monkeypatch):
+        backend = _FakeAsyncBackend()
+        monkeypatch.setattr(mod, "build_backend", lambda *a, **k: backend)
+        source = _questions_csv(tmp_path, ["q1"])
+        output = tmp_path / "out.csv"
+        missing_canonical = tmp_path / "does_not_exist.csv"
+
+        with pytest.raises(ValueError, match="does not exist"):
+            mod.run(
+                source, _MODEL_CONFIG, "test_run", output, method_name="direct_mcq",
+                prompt_version="v1", canonical_obs0_csv=missing_canonical,
+                n_repetitions=1, run_seed=42,
+            )
+
+        assert backend.generate_batch_calls == []  # never silently falls back to a fresh call
+
+    def test_canonical_obs0_missing_question_id_fails_loudly(self, tmp_path, monkeypatch):
+        backend = _FakeAsyncBackend()
+        monkeypatch.setattr(mod, "build_backend", lambda *a, **k: backend)
+        source = _questions_csv(tmp_path, ["q1", "q2"])
+        output = tmp_path / "out.csv"
+        # Canonical only covers q1 -- q2's observation 0 has no canonical
+        # row to reuse.
+        canonical = _canonical_obs0_csv(tmp_path, [
+            {"question_id": "q1", "method_name": "direct_mcq", "parsed_choice": "C", "is_correct": True},
+        ])
+
+        with pytest.raises(ValueError, match="missing"):
+            mod.run(
+                source, _MODEL_CONFIG, "test_run", output, method_name="direct_mcq",
+                prompt_version="v1", canonical_obs0_csv=canonical,
+                n_repetitions=1, run_seed=42,
+            )
+
+    def test_canonical_obs0_wrong_method_name_fails_loudly(self, tmp_path, monkeypatch):
+        """The canonical file exists and covers q1 -- but only under a
+        DIFFERENT method_name. Must not be mistaken for direct_mcq's
+        observation 0."""
+        backend = _FakeAsyncBackend()
+        monkeypatch.setattr(mod, "build_backend", lambda *a, **k: backend)
+        source = _questions_csv(tmp_path, ["q1"])
+        output = tmp_path / "out.csv"
+        canonical = _canonical_obs0_csv(tmp_path, [
+            {"question_id": "q1", "method_name": "two_stage", "parsed_choice": "C", "is_correct": True},
+        ])
+
+        with pytest.raises(ValueError, match="missing"):
+            mod.run(
+                source, _MODEL_CONFIG, "test_run", output, method_name="direct_mcq",
+                prompt_version="v1", canonical_obs0_csv=canonical,
+                n_repetitions=1, run_seed=42,
+            )
+
+    def test_reused_obs0_row_uses_canonical_values_without_a_fresh_call(self, tmp_path, monkeypatch):
+        backend = _FakeAsyncBackend()
+        monkeypatch.setattr(mod, "build_backend", lambda *a, **k: backend)
+        source = _questions_csv(tmp_path, ["q1"])
+        output = tmp_path / "out.csv"
+        canonical = _canonical_obs0_csv(tmp_path, [
+            {
+                "question_id": "q1", "method_name": "direct_mcq", "parsed_choice": "C",
+                "is_correct": True, "experiment_id": "exp1", "condition_id": "cond1",
+            },
+        ])
+
+        n_written = mod.run(
+            source, _MODEL_CONFIG, "test_run", output, method_name="direct_mcq",
+            prompt_version="v1", canonical_obs0_csv=canonical,
+            n_repetitions=1, run_seed=42,
+        )
+
+        assert n_written == 1
+        assert backend.generate_batch_calls == []  # no fresh call for observation 0
+        result_df = pd.read_csv(output)
+        assert result_df.iloc[0]["repetition_index"] == 0
+        assert result_df.iloc[0]["parsed_choice"] == "C"
+        assert result_df.iloc[0]["experiment_id"] == "exp1"  # condition metadata carried through
+
+    def test_reused_obs0_row_and_fresh_rows_coexist_in_the_same_output_file(self, tmp_path, monkeypatch):
+        """Reused observation-0 rows (extra condition_metadata columns
+        from the main grid run) and freshly computed rows (without them)
+        are legitimately heterogeneous -- both must land in the same
+        output file without corrupting it."""
+        backend = _FakeAsyncBackend()
+        monkeypatch.setattr(mod, "build_backend", lambda *a, **k: backend)
+        source = _questions_csv(tmp_path, ["q1"])
+        output = tmp_path / "out.csv"
+        canonical = _canonical_obs0_csv(tmp_path, [
+            {
+                "question_id": "q1", "method_name": "direct_mcq", "parsed_choice": "C",
+                "is_correct": True, "experiment_id": "exp1",
+            },
+        ])
+
+        n_written = mod.run(
+            source, _MODEL_CONFIG, "test_run", output, method_name="direct_mcq",
+            prompt_version="v1", canonical_obs0_csv=canonical,
+            n_repetitions=2, run_seed=42,
+        )
+
+        assert n_written == 2
+        result_df = pd.read_csv(output)
+        assert len(result_df) == 2
+        obs0_row = result_df[result_df["repetition_index"] == 0].iloc[0]
+        obs1_row = result_df[result_df["repetition_index"] == 1].iloc[0]
+        assert obs0_row["experiment_id"] == "exp1"
+        assert pd.isna(obs1_row["experiment_id"])  # fresh row never had this column
