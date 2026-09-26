@@ -1,0 +1,48 @@
+# QWEN-API-ONLY SUBSET (2026-09-26, operational-only, not a frozen artifact):
+# generated from config/paper/mmlu_reasoning.yaml by replacing the models: list with
+# the single revised OpenRouter/Phala Qwen entry (dropped: ['openai', 'anthropic', 'openrouter', 'together', 'huggingface', 'huggingface']).
+# Original Together Qwen2.5-7B-Instruct-Turbo entry retired -- Together's
+# serverless deployment for this model is no longer available (confirmed via
+# Together's own dashboard: Serverless Deprecation banner, both Serverless
+# and Dedicated deployment options unavailable without a sales-negotiated
+# monthly commitment). DeepInfra was investigated and disqualified: it
+# silently substituted Qwen/Qwen3-14B for a request naming
+# Qwen/Qwen2.5-7B-Instruct (confirmed live, a different model entirely).
+# Revised deployment: OpenRouter model qwen/qwen-2.5-7b-instruct, upstream
+# pinned to Phala, allow_fallbacks=false -- verified live (3/3 pinned calls
+# returned model=qwen/qwen-2.5-7b-instruct, provider=Phala, no silent
+# substitution). Quantization/precision of this deployment is genuinely
+# undocumented by OpenRouter/Phala -- NOT claimed as FP8. Local Qwen remains
+# RedHatAI/Qwen2.5-7B-Instruct-FP8-dynamic, a separate deployment.
+# See config/paper/mmlu_reasoning.yaml for the frozen original.
+experiment:
+  name: paper_mmlu_reasoning
+models:
+- backend: api
+  provider: openrouter
+  model_name_or_path: qwen/qwen-2.5-7b-instruct
+  upstream_provider: Phala
+  allow_fallbacks: false
+  concurrency_limit: 10
+  generation_kwargs:
+    max_new_tokens: 1024
+    temperature: 0.0
+benchmarks:
+- name: mmlu
+  split: test
+  transforms:
+  - unique_question_ids_v1
+  question_id_manifest: data/manifests/mmlu_eval_v2.csv
+methods:
+- name: reasoning_two_stage
+metrics:
+- accuracy
+- mad
+run:
+  seed: 42
+  resume: true
+  dry_run: false
+  checkpoint_every_n: 50
+  prompt_version: v1_reasoning
+  concurrency_limit: 10
+  cache_scope: per_run
