@@ -1,0 +1,31 @@
+# LLAMA-ONLY SUBSET (2026-09-26, operational-only, not a frozen artifact): generated from config/paper/mmlu_core_methods_cyclic_batch.yaml by removing non-llama model entries verbatim (dropped: ['openai', 'anthropic', 'together', 'huggingface', 'huggingface']). Retained entry (deepinfra) is byte-identical to the frozen config. See config/paper/mmlu_core_methods_cyclic_batch.yaml for the frozen original.
+experiment:
+  name: paper_mmlu_core_methods_cyclic_batch
+models:
+- backend: api
+  provider: deepinfra
+  model_name_or_path: meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo
+  concurrency_limit: 10
+  generation_kwargs:
+    max_new_tokens: 1024
+    temperature: 0.0
+benchmarks:
+- name: mmlu
+  split: test
+  transforms:
+  - unique_question_ids_v1
+  question_id_manifest: data/manifests/mmlu_eval_v2.csv
+methods:
+- name: cyclic_permutation
+  execution_mode: batch
+metrics:
+- accuracy
+- mad
+run:
+  seed: 42
+  resume: true
+  dry_run: false
+  checkpoint_every_n: 50
+  prompt_version: v1
+  concurrency_limit: 10
+  cache_scope: per_run

@@ -1,0 +1,40 @@
+# LOCAL-ONLY SUBSET (2026-09-26, operational-only, not a frozen artifact): generated from config/paper/mmlu_independent_hypothesis.yaml by removing non-huggingface model entries verbatim (dropped: ['openai', 'anthropic', 'deepinfra', 'together']). All retained model entries are byte-identical to the frozen config. This is the H100/local-model path, independent of the OpenAI+Anthropic API subset. See config/paper/mmlu_independent_hypothesis.yaml for the frozen original.
+experiment:
+  name: paper_mmlu_independent_hypothesis
+models:
+- backend: huggingface
+  model_name_or_path: RedHatAI/Meta-Llama-3.1-8B-Instruct-FP8-dynamic
+  device: cuda
+  torch_dtype: auto
+  generation_kwargs:
+    max_new_tokens: 1024
+    temperature: 0.0
+    do_sample: false
+- backend: huggingface
+  model_name_or_path: RedHatAI/Qwen2.5-7B-Instruct-FP8-dynamic
+  device: cuda
+  torch_dtype: auto
+  generation_kwargs:
+    max_new_tokens: 1024
+    temperature: 0.0
+    do_sample: false
+benchmarks:
+- name: mmlu
+  split: test
+  transforms:
+  - unique_question_ids_v1
+  question_id_manifest: data/manifests/mmlu_eval_v2.csv
+methods:
+- name: independent_hypothesis
+  execution_mode: batch
+metrics:
+- accuracy
+- mad
+run:
+  seed: 42
+  resume: true
+  dry_run: false
+  checkpoint_every_n: 50
+  prompt_version: v1_ihs
+  concurrency_limit: 10
+  cache_scope: per_run

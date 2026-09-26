@@ -1,0 +1,47 @@
+# MERGED LOCAL-ONLY CONFIG (2026-09-26, operational-only, not a frozen artifact):
+# Combines arc_core_methods.yaml + arc_core_methods_cyclic_batch.yaml into one run_experiment.py invocation --
+# safe because both share identical prompt_version/run/benchmarks/metrics
+# fields (verified programmatically) and execution_mode is a per-method
+# field, so sync (two_stage etc.) and batch
+# (cyclic_permutation) methods coexist fine in one run. Frozen
+# originals config/paper/arc_core_methods.yaml and config/paper/arc_core_methods_cyclic_batch.yaml untouched.
+experiment:
+  name: paper_arc_core_and_cyclic_local_merged
+models:
+- backend: huggingface
+  model_name_or_path: RedHatAI/Meta-Llama-3.1-8B-Instruct-FP8-dynamic
+  device: cuda
+  torch_dtype: auto
+  generation_kwargs:
+    max_new_tokens: 1024
+    temperature: 0.0
+    do_sample: false
+- backend: huggingface
+  model_name_or_path: RedHatAI/Qwen2.5-7B-Instruct-FP8-dynamic
+  device: cuda
+  torch_dtype: auto
+  generation_kwargs:
+    max_new_tokens: 1024
+    temperature: 0.0
+    do_sample: false
+benchmarks:
+- name: arc_challenge
+  split: test
+  transforms: []
+  question_id_manifest: data/manifests/arc_challenge_eval_v2.csv
+methods:
+- name: two_stage
+- name: text_extraction
+- name: cyclic_permutation
+  execution_mode: batch
+metrics:
+- accuracy
+- mad
+run:
+  seed: 42
+  resume: true
+  dry_run: false
+  checkpoint_every_n: 50
+  prompt_version: v1
+  concurrency_limit: 10
+  cache_scope: per_run

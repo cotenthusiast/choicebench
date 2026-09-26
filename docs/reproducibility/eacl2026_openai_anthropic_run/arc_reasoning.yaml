@@ -1,0 +1,36 @@
+# SUBSET (2026-09-26, operational-only, not a frozen artifact): generated from config/paper/arc_reasoning.yaml by removing non-openai/anthropic model entries verbatim (dropped: ['openrouter', 'together', 'huggingface', 'huggingface']). All retained model entries are byte-identical to the frozen config. Together/OpenRouter/DeepInfra blocked tonight (billing); local HF models deferred to the separate H100 path. See config/paper/arc_reasoning.yaml for the frozen original.
+experiment:
+  name: paper_arc_reasoning
+models:
+- backend: api
+  provider: openai
+  model_name_or_path: gpt-4.1-mini-2025-04-14
+  concurrency_limit: 10
+  generation_kwargs:
+    max_new_tokens: 1024
+    temperature: 0.0
+- backend: api
+  provider: anthropic
+  model_name_or_path: claude-haiku-4-5-20251001
+  concurrency_limit: 10
+  generation_kwargs:
+    max_new_tokens: 1024
+    temperature: 0.0
+benchmarks:
+- name: arc_challenge
+  split: test
+  transforms: []
+  question_id_manifest: data/manifests/arc_challenge_eval_v2.csv
+methods:
+- name: reasoning_two_stage
+metrics:
+- accuracy
+- mad
+run:
+  seed: 42
+  resume: true
+  dry_run: false
+  checkpoint_every_n: 50
+  prompt_version: v1_reasoning
+  concurrency_limit: 10
+  cache_scope: per_run
