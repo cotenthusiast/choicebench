@@ -47,6 +47,7 @@ def _make_response(
     completion_tokens: int = 5,
     total_tokens: int = 15,
     include_usage: bool = True,
+    provider: str | None = None,
 ) -> SimpleNamespace:
     choices = [SimpleNamespace(message=SimpleNamespace(content=text), finish_reason=finish_reason)]
     usage = None
@@ -54,7 +55,7 @@ def _make_response(
         usage = SimpleNamespace(
             prompt_tokens=prompt_tokens, completion_tokens=completion_tokens, total_tokens=total_tokens,
         )
-    return SimpleNamespace(choices=choices, usage=usage)
+    return SimpleNamespace(choices=choices, usage=usage, provider=provider)
 
 
 @pytest.fixture
@@ -139,3 +140,71 @@ class TestOpenRouterClientGenerateProviderResponse:
             model_name="m", api_key="k", upstream_provider="deepinfra",
         )
         assert client._provider_routing_extra_body()["provider"]["allow_fallbacks"] is True
+
+    # ── actual upstream provider provenance ─────────────────────────────
+
+    def test_captures_actual_upstream_provider_when_present(
+        self, openrouter_client, model_request, mock_create
+    ):
+        async def _inner():
+            mock_create.return_value = _make_response(provider="Phala")
+            return await openrouter_client._generate_provider_response(model_request)
+
+        response = asyncio.run(_inner())
+        assert response.actual_upstream_provider == "Phala"
+
+    def test_actual_upstream_provider_is_none_when_absent(
+        self, openrouter_client, model_request, mock_create
+    ):
+        async def _inner():
+            mock_create.return_value = _make_response(provider=None)
+            return await openrouter_client._generate_provider_response(model_request)
+
+        response = asyncio.run(_inner())
+        assert response.actual_upstream_provider is None
+
+    def test_pinned_matching_actual_provider_is_accepted(
+        self, pinned_client, model_request, pinned_mock_create
+    ):
+        async def _inner():
+            pinned_mock_create.return_value = _make_response(provider="deepinfra")
+            return await pinned_client._generate_provider_response(model_request)
+
+        response = asyncio.run(_inner())
+        assert response.actual_upstream_provider == "deepinfra"
+
+    def test_pinned_mismatched_actual_provider_fails_loudly(
+        self, pinned_client, model_request, pinned_mock_create
+    ):
+        """allow_fallbacks=False + pinned upstream_provider="deepinfra": if
+        OpenRouter's response reports a DIFFERENT actual provider, this must
+        raise rather than silently return a success response under the
+        wrong deployment's identity."""
+        async def _inner():
+            pinned_mock_create.return_value = _make_response(provider="together")
+            await pinned_client._generate_provider_response(model_request)
+
+        with pytest.raises(ProviderResponseError):
+            asyncio.run(_inner())
+
+    def test_mismatched_actual_provider_allowed_when_fallbacks_enabled(
+        self, model_request, mock_create
+    ):
+        """upstream_provider pinned but allow_fallbacks=True: a mismatch is
+        the expected/requested behavior (OpenRouter is explicitly allowed to
+        fall back), so it must NOT raise -- only the fallbacks=False +
+        mismatch combination is a provenance violation."""
+        client = OpenRouterClient(
+            model_name="meta-llama/llama-3.1-8b-instruct",
+            api_key="test-key",
+            upstream_provider="deepinfra",
+            allow_fallbacks=True,
+        )
+        client.client.chat.completions.create = mock_create
+
+        async def _inner():
+            mock_create.return_value = _make_response(provider="together")
+            return await client._generate_provider_response(model_request)
+
+        response = asyncio.run(_inner())
+        assert response.actual_upstream_provider == "together"

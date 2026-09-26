@@ -215,6 +215,7 @@ class CachingClientWrapper:
             "finish_reason": response.finish_reason,
             "usage": usage,
             "logprobs": response.logprobs,
+            "actual_upstream_provider": response.actual_upstream_provider,
         }
         return payload
 
@@ -241,4 +242,8 @@ class CachingClientWrapper:
             error=None,
             timestamp_utc=None,
             logprobs=payload.get("logprobs"),
+            # .get(), not [...]: cache entries written before this field
+            # existed have no such key -- they must stay readable as None,
+            # not raise KeyError.
+            actual_upstream_provider=payload.get("actual_upstream_provider"),
         )

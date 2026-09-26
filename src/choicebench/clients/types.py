@@ -159,6 +159,7 @@ class ModelResponse:
         error: ErrorInfo | None = None,
         timestamp_utc: str | None = None,
         logprobs: list | None = None,
+        actual_upstream_provider: str | None = None,
     ) -> None:
         self.provider = provider
         self.model_name = model_name
@@ -170,6 +171,12 @@ class ModelResponse:
         self.error = error
         self.timestamp_utc = timestamp_utc
         self.logprobs = logprobs
+        # The upstream provider a gateway (e.g. OpenRouter) actually routed
+        # this request to, as reported by the response itself -- distinct
+        # from `provider`, which is the configured client/gateway name.
+        # None means either no gateway-level upstream applies to this
+        # client, or the gateway's response genuinely omitted it.
+        self.actual_upstream_provider = actual_upstream_provider
 
     def validate(self) -> None:
         """Validate that the response contains supported values and metadata."""
@@ -212,6 +219,12 @@ class ModelResponse:
             if not isinstance(self.finish_reason, str) or not self.finish_reason.strip():
                 raise ResponseValidationError(
                     "finish_reason must be a non-empty string or None."
+                )
+
+        if self.actual_upstream_provider is not None:
+            if not isinstance(self.actual_upstream_provider, str) or not self.actual_upstream_provider.strip():
+                raise ResponseValidationError(
+                    "actual_upstream_provider must be a non-empty string or None."
                 )
 
         if self.timestamp_utc is not None:

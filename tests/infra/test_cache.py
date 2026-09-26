@@ -409,6 +409,73 @@ class TestCachingClientWrapper:
         asyncio.run(_inner())
 
 
+class TestCachingClientWrapperActualUpstreamProviderProvenance:
+    """actual_upstream_provider is a response-level provenance field (the
+    upstream OpenRouter actually routed to), distinct from the client-level
+    upstream_provider/allow_fallbacks pinning already covered by
+    TestCachingClientWrapperUpstreamProviderIdentity below."""
+
+    def test_actual_upstream_provider_round_trips_through_cache(
+        self, tmp_path, base_request
+    ):
+        async def _inner():
+            resp = ModelResponse(
+                provider="openrouter",
+                model_name="qwen/qwen-2.5-7b-instruct",
+                status=SUCCESS_STATUS,
+                latency_seconds=0.1,
+                raw_text="A",
+                finish_reason="stop",
+                usage=None,
+                error=None,
+                timestamp_utc=None,
+                actual_upstream_provider="Phala",
+            )
+            req = ModelRequest(
+                provider="openrouter", model_name="qwen/qwen-2.5-7b-instruct",
+                payload="Which letter?", temperature=0.0, max_tokens=8,
+            )
+            mock_client = AsyncMock()
+            mock_client.provider = req.provider
+            mock_client.model_name = req.model_name
+            mock_client.generate = AsyncMock(return_value=resp)
+
+            wrapper = CachingClientWrapper(mock_client, ResponseCache(tmp_path / "cache"))
+            await wrapper.generate(req)
+            cached = await wrapper.generate(req)
+
+            assert cached.actual_upstream_provider == "Phala"
+            assert mock_client.generate.await_count == 1
+
+        asyncio.run(_inner())
+
+    def test_cached_payload_missing_actual_upstream_provider_reads_as_none(
+        self, tmp_path, base_request
+    ):
+        """Backward compatibility: an old cache entry written before this
+        field existed has no "actual_upstream_provider" key at all -- it
+        must remain readable, deserializing to None rather than raising."""
+        cache = ResponseCache(tmp_path / "cache")
+        key = _cache_key(base_request)
+        old_payload = {"raw_text": "Paris", "finish_reason": "stop", "usage": None}
+        cache.put(key, old_payload)
+
+        from choicebench.infra.cache import CachingClientWrapper as _CCW
+        restored = _CCW._build_cached_response(base_request, cache.get(key))
+        assert restored.actual_upstream_provider is None
+
+    def test_build_cached_response_restores_actual_upstream_provider(
+        self, base_request
+    ):
+        from choicebench.infra.cache import CachingClientWrapper as _CCW
+        payload = {
+            "raw_text": "Paris", "finish_reason": "stop", "usage": None,
+            "actual_upstream_provider": "Phala",
+        }
+        restored = _CCW._build_cached_response(base_request, payload)
+        assert restored.actual_upstream_provider == "Phala"
+
+
 class TestCachingClientWrapperUpstreamProviderIdentity:
     """The audit's "cache identity may omit runtime-affecting properties"
     concern, specifically for OpenRouter's upstream_provider/

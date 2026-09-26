@@ -265,6 +265,7 @@ class ExperimentRunner(ABC):
             ),
             "raw_text": model_response.raw_text if model_response else None,
             "finish_reason": model_response.finish_reason if model_response else None,
+            "actual_upstream_provider": model_response.actual_upstream_provider if model_response else None,
             "latency_seconds": model_response.latency_seconds if model_response else None,
             "timestamp_utc": model_response.timestamp_utc if model_response else None,
             # --- error info ---

@@ -88,8 +88,17 @@ class OpenRouterClient(BaseClient):
             raise map_api_status_error(exc) from exc
 
     @staticmethod
-    def _extract_response(response) -> tuple[str, str | None, UsageInfo | None]:
-        """Parse an OpenRouter chat-completions response into (raw_text, finish_reason, usage)."""
+    def _extract_response(response) -> tuple[str, str | None, UsageInfo | None, str | None]:
+        """Parse an OpenRouter chat-completions response into
+        (raw_text, finish_reason, usage, actual_upstream_provider).
+
+        `actual_upstream_provider` is OpenRouter's own non-standard
+        "provider" field on the response (the upstream that actually served
+        the request) -- not part of the official OpenAI response schema, but
+        preserved by the openai SDK's pydantic model as an extra field, so a
+        plain getattr() with a None default retrieves it when present and
+        never fabricates one when the SDK/response genuinely omits it.
+        """
         raw_text = None
         finish_reason = None
 
@@ -120,7 +129,11 @@ class OpenRouterClient(BaseClient):
                 ),
             )
 
-        return raw_text, finish_reason, usage
+        actual_upstream_provider = getattr(response, "provider", None)
+        if not isinstance(actual_upstream_provider, str) or not actual_upstream_provider.strip():
+            actual_upstream_provider = None
+
+        return raw_text, finish_reason, usage, actual_upstream_provider
 
     async def _generate_provider_response(
         self,
@@ -147,7 +160,27 @@ class OpenRouterClient(BaseClient):
             create_kwargs["extra_body"] = extra_body
 
         response = await self._call_openrouter(create_kwargs)
-        raw_text, finish_reason, usage = self._extract_response(response)
+        raw_text, finish_reason, usage, actual_upstream_provider = self._extract_response(response)
+
+        # Provenance invariant: when we explicitly pinned an upstream
+        # provider AND disabled fallbacks, a returned provider that's
+        # present but different from what we pinned means OpenRouter did
+        # not honor the pin -- fail loudly rather than silently accept a
+        # response from an unverified deployment. A mismatch is expected
+        # (and fine) whenever fallbacks are allowed, since that's the
+        # caller explicitly permitting OpenRouter to route elsewhere.
+        if (
+            self._upstream_provider is not None
+            and not self._allow_fallbacks
+            and actual_upstream_provider is not None
+            and actual_upstream_provider != self._upstream_provider
+        ):
+            raise ProviderResponseError(
+                f"OpenRouter routing mismatch: pinned upstream_provider="
+                f"{self._upstream_provider!r} with allow_fallbacks=False, "
+                f"but the response reports actual provider "
+                f"{actual_upstream_provider!r}."
+            )
 
         return ModelResponse(
             provider=request.provider,
@@ -160,4 +193,5 @@ class OpenRouterClient(BaseClient):
             error=None,
             timestamp_utc=None,
             logprobs=None,
+            actual_upstream_provider=actual_upstream_provider,
         )
