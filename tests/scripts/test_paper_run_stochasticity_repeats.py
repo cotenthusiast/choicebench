@@ -29,6 +29,14 @@ _MODEL_CONFIG = ModelConfig(
     generation_kwargs=GenerationKwargsConfig(max_new_tokens=1024, temperature=0.0),
 )
 
+# HuggingFace-backed configs never set `provider` (it's "Only required for
+# API backends" per ModelConfig's own docstring) -- this mirrors the real
+# docs/reproducibility/eacl2026_local_redhatai_run/*.yaml entries exactly.
+_HF_MODEL_CONFIG = ModelConfig(
+    backend="huggingface", model_name_or_path="RedHatAI/fake-local-model",
+    generation_kwargs=GenerationKwargsConfig(max_new_tokens=1024, temperature=0.0),
+)
+
 
 class _FakeAsyncBackend:
     """is_async_capable()=True double: generate_batch() returns a fixed
@@ -64,6 +72,32 @@ class _FakeAsyncBackend:
 
     def generate(self, prompt, **kwargs):
         raise RuntimeError("must not be called for an async-capable backend")
+
+
+class _FakeSyncBackend:
+    """is_async_capable()=False double, mirroring HuggingFaceBackend: it
+    has NO generate_batch() at all. If the sync-only fresh-repetition path
+    ever called it (the bug this class exists to catch), that would raise
+    AttributeError rather than silently doing the wrong thing."""
+
+    def __init__(self, response_text: str = "C") -> None:
+        self._response_text = response_text
+        self.generate_calls: list[str] = []
+
+    def is_async_capable(self) -> bool:
+        return False
+
+    @property
+    def provider(self) -> str:
+        return "huggingface"
+
+    @property
+    def model_name(self) -> str:
+        return "RedHatAI/fake-local-model"
+
+    def generate(self, prompt, **kwargs) -> str:
+        self.generate_calls.append(prompt)
+        return self._response_text
 
 
 def _questions_csv(tmp_path, question_ids, n_options=4) -> Path:
@@ -362,6 +396,60 @@ class TestRunStochasticityRepeatsBaseline:
                 method_name="direct_mcq", prompt_version="v1",
                 canonical_obs0_csv=tmp_path / "unused_canonical.csv",
             )
+
+
+class TestRunStochasticityRepeatsSyncOnlyBackend:
+    """HuggingFaceBackend (the local RedHatAI production path) is
+    is_async_capable()=False and has no generate_batch() at all -- fresh
+    repetitions must go through the sync run_many() path instead of
+    unconditionally calling run_many_async(), and observation-0 identity
+    matching must not require model_config.provider to be set (HF configs
+    never set it -- see ModelConfig.provider's own docstring)."""
+
+    def test_fresh_repetitions_use_sync_path_for_a_non_async_backend(self, tmp_path, monkeypatch):
+        backend = _FakeSyncBackend()
+        monkeypatch.setattr(mod, "build_backend", lambda *a, **k: backend)
+        source = _questions_csv(tmp_path, ["q1", "q2"])
+        output = tmp_path / "out.csv"
+        canonical = _canonical_obs0_csv(tmp_path, [
+            {"question_id": "q1", "method_name": "direct_mcq", "parsed_choice": "C", "is_correct": True,
+             "provider": "huggingface", "model_name": "RedHatAI/fake-local-model"},
+            {"question_id": "q2", "method_name": "direct_mcq", "parsed_choice": "A", "is_correct": False,
+             "provider": "huggingface", "model_name": "RedHatAI/fake-local-model"},
+        ])
+
+        n_written = mod.run(
+            source, _HF_MODEL_CONFIG, "test_run", output, method_name="direct_mcq",
+            prompt_version="v1", canonical_obs0_csv=canonical, n_repetitions=4, run_seed=42,
+            execution_mode="sync",
+        )
+
+        assert n_written == 8  # 2 questions x 4 repetitions (1 reused + 3 fresh)
+        assert len(backend.generate_calls) == 6  # 2 questions x 3 fresh repetitions
+        result_df = pd.read_csv(output)
+        assert len(result_df) == 8
+        assert sorted(result_df["repetition_index"].unique().tolist()) == [0, 1, 2, 3]
+
+    def test_obs0_identity_check_does_not_require_model_config_provider(self, tmp_path, monkeypatch):
+        """Regression guard: model_config.provider is None for HF configs
+        -- the obs0 identity check must compare against the resolved
+        backend provider (or model_config.backend), never str(None)."""
+        backend = _FakeSyncBackend()
+        monkeypatch.setattr(mod, "build_backend", lambda *a, **k: backend)
+        source = _questions_csv(tmp_path, ["q1"])
+        output = tmp_path / "out.csv"
+        canonical = _canonical_obs0_csv(tmp_path, [
+            {"question_id": "q1", "method_name": "direct_mcq", "parsed_choice": "C", "is_correct": True,
+             "provider": "huggingface", "model_name": "RedHatAI/fake-local-model"},
+        ])
+
+        # Must not raise -- a real bug raised "provider=['None'] ... expected
+        # provider='huggingface'" here before the fix.
+        mod.run(
+            source, _HF_MODEL_CONFIG, "test_run", output, method_name="direct_mcq",
+            prompt_version="v1", canonical_obs0_csv=canonical, n_repetitions=1, run_seed=42,
+            execution_mode="sync",
+        )
 
 
 class TestRunStochasticityRepeatsTwoStage:

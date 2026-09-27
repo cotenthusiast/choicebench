@@ -398,7 +398,13 @@ def run(
     pending_df_0 = source_df[pending_mask_0]
     if len(pending_df_0) > 0:
         expected_identity = {
-            "provider": model_config.provider,
+            # model_config.provider is None for HF configs ("Only required
+            # for API backends" -- ModelConfig's own docstring); the
+            # resolved backend's own provider ("huggingface") is what
+            # actually lands in a saved row's provider column, so fall
+            # back to model_config.backend rather than comparing against
+            # the literal string "None".
+            "provider": model_config.provider or model_config.backend,
             "model_name": model_config.model_name_or_path,
             "benchmark_name": source_df["benchmark_name"].iloc[0] if len(source_df) else "",
             "prompt_version": prompt_version,
@@ -436,7 +442,14 @@ def run(
             max_tokens=model_config.generation_kwargs.max_new_tokens,
         )
 
-        results = asyncio.run(runner.run_many_async(pending_df))
+        # Non-async-capable backends (HuggingFaceBackend) have no
+        # generate_batch() at all -- mirrors run_experiment.py's own
+        # run_method() branch, reusing each runner's already-tested sync
+        # run_one()-based path instead of the batch-dispatch async one.
+        if backend.is_async_capable():
+            results = asyncio.run(runner.run_many_async(pending_df))
+        else:
+            results = runner.run_many(pending_df)
         for result in results:
             result["repetition_index"] = repetition_index
         new_rows.extend(results)
