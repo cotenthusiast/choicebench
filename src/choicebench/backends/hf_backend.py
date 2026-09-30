@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import logging
+import time
+from typing import TYPE_CHECKING
 
 from choicebench.backends.base import BaseBackend
+
+if TYPE_CHECKING:
+    from choicebench.clients.types import ModelResponse
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +43,8 @@ class HuggingFaceBackend(BaseBackend):
         add_bos_token: bool = True,
         revision: str | None = None,
         torch_dtype: str | None = None,
+        batch_size: int | None = None,
+        fast_fp8_qdq: bool = False,
         **generation_kwargs,
     ) -> None:
         """
@@ -59,6 +66,14 @@ class HuggingFaceBackend(BaseBackend):
                 compressed-tensors FP8 model) whose non-quantized layers
                 have their own native dtype that forcing float16 would
                 silently override.
+            batch_size: Opt-in batched greedy generation. None (default) keeps
+                the one-prompt-at-a-time path. An int >= 1 makes the backend
+                async-capable: generate_batch() runs prompts in fixed chunks of
+                this size (input order, left padding). Greedy decoding only.
+            fast_fp8_qdq: Replace compressed-tensors' eager per-token FP8
+                activation QDQ with an arithmetic-identical fast version (see
+                hf_fast_fp8.py). Verified bit-exact against the original
+                forward at load time; raises if it is not.
             **generation_kwargs: Default overrides for generate(), e.g.
                 max_new_tokens=256, temperature=0.7, do_sample=True. Any of
                 these can also be passed per-call to generate().
@@ -68,6 +83,10 @@ class HuggingFaceBackend(BaseBackend):
         self._add_bos_token = add_bos_token
         self._revision = revision
         self._torch_dtype = torch_dtype
+        if batch_size is not None and batch_size < 1:
+            raise ValueError(f"batch_size must be >= 1; got {batch_size}.")
+        self._batch_size = batch_size
+        self._fast_fp8_qdq = fast_fp8_qdq
         self._default_generation_kwargs = generation_kwargs
         self._model = None
         self._tokenizer = None
@@ -129,8 +148,58 @@ class HuggingFaceBackend(BaseBackend):
         if self._device != "auto":
             self._model.to(self._device)
         self._model.eval()
+        if self._fast_fp8_qdq:
+            from choicebench.backends.hf_fast_fp8 import install_fast_fp8_qdq
+            logger.info("Fast FP8 QDQ installed on %d modules", install_fast_fp8_qdq(self._model))
         self._loaded = True
         logger.info("Model ready: %s", self._model_path)
+
+    def is_async_capable(self) -> bool:
+        return self._batch_size is not None
+
+    async def generate_single_async(self, prompt: str) -> ModelResponse:
+        return (await self.generate_batch([prompt]))[0]
+
+    async def generate_batch(self, prompts: list[str]) -> list[ModelResponse]:
+        """Greedy-generate all prompts in fixed chunks of batch_size, input order."""
+        # Lazy: clients.types -> config.providers -> config.schema -> this module.
+        from choicebench.clients.types import SUCCESS_STATUS, ModelResponse
+        if not self._loaded:
+            raise RuntimeError("Call load() before generate_batch().")
+        if self._batch_size is None:
+            raise RuntimeError("generate_batch() requires batch_size to be set.")
+        if self._default_generation_kwargs.get("do_sample", _DEFAULT_DO_SAMPLE):
+            raise ValueError("Batched generation supports greedy decoding only (do_sample=False).")
+        max_new_tokens = self._default_generation_kwargs.get("max_new_tokens", _DEFAULT_MAX_NEW_TOKENS)
+        tok = self._tokenizer
+        tok.padding_side = "left"
+        if tok.pad_token is None:
+            tok.pad_token = tok.eos_token
+        eos = self._model.generation_config.eos_token_id
+        eos_ids = set(eos if isinstance(eos, list) else [] if eos is None else [eos])
+
+        responses: list[ModelResponse] = []
+        for start in range(0, len(prompts), self._batch_size):
+            chunk = prompts[start:start + self._batch_size]
+            enc = tok(chunk, return_tensors="pt", padding=True, add_special_tokens=self._add_bos_token)
+            enc = enc.to(self._get_input_device())
+            t0 = time.perf_counter()
+            with self._torch.no_grad():
+                out = self._model.generate(
+                    **enc, max_new_tokens=max_new_tokens, do_sample=False, pad_token_id=tok.eos_token_id,
+                )
+            latency = time.perf_counter() - t0
+            prompt_len = enc["input_ids"].shape[1]
+            for row in out:
+                ids = row[prompt_len:].tolist()
+                cut = next((j for j, tid in enumerate(ids) if tid in eos_ids), None)
+                if cut is not None:
+                    ids = ids[: cut + 1]
+                responses.append(ModelResponse(
+                    provider=self.provider, model_name=self.model_name, status=SUCCESS_STATUS,
+                    latency_seconds=latency, raw_text=tok.decode(ids, skip_special_tokens=True),
+                ))
+        return responses
 
     def _get_input_device(self):
         """Device input tensors should be moved to before a forward pass.

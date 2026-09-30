@@ -1040,3 +1040,75 @@ async def test_run_method_catches_api_generate_direct_call(tmp_path, monkeypatch
             checkpoint_every_n=10,
             resume=False,
         )
+
+
+def test_build_backend_forwards_hf_batching_options_when_set(monkeypatch):
+    run_exp = _load_run_experiment()
+
+    class _FakeHF:
+        def __init__(self, model_name_or_path, device, **generation_kwargs):
+            self.generation_kwargs = generation_kwargs
+
+        def load(self):
+            pass
+
+    monkeypatch.setattr(run_exp, "HuggingFaceBackend", _FakeHF)
+
+    backend = run_exp.build_backend(
+        _model("huggingface", device="cuda", hf_batch_size=32, hf_fast_fp8_qdq=True),
+        "rid", run_seed=1,
+    )
+    assert backend.generation_kwargs["batch_size"] == 32
+    assert backend.generation_kwargs["fast_fp8_qdq"] is True
+
+
+def test_build_backend_omits_hf_batching_options_when_unset(monkeypatch):
+    run_exp = _load_run_experiment()
+
+    class _FakeHF:
+        def __init__(self, model_name_or_path, device, **generation_kwargs):
+            self.generation_kwargs = generation_kwargs
+
+        def load(self):
+            pass
+
+    monkeypatch.setattr(run_exp, "HuggingFaceBackend", _FakeHF)
+
+    backend = run_exp.build_backend(_model("huggingface", device="cuda"), "rid", run_seed=1)
+    assert "batch_size" not in backend.generation_kwargs
+    assert "fast_fp8_qdq" not in backend.generation_kwargs
+
+
+class _AsyncRunner:
+    run_id = "rid"
+
+    class backend:  # async-capable backend that is NOT an APIBackend (batched HF)
+        @staticmethod
+        def is_async_capable():
+            return True
+
+    def __init__(self):
+        self.async_calls = 0
+
+    def run_many(self, rows):
+        raise AssertionError("sync path must not be used for an async-capable backend")
+
+    async def run_many_async(self, rows):
+        self.async_calls += 1
+        return [{"question_id": r["question_id"]} for r in rows.to_dict(orient="records")]
+
+
+def test_run_method_uses_async_path_for_any_async_capable_backend(tmp_path, monkeypatch):
+    run_exp = _load_run_experiment()
+    monkeypatch.setattr(run_exp, "write_run_results", lambda **kwargs: tmp_path / "out.csv")
+    runner = _AsyncRunner()
+    asyncio.run(run_exp.run_method(
+        method_name="direct_mcq",
+        runner=runner,
+        questions=pd.DataFrame([{"question_id": "q1"}, {"question_id": "q2"}]),
+        checkpoint_mgr=_CheckpointDouble(None),
+        output_dir=tmp_path,
+        checkpoint_every_n=10,
+        resume=False,
+    ))
+    assert runner.async_calls == 1

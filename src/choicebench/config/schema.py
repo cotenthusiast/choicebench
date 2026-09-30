@@ -100,6 +100,14 @@ class ModelConfig:
     # FP8 model) whose non-quantized layers have their own native dtype
     # (often bfloat16) that forcing float16 would silently override.
     torch_dtype: str | None = None
+    # HuggingFaceBackend only, opt-in (default off = the one-prompt-at-a-time
+    # path, unchanged). hf_batch_size: greedy generation in fixed chunks of this
+    # size (left padding, input order); makes the backend async-capable so the
+    # methods' batched paths are used. hf_fast_fp8_qdq: arithmetic-identical
+    # fast replacement for compressed-tensors' eager FP8 activation QDQ,
+    # verified bit-exact at load time. Both change execution shape only.
+    hf_batch_size: int | None = None
+    hf_fast_fp8_qdq: bool = False
     # API backends only. This is deliberately SEPARATE from run.seed (the
     # experiment seed, used for benchmark sampling/manifests, deterministic
     # tie-breaking, and bootstrap analysis) -- run.seed must never leak into
@@ -298,6 +306,7 @@ def _build_models(raw: dict) -> list[ModelConfig]:
             "backend", "model_name_or_path", "provider", "device", "generation_kwargs",
             "concurrency_limit", "base_url", "add_bos_token", "revision",
             "upstream_provider", "allow_fallbacks", "torch_dtype", "provider_seed",
+            "hf_batch_size", "hf_fast_fp8_qdq",
         }, f"models[{i}]")
         backend = _nonempty(_require(entry, "backend", f"models[{i}]"), f"models[{i}].backend")
         if backend not in _VALID_BACKENDS:
@@ -338,6 +347,11 @@ def _build_models(raw: dict) -> list[ModelConfig]:
                 allow_fallbacks=_strict_bool(entry.get("allow_fallbacks", True), f"models[{i}].allow_fallbacks"),
                 add_bos_token=_strict_bool(entry.get("add_bos_token", True), f"models[{i}].add_bos_token"),
                 torch_dtype=torch_dtype,
+                hf_batch_size=(
+                    _strict_int(entry["hf_batch_size"], f"models[{i}].hf_batch_size", minimum=1)
+                    if entry.get("hf_batch_size") is not None else None
+                ),
+                hf_fast_fp8_qdq=_strict_bool(entry.get("hf_fast_fp8_qdq", False), f"models[{i}].hf_fast_fp8_qdq"),
                 revision=(
                     _nonempty(entry["revision"], f"models[{i}].revision")
                     if entry.get("revision") is not None else None

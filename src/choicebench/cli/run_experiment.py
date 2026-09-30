@@ -237,6 +237,10 @@ def build_backend(
             hf_kwargs["revision"] = model_config.revision
         if model_config.torch_dtype is not None:
             hf_kwargs["torch_dtype"] = model_config.torch_dtype
+        if model_config.hf_batch_size is not None:
+            hf_kwargs["batch_size"] = model_config.hf_batch_size
+        if model_config.hf_fast_fp8_qdq:
+            hf_kwargs["fast_fp8_qdq"] = True
         backend = HuggingFaceBackend(
             model_config.model_name_or_path, model_config.device, **hf_kwargs,
         )
@@ -582,9 +586,9 @@ async def run_method(
         remaining = questions
         logger.info("[%s] Starting fresh: %d questions", method_name, len(remaining))
 
-    # Use async batch path for API backends; sync path for HF / Dummy.
+    # Use async batch path for async-capable backends (API, batched HF); sync path otherwise.
     backend = getattr(runner, "backend", None)
-    use_async = backend is not None and isinstance(backend, APIBackend)
+    use_async = backend is not None and getattr(backend, "is_async_capable", lambda: False)()
 
     # --- Batched inference loop ---
     for batch_start in range(0, len(remaining), checkpoint_every_n):
