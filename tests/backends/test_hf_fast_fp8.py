@@ -81,3 +81,10 @@ def test_mismatch_against_original_forward_raises_and_restores():
     with pytest.raises(RuntimeError, match="not bit-identical"):
         install_fast_fp8_qdq(model)
     assert all(m.forward.__func__ is off_by_one for m in model)
+
+
+def test_still_compressed_fp8_weights_fail_loudly():
+    model = torch.nn.Sequential(_QuantLinear(16, 16))
+    model[0].weight.data = model[0].weight.data.to(FP8)  # compressed-tensors keeps fp8 weights until the first forward
+    with pytest.raises(RuntimeError, match="still compressed"):
+        install_fast_fp8_qdq(model)

@@ -150,6 +150,10 @@ class HuggingFaceBackend(BaseBackend):
         self._model.eval()
         if self._fast_fp8_qdq:
             from choicebench.backends.hf_fast_fp8 import install_fast_fp8_qdq
+            # compressed-tensors keeps fp8 weights until the first forward decompresses them; the
+            # patch (and its bit-exactness probe) needs the decompressed weights, so force that first.
+            with self._torch.no_grad():
+                self._model(**self._tokenizer(".", return_tensors="pt").to(self._get_input_device()))
             logger.info("Fast FP8 QDQ installed on %d modules", install_fast_fp8_qdq(self._model))
         self._loaded = True
         logger.info("Model ready: %s", self._model_path)

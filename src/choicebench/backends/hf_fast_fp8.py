@@ -25,6 +25,11 @@ def install_fast_fp8_qdq(model, check_modules: int = 16) -> int:
         raise RuntimeError("install_fast_fp8_qdq: no quantized Linear modules found.")
 
     fp8 = torch.float8_e4m3fn
+    if any(mod.weight.dtype == fp8 for mod in mods):
+        raise RuntimeError(
+            "install_fast_fp8_qdq: weights are still compressed (float8); compressed-tensors only "
+            "decompresses them on the first forward pass -- run one forward before installing."
+        )
     qmax, qmin = float(torch.finfo(fp8).max), float(torch.finfo(fp8).min)
     half_range = (qmax - qmin) / 2
     eps_cache: dict = {}

@@ -111,3 +111,25 @@ def test_generate_batch_refuses_sampling():
 def test_batch_size_must_be_positive():
     with pytest.raises(ValueError, match="batch_size"):
         HuggingFaceBackend("tiny", device="cpu", batch_size=0)
+
+
+def test_fast_qdq_load_runs_warmup_forward_before_patching(monkeypatch):
+    """compressed-tensors only decompresses fp8 weights on the first forward, so load() must
+    run one forward BEFORE installing the fast-QDQ patch (and its bit-exactness probe)."""
+    import transformers
+    import choicebench.backends.hf_fast_fp8 as fast
+    model, tokenizer = _tiny()
+    events = []
+    real_forward = model.forward
+
+    def spy(*args, **kwargs):
+        events.append("forward")
+        return real_forward(*args, **kwargs)
+
+    model.forward = spy
+    monkeypatch.setattr(transformers.AutoModelForCausalLM, "from_pretrained", lambda *a, **k: model)
+    monkeypatch.setattr(transformers.AutoTokenizer, "from_pretrained", lambda *a, **k: tokenizer)
+    monkeypatch.setattr(fast, "install_fast_fp8_qdq", lambda m: events.append("install") or 3)
+    backend = HuggingFaceBackend("tiny", device="cpu", fast_fp8_qdq=True)
+    backend.load()
+    assert events == ["forward", "install"]
