@@ -81,3 +81,10 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+# The prompt templates live in resources/prompts/<version>/ -- plain directories, not
+# packages -- so include-package-data alone only ships them when a stale egg-info
+# SOURCES.txt happens to list them (true in a long-lived dev checkout, false in a
+# clean CI checkout). Declare them explicitly.
+[tool.setuptools.package-data]
+choicebench = ["resources/prompts/**/*.txt"]
