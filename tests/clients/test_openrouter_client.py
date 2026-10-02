@@ -173,6 +173,20 @@ class TestOpenRouterClientGenerateProviderResponse:
         response = asyncio.run(_inner())
         assert response.actual_upstream_provider == "deepinfra"
 
+    def test_pinned_provider_match_is_case_insensitive(
+        self, pinned_client, model_request, pinned_mock_create
+    ):
+        """OpenRouter reports display names ("DeepInfra") while the pin is the
+        lowercase slug ("deepinfra"); the same upstream must not be rejected, and the
+        value OpenRouter actually reported is what gets recorded."""
+        async def _inner():
+            pinned_mock_create.return_value = _make_response(provider="DeepInfra")
+            return await pinned_client._generate_provider_response(model_request)
+
+        response = asyncio.run(_inner())
+        assert response.is_success()
+        assert response.actual_upstream_provider == "DeepInfra"
+
     def test_pinned_mismatched_actual_provider_fails_loudly(
         self, pinned_client, model_request, pinned_mock_create
     ):
