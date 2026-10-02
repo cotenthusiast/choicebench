@@ -173,7 +173,7 @@ class OpenRouterClient(BaseClient):
             self._upstream_provider is not None
             and not self._allow_fallbacks
             and actual_upstream_provider is not None
-            and actual_upstream_provider != self._upstream_provider
+            and actual_upstream_provider.casefold() != self._upstream_provider.casefold()
         ):
             raise ProviderResponseError(
                 f"OpenRouter routing mismatch: pinned upstream_provider="
