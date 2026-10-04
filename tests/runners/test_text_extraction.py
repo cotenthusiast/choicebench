@@ -257,3 +257,59 @@ class TestRunRotationsManyAsync:
         assert results[0]["run_id"] == "test_run_001"
         assert results[0]["method_name"] == "text_extraction"
         assert results[0]["split_name"] == "test"
+
+
+class TestParserParityAcrossExecutionPaths:
+    """Regression: every execution path must score a saved raw response with the exact->containment->cosine
+    cascade, never the generic letter parser. The async/batched path (base run_many_async) used to call the
+    letter parser, so production results from every async-capable backend were silently mis-scored."""
+
+    pytestmark = pytest.mark.asyncio
+
+    # "B" is a bare letter: the letter parser would return B; the cascade (matching option TEXT) must not.
+    RAWS = ["HTTPS", "B", "completely unrelated gibberish response", "ftp", "The best answer is HTTPS"]
+
+    def _df(self, row):
+        return pd.DataFrame([row] * len(self.RAWS))
+
+    def _sync_choices(self, row):
+        runner = _make_runner(MockBackend(responses=list(self.RAWS)))
+        return [r["parsed_choice"] for r in runner.run_many(self._df(row))]
+
+    async def _async_rows(self, row):
+        runner = _make_runner(_AsyncMockBackend(list(self.RAWS)))
+        return await runner.run_many_async(self._df(row))
+
+    async def test_async_path_does_not_use_the_letter_parser(self, runner_question_row):
+        rows = await self._async_rows(runner_question_row)
+        assert rows[1]["parsed_choice"] is None          # raw "B" is not an option text
+        assert rows[0]["parsed_choice"] == "C"
+        assert all(r["parse_reason"] == "text_matcher_cascade" for r in rows)
+
+    async def test_sync_and_async_paths_agree_on_every_raw_response(self, runner_question_row):
+        rows = await self._async_rows(runner_question_row)
+        assert [r["parsed_choice"] for r in rows] == self._sync_choices(runner_question_row)
+        assert [r["is_correct"] for r in rows] == [
+            r["is_correct"] for r in _make_runner(MockBackend(responses=list(self.RAWS))).run_many(self._df(runner_question_row))
+        ]
+
+    async def test_batched_rotation_path_agrees_on_rotation_zero(self, runner_question_row):
+        runner = _make_runner(_AsyncMockBackend([raw for raw in self.RAWS for _ in range(4)]))
+        rows = await runner.run_rotations_many_async(self._df(runner_question_row))
+        rotation_zero = [json.loads(r["per_rotation_choices_json"])[0] for r in rows]
+        assert rotation_zero == self._sync_choices(runner_question_row)
+
+    async def test_failed_transport_is_unscorable_on_the_async_path(self, runner_question_row):
+        backend = _AsyncMockBackend(["HTTPS"])
+        original = backend.generate_batch
+
+        async def failing(prompts):
+            out = await original(prompts)
+            return [ModelResponse(provider="openai", model_name="mock-model", status="failure", latency_seconds=0.0,
+                                  raw_text=None, finish_reason=None, usage=None, error=None, timestamp_utc=None)
+                    for _ in out]
+
+        backend.generate_batch = failing
+        rows = await _make_runner(backend).run_many_async(pd.DataFrame([runner_question_row]))
+        assert rows[0]["parsed_choice"] is None
+        assert rows[0]["transport_status"] == "failure"
