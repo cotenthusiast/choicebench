@@ -102,11 +102,23 @@ def _choice(runner, family: str, raw, rotation, letters, row) -> str | None:
     return None if parsed.final_choice is None else letters[rotation.slot_to_canonical[letters.index(parsed.final_choice)]]
 
 
+_LOOP = None
+
+
+def _run_async(coro):
+    """Run on ONE persistent event loop for the whole process. Async provider clients bind their connections to the loop that first
+    used them, so a fresh asyncio.run() per chunk makes every later chunk fail with 'Connection error'."""
+    global _LOOP
+    if _LOOP is None or _LOOP.is_closed():
+        _LOOP = asyncio.new_event_loop()
+    return _LOOP.run_until_complete(coro)
+
+
 def _send(backend, runner, prompts: list[str]):
     if not prompts:
         return []
     if backend.is_async_capable():
-        return asyncio.run(backend.generate_batch(prompts))
+        return _run_async(backend.generate_batch(prompts))
     return [runner._call_backend_generate(p) for p in prompts]
 
 

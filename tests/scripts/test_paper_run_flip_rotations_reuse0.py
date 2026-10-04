@@ -283,3 +283,29 @@ class TestTokenUsageForSpendTracking:
         _run(path, "two_stage", tmp_path / "o.csv", Responder(flaky))
         usage = json.loads(_rows(tmp_path / "o.csv")[0]["per_rotation_usage_json"])
         assert usage == [None, {"prompt_tokens": 11, "completion_tokens": 3}, None, {"prompt_tokens": 11, "completion_tokens": 3}]
+
+
+class LoopBound(Responder):
+    """Async SDK clients bind their connections to the event loop that first used them; a later asyncio.run() creates a NEW loop
+    and the next request fails with 'Connection error'. This fake reproduces that contract."""
+
+    def __init__(self, fn):
+        super().__init__(fn)
+        self._loop = None
+
+    async def generate_batch(self, prompts):
+        import asyncio
+        loop = asyncio.get_running_loop()
+        if self._loop is None:
+            self._loop = loop
+        elif loop is not self._loop:
+            raise ConnectionError("Connection error: client bound to a closed event loop")
+        return await super().generate_batch(prompts)
+
+
+class TestOneEventLoopAcrossChunks:
+    def test_every_chunk_runs_on_the_same_event_loop(self, tmp_path):
+        path = _two_stage_prod(tmp_path, n=3)
+        out = tmp_path / "o.csv"
+        assert _run(path, "two_stage", out, LoopBound(_answer_two_stage), chunk_size=1) == 3   # 3 chunks -> 3 batches
+        assert len(_rows(out)) == 3
