@@ -14,7 +14,7 @@ import pytest
 
 from choicebench.backends.api_backend import APIBackend
 from choicebench.backends.dummy_backend import DummyBackend
-from choicebench.clients.types import FAILURE_STATUS, SUCCESS_STATUS, ModelResponse
+from choicebench.clients.types import FAILURE_STATUS, SUCCESS_STATUS, ErrorInfo, ModelResponse
 from choicebench.config.schema import GenerationKwargsConfig, ModelConfig
 from choicebench.methods.library.text_extraction import TextExtractionRunner
 from choicebench.methods.library.two_stage import TwoStageRunner
@@ -49,7 +49,8 @@ class Responder(APIBackend):
         for p in prompts:
             text = self.fn(p)
             out.append(ModelResponse(provider="openai", model_name="mock", status=SUCCESS_STATUS if text is not None else FAILURE_STATUS,
-                                     latency_seconds=0.25, raw_text=text, actual_upstream_provider="deepinfra"))
+                                     latency_seconds=0.25, raw_text=text, actual_upstream_provider="deepinfra",
+                                     error=None if text is not None else ErrorInfo("ProviderMismatchError", "pinned deepinfra", False, "request")))
         return out
 
 
@@ -237,3 +238,33 @@ class TestRotationZeroReplayForThePilot:
         assert len(b.prompts) == 2 and set(b.prompts) <= set(pd.read_csv(path)["prompt"])
         assert summary == {"n": 2, "agree": 2, "agreement": 1.0}
         assert list(pd.read_csv(tmp_path / "replay.csv")["agree"]) == [True, True]
+
+
+class TestFailureVisibility:
+    def test_each_failed_rotation_records_its_error_type(self, tmp_path):
+        path = _two_stage_prod(tmp_path, n=1)
+        calls = {"n": 0}
+
+        def flaky(p):
+            calls["n"] += 1
+            return None if calls["n"] == 2 else _answer_two_stage(p)
+
+        _run(path, "two_stage", tmp_path / "o.csv", Responder(flaky))
+        assert json.loads(_rows(tmp_path / "o.csv")[0]["per_rotation_error_json"]) == [None, None, "ProviderMismatchError", None]
+
+    def test_a_chunk_that_mostly_fails_aborts_and_writes_nothing(self, tmp_path):
+        path = _two_stage_prod(tmp_path, n=4)                    # 4 questions x 3 generated = 12 calls, all failing
+        out = tmp_path / "o.csv"
+        with pytest.raises(RuntimeError, match="transport failure rate"):
+            _run(path, "two_stage", out, Responder(lambda p: None), chunk_size=4)
+        assert not out.exists()
+
+    def test_a_few_failures_below_the_threshold_do_not_abort(self, tmp_path):
+        path = _two_stage_prod(tmp_path, n=4)
+        calls = {"n": 0}
+
+        def one_failure(p):
+            calls["n"] += 1
+            return None if calls["n"] == 1 else _answer_two_stage(p)
+
+        assert _run(path, "two_stage", tmp_path / "o.csv", Responder(one_failure), chunk_size=4) == 4

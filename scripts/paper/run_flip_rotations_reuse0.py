@@ -141,14 +141,15 @@ def _load_flip_texts(path: Path | None, production: pd.DataFrame) -> dict[str, l
 def _columns():
     return [*_COPY, "run_id", "method_name", "flip_protocol", "per_rotation_choices_json", "per_rotation_source_json",
             "per_rotation_raw_text_json", "per_rotation_transport_status_json", "per_rotation_upstream_provider_json",
-            "per_rotation_latency_json", "per_rotation_prompt_sha256_json", "generated_rotation_indices_json",
+            "per_rotation_error_json", "per_rotation_latency_json", "per_rotation_prompt_sha256_json", "generated_rotation_indices_json",
             "rotation0_source_file", "rotation0_source_sha256", "rotation0_source_run_id", "rotation0_source_condition_id",
             "rotation0_source_method_name", "rotation0_parser", "rotation0_original_parsed_choice", "free_text_response",
             "stage1_text_flip_file", "stage1_text_flip_sha256"]
 
 
 def run(*, production_csv: Path, family: str, model_config, run_id: str, output_path: Path, backend=None, seed: int = 42,
-        execution_mode: str = "sync", chunk_size: int = 50, limit: int | None = None, text_extraction_flip_csv: Path | None = None) -> int:
+        execution_mode: str = "sync", chunk_size: int = 50, limit: int | None = None, text_extraction_flip_csv: Path | None = None,
+        max_failure_rate: float = 0.5) -> int:
     production_csv, output_path = Path(production_csv), Path(output_path)
     if output_path.resolve() == production_csv.resolve():
         raise ValueError("output must never be the canonical production file")
@@ -190,27 +191,36 @@ def run(*, production_csv: Path, family: str, model_config, run_id: str, output_
                 plan["prompts"][k] = _prompt(runner, family, row, rotations[k], text)
                 prompts.append(plan["prompts"][k])
             plans.append(plan)
-        responses = iter(_send(backend, runner, prompts))
+        sent = _send(backend, runner, prompts)
+        failed = [r for r in sent if not r.is_success()]
+        if sent and len(failed) / len(sent) > max_failure_rate:
+            first = failed[0].error.error_type if failed[0].error else "unknown"
+            raise RuntimeError(f"transport failure rate {len(failed)}/{len(sent)} on this chunk exceeds {max_failure_rate:.0%} "
+                               f"(first error: {first}) -- aborting before writing anything; fix the backend/pin and resume")
+        responses = iter(sent)
 
         rows_out = []
         for plan in plans:
             row, n = plan["row"], len(plan["rotations"])
             choices, raws, status, upstream, latency, sha = [plan["choice0"]], [_nn(row.get("raw_text"))], [_nn(row.get("transport_status"))], \
                 [_nn(row.get("actual_upstream_provider"))], [_nn(row.get("latency_seconds"))], [hashlib.sha256(row["prompt"].encode()).hexdigest()]
+            errors = [_nn(row.get("error_type"))]
             for k in range(1, n):
                 if plan["slots"][k] != "generated":
-                    choices.append(None); raws.append(None); status.append(None); upstream.append(None); latency.append(None); sha.append(None)
+                    choices.append(None); raws.append(None); status.append(None); upstream.append(None); latency.append(None); sha.append(None); errors.append(None)
                     continue
                 r = next(responses)
                 ok = r.is_success()
                 choices.append(_choice(runner, family, r.raw_text if ok else None, plan["rotations"][k], plan["letters"], row))
                 raws.append(r.raw_text if ok else None); status.append(r.status); upstream.append(r.actual_upstream_provider)
                 latency.append(r.latency_seconds); sha.append(hashlib.sha256(plan["prompts"][k].encode()).hexdigest())
+                errors.append(r.error.error_type if r.error else None)
             out = {c: _nn(row.get(c)) for c in _COPY}
             out.update(run_id=run_id, method_name=method, flip_protocol=PROTOCOL,
                        per_rotation_choices_json=json.dumps(choices), per_rotation_source_json=json.dumps(plan["slots"]),
                        per_rotation_raw_text_json=json.dumps(raws), per_rotation_transport_status_json=json.dumps(status),
-                       per_rotation_upstream_provider_json=json.dumps(upstream), per_rotation_latency_json=json.dumps(latency),
+                       per_rotation_upstream_provider_json=json.dumps(upstream), per_rotation_error_json=json.dumps(errors),
+                       per_rotation_latency_json=json.dumps(latency),
                        per_rotation_prompt_sha256_json=json.dumps(sha),
                        generated_rotation_indices_json=json.dumps([k for k, s in enumerate(plan["slots"]) if s == "generated"]),
                        rotation0_source_file=str(production_csv), rotation0_source_sha256=prod_sha,
@@ -270,6 +280,8 @@ def main() -> None:
     p.add_argument("--chunk-size", type=int, default=50)
     p.add_argument("--limit", type=int, default=None, help="only the first N production rows (pilot)")
     p.add_argument("--text-extraction-flip-csv", type=Path, default=None)
+    p.add_argument("--max-transport-failure-rate", type=float, default=0.5,
+                   help="abort a chunk (writing nothing) when more than this share of its calls fail")
     p.add_argument("--replay-rotation0", type=int, default=0, help="pilot only: re-send rotation 0 for the first N questions")
     p.add_argument("--replay-output", type=Path, default=None)
     a = p.parse_args()
@@ -281,7 +293,8 @@ def main() -> None:
                                    output_path=a.replay_output, n=a.replay_rotation0, seed=a.seed, execution_mode=a.execution_mode)
         print("rotation-0 replay:", summary)
     n = run(production_csv=a.production_csv, family=a.family, model_config=cfg, run_id=a.run_id, output_path=a.output, seed=a.seed,
-            execution_mode=a.execution_mode, chunk_size=a.chunk_size, limit=a.limit, text_extraction_flip_csv=a.text_extraction_flip_csv)
+            execution_mode=a.execution_mode, chunk_size=a.chunk_size, limit=a.limit, text_extraction_flip_csv=a.text_extraction_flip_csv,
+            max_failure_rate=a.max_transport_failure_rate)
     print(f"wrote {n} new rows -> {a.output}")
 
 
