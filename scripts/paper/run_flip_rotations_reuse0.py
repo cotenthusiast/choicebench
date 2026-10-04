@@ -141,7 +141,7 @@ def _load_flip_texts(path: Path | None, production: pd.DataFrame) -> dict[str, l
 def _columns():
     return [*_COPY, "run_id", "method_name", "flip_protocol", "per_rotation_choices_json", "per_rotation_source_json",
             "per_rotation_raw_text_json", "per_rotation_transport_status_json", "per_rotation_upstream_provider_json",
-            "per_rotation_error_json", "per_rotation_latency_json", "per_rotation_prompt_sha256_json", "generated_rotation_indices_json",
+            "per_rotation_error_json", "per_rotation_usage_json", "per_rotation_latency_json", "per_rotation_prompt_sha256_json", "generated_rotation_indices_json",
             "rotation0_source_file", "rotation0_source_sha256", "rotation0_source_run_id", "rotation0_source_condition_id",
             "rotation0_source_method_name", "rotation0_parser", "rotation0_original_parsed_choice", "free_text_response",
             "stage1_text_flip_file", "stage1_text_flip_sha256"]
@@ -205,9 +205,10 @@ def run(*, production_csv: Path, family: str, model_config, run_id: str, output_
             choices, raws, status, upstream, latency, sha = [plan["choice0"]], [_nn(row.get("raw_text"))], [_nn(row.get("transport_status"))], \
                 [_nn(row.get("actual_upstream_provider"))], [_nn(row.get("latency_seconds"))], [hashlib.sha256(row["prompt"].encode()).hexdigest()]
             errors = [_nn(row.get("error_type"))]
+            usage = [None]
             for k in range(1, n):
                 if plan["slots"][k] != "generated":
-                    choices.append(None); raws.append(None); status.append(None); upstream.append(None); latency.append(None); sha.append(None); errors.append(None)
+                    choices.append(None); raws.append(None); status.append(None); upstream.append(None); latency.append(None); sha.append(None); errors.append(None); usage.append(None)
                     continue
                 r = next(responses)
                 ok = r.is_success()
@@ -215,11 +216,12 @@ def run(*, production_csv: Path, family: str, model_config, run_id: str, output_
                 raws.append(r.raw_text if ok else None); status.append(r.status); upstream.append(r.actual_upstream_provider)
                 latency.append(r.latency_seconds); sha.append(hashlib.sha256(plan["prompts"][k].encode()).hexdigest())
                 errors.append(r.error.error_type if r.error else None)
+                usage.append({"prompt_tokens": r.usage.prompt_tokens, "completion_tokens": r.usage.completion_tokens} if r.usage else None)
             out = {c: _nn(row.get(c)) for c in _COPY}
             out.update(run_id=run_id, method_name=method, flip_protocol=PROTOCOL,
                        per_rotation_choices_json=json.dumps(choices), per_rotation_source_json=json.dumps(plan["slots"]),
                        per_rotation_raw_text_json=json.dumps(raws), per_rotation_transport_status_json=json.dumps(status),
-                       per_rotation_upstream_provider_json=json.dumps(upstream), per_rotation_error_json=json.dumps(errors),
+                       per_rotation_upstream_provider_json=json.dumps(upstream), per_rotation_error_json=json.dumps(errors), per_rotation_usage_json=json.dumps(usage),
                        per_rotation_latency_json=json.dumps(latency),
                        per_rotation_prompt_sha256_json=json.dumps(sha),
                        generated_rotation_indices_json=json.dumps([k for k, s in enumerate(plan["slots"]) if s == "generated"]),

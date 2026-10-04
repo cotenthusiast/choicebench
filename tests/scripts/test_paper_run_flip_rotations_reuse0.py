@@ -14,7 +14,7 @@ import pytest
 
 from choicebench.backends.api_backend import APIBackend
 from choicebench.backends.dummy_backend import DummyBackend
-from choicebench.clients.types import FAILURE_STATUS, SUCCESS_STATUS, ErrorInfo, ModelResponse
+from choicebench.clients.types import FAILURE_STATUS, SUCCESS_STATUS, ErrorInfo, ModelResponse, UsageInfo
 from choicebench.config.schema import GenerationKwargsConfig, ModelConfig
 from choicebench.methods.library.text_extraction import TextExtractionRunner
 from choicebench.methods.library.two_stage import TwoStageRunner
@@ -50,6 +50,7 @@ class Responder(APIBackend):
             text = self.fn(p)
             out.append(ModelResponse(provider="openai", model_name="mock", status=SUCCESS_STATUS if text is not None else FAILURE_STATUS,
                                      latency_seconds=0.25, raw_text=text, actual_upstream_provider="deepinfra",
+                                     usage=UsageInfo(11, 3, 14) if text is not None else None,
                                      error=None if text is not None else ErrorInfo("ProviderMismatchError", "pinned deepinfra", False, "request")))
         return out
 
@@ -268,3 +269,17 @@ class TestFailureVisibility:
             return None if calls["n"] == 1 else _answer_two_stage(p)
 
         assert _run(path, "two_stage", tmp_path / "o.csv", Responder(one_failure), chunk_size=4) == 4
+
+
+class TestTokenUsageForSpendTracking:
+    def test_generated_rotations_record_token_usage_and_rotation_zero_has_none(self, tmp_path):
+        path = _two_stage_prod(tmp_path, n=1)
+        calls = {"n": 0}
+
+        def flaky(p):
+            calls["n"] += 1
+            return None if calls["n"] == 2 else _answer_two_stage(p)
+
+        _run(path, "two_stage", tmp_path / "o.csv", Responder(flaky))
+        usage = json.loads(_rows(tmp_path / "o.csv")[0]["per_rotation_usage_json"])
+        assert usage == [None, {"prompt_tokens": 11, "completion_tokens": 3}, None, {"prompt_tokens": 11, "completion_tokens": 3}]
