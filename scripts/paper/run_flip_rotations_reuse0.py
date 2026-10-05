@@ -34,6 +34,7 @@ from pathlib import Path
 import pandas as pd
 
 from choicebench.cli.run_experiment import build_backend
+from choicebench.clients.types import SUCCESS_STATUS
 from choicebench.config.schema import load_config
 from choicebench.methods.library.text_extraction import TextExtractionRunner
 from choicebench.methods.library.two_stage import TwoStageRunner
@@ -254,6 +255,121 @@ def run(*, production_csv: Path, family: str, model_config, run_id: str, output_
     return written
 
 
+_TRACE_COLS = ("per_rotation_choices_json", "per_rotation_source_json", "per_rotation_raw_text_json", "per_rotation_transport_status_json",
+               "per_rotation_upstream_provider_json", "per_rotation_error_json", "per_rotation_usage_json", "per_rotation_latency_json",
+               "per_rotation_prompt_sha256_json")
+
+
+def _json_col(row: dict, col: str) -> list:
+    return json.loads(row[col])
+
+
+def repair(*, flip_csv: Path, production_csv: Path, family: str, model_config, run_id: str, output_path: Path, backend=None,
+           seed: int = 42, execution_mode: str = "sync", chunk_size: int = 50, text_extraction_flip_csv: Path | None = None,
+           max_failure_rate: float = 0.5) -> dict:
+    """Targeted repair of an existing flip file. Re-sends ONLY (a) generated rotations whose call failed at the transport level
+    and (b) for visible_llm_matcher, rotations skipped for want of a stage-1 text that the (repaired) text_extraction flip file now has.
+    A successful call whose answer did not parse is never retried. Every re-sent prompt must hash to the one originally sent
+    (b-type rotations have no earlier prompt to compare, but every already-generated rotation of the row is re-checked against the
+    stage-1 texts of the new text_extraction file). The input file is never modified; everything else is carried over verbatim."""
+    flip_csv, production_csv, output_path = Path(flip_csv), Path(production_csv), Path(output_path)
+    if output_path.resolve() == flip_csv.resolve():
+        raise ValueError("repair output must never overwrite the input flip file")
+    flip = pd.read_csv(flip_csv)
+    prod = _load_production(production_csv, family, None)
+    prod_sha = _sha256(production_csv)
+    if set(flip["rotation0_source_sha256"].astype(str)) != {prod_sha}:
+        raise ValueError(f"production file sha256 {prod_sha} is not the file this flip run reused ({sorted(set(flip['rotation0_source_sha256'].astype(str)))})")
+    prod_by_q = {str(r["question_id"]): r for r in prod.to_dict(orient="records")}
+    flip_texts = _load_flip_texts(text_extraction_flip_csv, prod) if family == "visible_llm_matcher" else None
+    flip_sha = _sha256(text_extraction_flip_csv) if flip_texts is not None else None
+    backend = backend or build_backend(model_config, run_id, run_seed=seed, execution_mode=execution_mode)
+    runner = _make_runner(family, model_config, run_id, seed, backend, str(prod["benchmark_name"].iloc[0]))
+
+    rows = flip.to_dict(orient="records")
+    plans = []   # one entry per question needing at least one re-send
+    for row in rows:
+        prow = prod_by_q[str(row["question_id"])]
+        rotations, letters, _ = _rotation0(runner, family, prow)
+        source, status, shas = _json_col(row, "per_rotation_source_json"), _json_col(row, "per_rotation_transport_status_json"), _json_col(row, "per_rotation_prompt_sha256_json")
+        targets = {}
+        for k in range(1, len(rotations)):
+            text = None
+            if family == "visible_llm_matcher":
+                text = _nn(flip_texts[str(row["question_id"])][k])
+            elif family != "text_extraction":
+                text = prow["free_text_response"]
+            if source[k] == "generated":
+                if family == "visible_llm_matcher" and text is None:
+                    raise ValueError(f"{row['question_id']}: rotation {k} was generated but the text_extraction file has no stage-1 text for it")
+                prompt = _prompt(runner, family, prow, rotations[k], text)
+                if hashlib.sha256(prompt.encode()).hexdigest() != shas[k]:
+                    raise ValueError(f"{row['question_id']}: rebuilt prompt for rotation {k} differs from the prompt originally sent (stage-1 text or template changed)")
+                if status[k] != SUCCESS_STATUS:
+                    targets[k] = prompt
+            elif source[k] == "skipped_no_stage1_text" and family == "visible_llm_matcher" and text is not None:
+                targets[k] = _prompt(runner, family, prow, rotations[k], text)
+        if targets:
+            plans.append({"row": row, "prow": prow, "rotations": rotations, "letters": letters, "targets": targets})
+
+    flat = [(i, k) for i, p in enumerate(plans) for k in p["targets"]]
+    sent: list = []
+    for start in range(0, len(flat), chunk_size):
+        part = flat[start:start + chunk_size]
+        got = _send(backend, runner, [plans[i]["targets"][k] for i, k in part])
+        failed = [r for r in got if not r.is_success()]
+        if got and len(failed) / len(got) > max_failure_rate:
+            first = failed[0].error.error_type if failed[0].error else "unknown"
+            raise RuntimeError(f"transport failure rate {len(failed)}/{len(got)} on this repair chunk exceeds {max_failure_rate:.0%} "
+                               f"(first error: {first}) -- aborting before writing anything")
+        sent.extend(got)
+
+    repaired_by_q: dict[int, list[int]] = {}
+    still_failed = 0
+    for (i, k), r in zip(flat, sent):
+        p, row = plans[i], plans[i]["row"]
+        still_failed += not r.is_success()
+        cols = p.setdefault("_cols", {c: _json_col(row, c) for c in _TRACE_COLS})
+        ok = r.is_success()
+        cols["per_rotation_choices_json"][k] = _choice(runner, family, r.raw_text if ok else None, p["rotations"][k], p["letters"], p["prow"])
+        cols["per_rotation_source_json"][k] = "generated"
+        cols["per_rotation_raw_text_json"][k] = r.raw_text if ok else None
+        cols["per_rotation_transport_status_json"][k] = r.status
+        cols["per_rotation_upstream_provider_json"][k] = r.actual_upstream_provider
+        cols["per_rotation_error_json"][k] = r.error.error_type if r.error else None
+        cols["per_rotation_usage_json"][k] = {"prompt_tokens": r.usage.prompt_tokens, "completion_tokens": r.usage.completion_tokens} if r.usage else None
+        cols["per_rotation_latency_json"][k] = r.latency_seconds
+        cols["per_rotation_prompt_sha256_json"][k] = hashlib.sha256(p["targets"][k].encode()).hexdigest()
+        if ok:
+            repaired_by_q.setdefault(i, []).append(k)
+
+    in_sha = _sha256(flip_csv)
+    by_q = {str(p["row"]["question_id"]): (i, p) for i, p in enumerate(plans)}
+    out_rows = []
+    for row in rows:
+        out = dict(row)
+        i, p = by_q.get(str(row["question_id"]), (None, None))
+        if p is not None and "_cols" in p:
+            for c, v in p["_cols"].items():
+                out[c] = json.dumps(v)
+            out["generated_rotation_indices_json"] = json.dumps([k for k, s in enumerate(p["_cols"]["per_rotation_source_json"]) if s == "generated"])
+        out["per_rotation_repaired_json"] = json.dumps(sorted(repaired_by_q.get(i, [])) if i is not None else [])
+        out["repaired_from_file"], out["repaired_from_sha256"], out["repair_run_id"] = str(flip_csv), in_sha, run_id
+        if flip_sha:
+            out["stage1_text_flip_file"], out["stage1_text_flip_sha256"] = str(text_extraction_flip_csv), flip_sha
+        out_rows.append(out)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    cols_out = list(out_rows[0].keys()) if out_rows else _columns()
+    tmp = output_path.with_suffix(output_path.suffix + ".tmp")
+    with open(tmp, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=cols_out)
+        writer.writeheader()
+        writer.writerows(out_rows)
+    tmp.replace(output_path)
+    return {"sent": len(sent), "repaired": sum(len(v) for v in repaired_by_q.values()), "still_failed": still_failed,
+            "questions": len(plans), "output_sha256": _sha256(output_path)}
+
+
 def replay_rotation0(*, production_csv: Path, family: str, model_config, run_id: str, output_path: Path, n: int, backend=None,
                      seed: int = 42, execution_mode: str = "sync", text_extraction_flip_csv: Path | None = None) -> dict:
     """PILOT ONLY: re-send rotation 0 for the first n questions and compare with production (API-nondeterminism probe)."""
@@ -296,6 +412,8 @@ def main() -> None:
     p.add_argument("--text-extraction-flip-csv", type=Path, default=None)
     p.add_argument("--max-transport-failure-rate", type=float, default=0.5,
                    help="abort a chunk (writing nothing) when more than this share of its calls fail")
+    p.add_argument("--repair-from", type=Path, default=None,
+                   help="targeted repair: re-send only transport-failed (and newly unblocked visible) rotations of this existing flip file into --output")
     p.add_argument("--replay-rotation0", type=int, default=0, help="pilot only: re-send rotation 0 for the first N questions")
     p.add_argument("--replay-output", type=Path, default=None)
     a = p.parse_args()
@@ -306,6 +424,11 @@ def main() -> None:
         summary = replay_rotation0(production_csv=a.production_csv, family=a.family, model_config=cfg, run_id=f"{a.run_id}_replay",
                                    output_path=a.replay_output, n=a.replay_rotation0, seed=a.seed, execution_mode=a.execution_mode)
         print("rotation-0 replay:", summary)
+    if a.repair_from:
+        print("repair:", repair(flip_csv=a.repair_from, production_csv=a.production_csv, family=a.family, model_config=cfg, run_id=a.run_id,
+                                output_path=a.output, seed=a.seed, execution_mode=a.execution_mode, chunk_size=a.chunk_size,
+                                text_extraction_flip_csv=a.text_extraction_flip_csv, max_failure_rate=a.max_transport_failure_rate))
+        return
     n = run(production_csv=a.production_csv, family=a.family, model_config=cfg, run_id=a.run_id, output_path=a.output, seed=a.seed,
             execution_mode=a.execution_mode, chunk_size=a.chunk_size, limit=a.limit, text_extraction_flip_csv=a.text_extraction_flip_csv,
             max_failure_rate=a.max_transport_failure_rate)

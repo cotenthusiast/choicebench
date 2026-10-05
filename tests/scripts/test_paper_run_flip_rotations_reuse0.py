@@ -309,3 +309,138 @@ class TestOneEventLoopAcrossChunks:
         out = tmp_path / "o.csv"
         assert _run(path, "two_stage", out, LoopBound(_answer_two_stage), chunk_size=1) == 3   # 3 chunks -> 3 batches
         assert len(_rows(out)) == 3
+
+
+def _repair(flip, path, family, out, backend, **kw):
+    return mod.repair(flip_csv=flip, production_csv=path, family=family, model_config=CFG, run_id="flip_t_repair",
+                      output_path=out, backend=backend, **kw)
+
+
+class TestTargetedTransportRepair:
+    """Only generated rotations whose call FAILED are re-sent; a successful call with an unparseable answer is never retried."""
+
+    def _flipped(self, tmp_path, fail_calls=(2,), unparseable_calls=(), n=1):
+        path = _two_stage_prod(tmp_path, n=n)
+        calls = {"n": 0}
+
+        def flaky(p):
+            calls["n"] += 1
+            if calls["n"] in fail_calls:
+                return None
+            return "no letter here" if calls["n"] in unparseable_calls else _answer_two_stage(p)
+
+        out = tmp_path / "flip.csv"
+        _run(path, "two_stage", out, Responder(flaky), max_failure_rate=1.0)
+        return path, out
+
+    def test_only_the_failed_rotation_is_resent_and_filled_in(self, tmp_path):
+        path, flip = self._flipped(tmp_path)
+        b = Responder(_answer_two_stage)
+        res = _repair(flip, path, "two_stage", tmp_path / "fixed.csv", b)
+        assert len(b.prompts) == 1 and res["sent"] == 1 and res["still_failed"] == 0
+        r = _rows(tmp_path / "fixed.csv")[0]
+        assert json.loads(r["per_rotation_choices_json"]) == ["C", "C", "C", "C"]
+        assert json.loads(r["per_rotation_transport_status_json"]) == [r0 for r0 in ["success"] * 4]
+        assert json.loads(r["per_rotation_repaired_json"]) == [2]
+        assert json.loads(r["per_rotation_source_json"]) == ["production", "generated", "generated", "generated"]
+
+    def test_an_unparseable_but_successful_answer_is_not_retried(self, tmp_path):
+        path, flip = self._flipped(tmp_path, fail_calls=(2,), unparseable_calls=(1,))
+        b = Responder(_answer_two_stage)
+        _repair(flip, path, "two_stage", tmp_path / "fixed.csv", b)
+        assert len(b.prompts) == 1                                  # rotation 2 only; rotation 1 (parser failure) left alone
+        assert json.loads(_rows(tmp_path / "fixed.csv")[0]["per_rotation_choices_json"])[1] is None
+
+    def test_untouched_rotations_and_columns_are_carried_over_unchanged(self, tmp_path):
+        path, flip = self._flipped(tmp_path, n=2)
+        before = _rows(flip)
+        _repair(flip, path, "two_stage", tmp_path / "fixed.csv", Responder(_answer_two_stage))
+        after = _rows(tmp_path / "fixed.csv")
+        for b_row, a_row in zip(before, after):
+            for col in ("question_id", "rotation0_source_sha256", "per_rotation_prompt_sha256_json", "per_rotation_latency_json"):
+                if col == "per_rotation_latency_json":
+                    assert json.loads(a_row[col])[:2] == json.loads(b_row[col])[:2]
+                else:
+                    assert a_row[col] == b_row[col]
+        assert after[0]["repaired_from_sha256"] == hashlib.sha256(flip.read_bytes()).hexdigest()
+
+    def test_a_repair_that_fails_again_stays_failed_and_is_reported(self, tmp_path):
+        path, flip = self._flipped(tmp_path)
+        res = _repair(flip, path, "two_stage", tmp_path / "fixed.csv", Responder(lambda p: None), max_failure_rate=1.0)
+        assert res["still_failed"] == 1
+        r = _rows(tmp_path / "fixed.csv")[0]
+        assert json.loads(r["per_rotation_transport_status_json"])[2] == FAILURE_STATUS and json.loads(r["per_rotation_repaired_json"]) == []
+
+    def test_repairing_an_already_clean_file_sends_nothing(self, tmp_path):
+        path, flip = self._flipped(tmp_path)
+        _repair(flip, path, "two_stage", tmp_path / "fixed.csv", Responder(_answer_two_stage))
+        b = Responder(_answer_two_stage)
+        res = _repair(tmp_path / "fixed.csv", path, "two_stage", tmp_path / "fixed2.csv", b)
+        assert b.prompts == [] and res["sent"] == 0
+
+    def test_output_may_not_overwrite_the_input_flip_file(self, tmp_path):
+        path, flip = self._flipped(tmp_path)
+        with pytest.raises(ValueError, match="overwrite"):
+            _repair(flip, path, "two_stage", flip, Responder(_answer_two_stage))
+
+    def test_refuses_when_the_resent_prompt_differs_from_the_original_one(self, tmp_path):
+        path, flip = self._flipped(tmp_path)
+        df = pd.read_csv(flip)
+        shas = json.loads(df.loc[0, "per_rotation_prompt_sha256_json"]); shas[2] = "0" * 64
+        df.loc[0, "per_rotation_prompt_sha256_json"] = json.dumps(shas)
+        df.to_csv(flip, index=False)
+        with pytest.raises(ValueError, match="prompt"):
+            _repair(flip, path, "two_stage", tmp_path / "fixed.csv", Responder(_answer_two_stage))
+
+    def test_refuses_when_the_production_file_is_not_the_one_the_flip_run_reused(self, tmp_path):
+        path, flip = self._flipped(tmp_path)
+        other = tmp_path / "other.csv"
+        other.write_bytes(path.read_bytes() + b"\n")
+        with pytest.raises(ValueError, match="sha256"):
+            _repair(flip, other, "two_stage", tmp_path / "fixed.csv", Responder(_answer_two_stage))
+
+    def test_a_mostly_failing_repair_aborts_and_writes_nothing(self, tmp_path):
+        path, flip = self._flipped(tmp_path, fail_calls=(1, 2, 3))
+        with pytest.raises(RuntimeError, match="transport failure rate"):
+            _repair(flip, path, "two_stage", tmp_path / "fixed.csv", Responder(lambda p: None))
+        assert not (tmp_path / "fixed.csv").exists()
+
+
+class TestVisibleSkippedRotationsRepair:
+    def _setup(self, tmp_path):
+        rn = _rt(VisibleLLMMatcherRunner, "visible_llm_matcher")
+        q = _q("q0")
+        rot0 = build_rotations(rn._build_options(q))[0]
+        q.update(method_name="visible_llm_matcher", reused_extracted_text="HTTPS",
+                 prompt=build_option_matching_prompt(template=rn._prompts["option_matching"], question=q["question_text"], free_text="HTTPS", options=rot0.mapping),
+                 raw_text="C", parsed_choice="C", transport_status="success")
+        path = tmp_path / "vis_prod.csv"
+        pd.DataFrame([q]).to_csv(path, index=False)
+        meta = dict(question_id="q0", model_name="gpt-4.1-mini", benchmark_name="mmlu", method_name="text_extraction")
+        flip_te_old = tmp_path / "te_flip_old.csv"
+        pd.DataFrame([dict(meta, per_rotation_raw_text_json=json.dumps(["HTTPS", "HTTPS", None, None]))]).to_csv(flip_te_old, index=False)
+        out = tmp_path / "vis_flip.csv"
+        _run(path, "visible_llm_matcher", out, Responder(_answer_two_stage), text_extraction_flip_csv=flip_te_old)
+        flip_te_new = tmp_path / "te_flip_new.csv"
+        pd.DataFrame([dict(meta, per_rotation_raw_text_json=json.dumps(["HTTPS", "HTTPS", "HTTPS", None]))]).to_csv(flip_te_new, index=False)
+        return path, out, flip_te_new
+
+    def test_a_skipped_rotation_whose_stage1_text_now_exists_gets_its_first_call(self, tmp_path):
+        path, flip, te_new = self._setup(tmp_path)
+        b = Responder(_answer_two_stage)
+        res = _repair(flip, path, "visible_llm_matcher", tmp_path / "fixed.csv", b, text_extraction_flip_csv=te_new)
+        assert len(b.prompts) == 1 and res["sent"] == 1                  # rotation 2 only; rotation 3 still has no stage-1 text
+        r = _rows(tmp_path / "fixed.csv")[0]
+        assert json.loads(r["per_rotation_choices_json"]) == ["C", "C", "C", None]
+        assert json.loads(r["per_rotation_source_json"]) == ["production", "generated", "generated", "skipped_no_stage1_text"]
+        assert json.loads(r["per_rotation_repaired_json"]) == [2]
+        assert json.loads(r["generated_rotation_indices_json"]) == [1, 2]
+        assert r["stage1_text_flip_sha256"] == hashlib.sha256(te_new.read_bytes()).hexdigest()
+
+    def test_refuses_when_the_new_stage1_texts_contradict_an_already_generated_rotation(self, tmp_path):
+        path, flip, te_new = self._setup(tmp_path)
+        df = pd.read_csv(te_new)
+        df.loc[0, "per_rotation_raw_text_json"] = json.dumps(["HTTPS", "SOMETHING ELSE", "HTTPS", None])
+        df.to_csv(te_new, index=False)
+        with pytest.raises(ValueError, match="prompt"):
+            _repair(flip, path, "visible_llm_matcher", tmp_path / "fixed.csv", Responder(_answer_two_stage), text_extraction_flip_csv=te_new)
