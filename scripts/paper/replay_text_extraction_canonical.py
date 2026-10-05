@@ -2,7 +2,7 @@
 #
 # Paper-specific (eacl-2026-revision): make the corrected text_extraction results canonical WITHOUT any new inference.
 #
-# The saved raw generations of the original (letter-parsed) text_extraction conditions are primed into a NEW run's response
+# The saved raw generations of the original (letter-parsed) text_extraction conditions are primed into the response
 # cache under the exact key a live request would use (provider, model, prompt, temperature, max_tokens, seed, provider pin).
 # The fixed TextExtractionRunner is then executed through the normal run_experiment pipeline, so the new run gets a genuine
 # manifest / artifact / SHA-256 chain, with every request a cache hit. Run it with provider keys that are NOT valid
@@ -91,7 +91,7 @@ def _model_key(name: str) -> str:
     return next(k for k in ("gpt", "claude", "qwen", "llama") if k in name.lower())
 
 
-def prime_run(*, original_run: Path, config_path: Path, run_id: str, seed: int = 42) -> dict:
+def prime_run(*, original_run: Path, config_path: Path, run_id: str, seed: int = 42, cache_scope: str = "shared") -> dict:
     import hashlib
 
     from choicebench.cli.run_experiment import build_backend
@@ -103,7 +103,7 @@ def prime_run(*, original_run: Path, config_path: Path, run_id: str, seed: int =
         if hashlib.sha256(cond["result"].read_bytes()).hexdigest() != cond["sha256"]:
             raise ValueError(f"{cond['result']}: SHA-256 differs from run_state -- refusing to replay a modified result")
         cfg = next(m for m in config.models if m.model_name_or_path.lower().endswith(cond["model"].lower().split("/")[-1]))
-        backend = build_backend(cfg, run_id, run_seed=seed, model_identity=cond["model_id"])
+        backend = build_backend(cfg, run_id, run_seed=seed, model_identity=cond["model_id"], cache_scope=cache_scope)
         summary[cond["condition_id"]] = prime_cache(backend, pd.read_csv(cond["result"]).to_dict(orient="records"))
     return summary
 
