@@ -353,7 +353,10 @@ def repair(*, flip_csv: Path, production_csv: Path, family: str, model_config, r
             for c, v in p["_cols"].items():
                 out[c] = json.dumps(v)
             out["generated_rotation_indices_json"] = json.dumps([k for k, s in enumerate(p["_cols"]["per_rotation_source_json"]) if s == "generated"])
-        out["per_rotation_repaired_json"] = json.dumps(sorted(repaired_by_q.get(i, [])) if i is not None else [])
+        earlier = json.loads(row["per_rotation_repaired_json"]) if _nn(row.get("per_rotation_repaired_json")) else []
+        history = json.loads(row["repair_history_json"]) if _nn(row.get("repair_history_json")) else []
+        out["per_rotation_repaired_json"] = json.dumps(sorted(set(earlier) | set(repaired_by_q.get(i, []))))
+        out["repair_history_json"] = json.dumps(history + [{"file": str(flip_csv), "sha256": in_sha, "run_id": run_id}])
         out["repaired_from_file"], out["repaired_from_sha256"], out["repair_run_id"] = str(flip_csv), in_sha, run_id
         if flip_sha:
             out["stage1_text_flip_file"], out["stage1_text_flip_sha256"] = str(text_extraction_flip_csv), flip_sha

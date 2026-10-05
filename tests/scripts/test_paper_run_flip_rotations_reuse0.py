@@ -444,3 +444,34 @@ class TestVisibleSkippedRotationsRepair:
         df.to_csv(te_new, index=False)
         with pytest.raises(ValueError, match="prompt"):
             _repair(flip, path, "visible_llm_matcher", tmp_path / "fixed.csv", Responder(_answer_two_stage), text_extraction_flip_csv=te_new)
+
+
+class TestRepairChains:
+    """Repairs are repeated until the upstream stops overloading; the file must remember EVERY repaired rotation and every pass."""
+
+    def test_a_second_pass_keeps_the_first_passes_repaired_rotations_and_history(self, tmp_path):
+        path = _two_stage_prod(tmp_path, n=1)
+        calls = {"n": 0}
+
+        def flaky(p):
+            calls["n"] += 1
+            return None if calls["n"] in (1, 2) else _answer_two_stage(p)
+
+        flip = tmp_path / "flip.csv"
+        _run(path, "two_stage", flip, Responder(flaky), max_failure_rate=1.0)           # rotations 1 and 2 fail
+        again = {"n": 0}
+
+        def first_only(p):
+            again["n"] += 1
+            return _answer_two_stage(p) if again["n"] == 1 else None
+
+        pass1 = tmp_path / "p1.csv"
+        _repair(flip, path, "two_stage", pass1, Responder(first_only), max_failure_rate=1.0)    # one of the two comes back
+        r1 = _rows(pass1)[0]
+        assert len(json.loads(r1["per_rotation_repaired_json"])) == 1                   # one of the two came back
+        pass2 = tmp_path / "p2.csv"
+        _repair(pass1, path, "two_stage", pass2, Responder(_answer_two_stage))
+        r2 = _rows(pass2)[0]
+        assert json.loads(r2["per_rotation_repaired_json"]) == [1, 2]                  # cumulative, not just the last pass
+        history = json.loads(r2["repair_history_json"])
+        assert [h["sha256"] for h in history] == [hashlib.sha256(flip.read_bytes()).hexdigest(), hashlib.sha256(pass1.read_bytes()).hexdigest()]
