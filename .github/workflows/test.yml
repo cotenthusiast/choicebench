@@ -27,3 +27,8 @@ jobs:
 
       - name: Run tests
         run: pytest tests/ -v
+
+      # Spec-derived protocol checks (tests_conformance/FROZEN_SPEC.md). Tests that need
+      # locally prepared benchmark data skip themselves in a clean checkout.
+      - name: Run conformance suite
+        run: pytest tests_conformance/ -v
