@@ -25,18 +25,19 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev,hf,matching]"
 
-      - name: Run tests
-        run: pytest tests/ -v
-
-      # The conformance suite checks the frozen manifests and PriDe calibration against the
-      # real MMLU/ARC-Challenge sources. Prepare them exactly as documented in the README
-      # (same flags, so the artifact ids match the ones the frozen configs reference).
+      # Several unit tests and the conformance suite check the frozen manifests, ARC option counts
+      # and PriDe calibration against the real MMLU/ARC-Challenge sources. Prepare them exactly as
+      # documented in the README (same flags, so the artifact ids match the ones the frozen
+      # configs reference); otherwise those tests skip themselves.
       - name: Prepare benchmark data
         run: |
           python scripts/prepare_data.py --hf-path cais/mmlu --hf-subset all --split test --exclude-duplicate-question-ids --output-name mmlu
           python scripts/prepare_data.py --hf-path cais/mmlu --hf-subset all --split validation --exclude-duplicate-question-ids --output-name mmlu
           python scripts/prepare_data.py --hf-path allenai/ai2_arc --hf-subset ARC-Challenge --split test --output-name arc_challenge
           python scripts/prepare_data.py --hf-path allenai/ai2_arc --hf-subset ARC-Challenge --split validation --output-name arc_challenge
+
+      - name: Run tests
+        run: pytest tests/ -v
 
       # Spec-derived protocol checks (tests_conformance/FROZEN_SPEC.md).
       - name: Run conformance suite
