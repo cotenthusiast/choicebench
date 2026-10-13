@@ -69,6 +69,37 @@ class TextExtractionRunner(ExperimentRunner):
             score_result=score_result,
         )
 
+    async def run_many_async(self, question_rows: Any) -> list[dict]:
+        """Async/batched sibling of run_one(): one generate_batch() call, every
+        response scored with the text-matching cascade.
+
+        Overrides the generic base implementation, which scores with the
+        letter-based free-form parser -- wrong for this method by definition
+        (see the module docstring) and the cause of every async-capable
+        production run (API sync mode, batched HF) being mis-scored.
+        """
+        rows = question_rows.to_dict(orient="records")
+        prompts = [self._build_batch_prompt(row) for row in rows]
+        responses = await self.backend.generate_batch(prompts)
+
+        results = []
+        for i, (row, response, prompt) in enumerate(zip(rows, responses, prompts)):
+            parsed_result = None
+            score_result = None
+            if response.is_success():
+                parsed_result, score_result = self._match_and_score(
+                    free_text=response.raw_text, question_row=row,
+                )
+            results.append(self._build_result_row(
+                question_row=row,
+                prompt=prompt,
+                sample_index=i,
+                model_response=response,
+                parsed_result=parsed_result,
+                score_result=score_result,
+            ))
+        return results
+
     def run_rotations(self, question_row: Any, sample_index: int) -> dict:
         """Full rerun under every cyclic rotation of the options -- one new
         call per rotation, since options are VISIBLE here (unlike
