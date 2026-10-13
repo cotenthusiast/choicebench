@@ -17,7 +17,7 @@ from choicebench.clients.types import (
     ProviderTimeoutError,
 )
 
-_DEFAULT_BASE_URL = "http://localhost:8000/v1"
+_DEFAULT_BASE_URL = os.getenv("VLLM_BASE_URL", "http://localhost:8000/v1")
 _DEFAULT_API_KEY = "vllm"
 
 
@@ -25,10 +25,12 @@ class VLLMClient(BaseClient):
     """Async client for a locally-running vLLM server (OpenAI-compatible API).
 
     vLLM exposes an OpenAI-compatible REST API at a user-specified base URL.
-    This client uses the Chat Completions endpoint (/v1/chat/completions) rather
-    than the newer Responses API, which vLLM does not implement.
+    ChoiceBench renders prompts before calling the backend, so this client
+    tokenizes that exact string with the checkpoint tokenizer and sends the
+    resulting IDs to /v1/completions. This avoids vLLM applying a chat template.
 
-    Tested against: vLLM 0.6.x, openai SDK 1.x.
+    The model's HF tokenizer and generation config are loaded lazily from
+    model_name_or_path (normally a local snapshot on Kelvin2).
 
     API key: reads VLLM_API_KEY from the environment if set; otherwise defaults
     to the string "vllm" (vLLM accepts any non-empty value).
@@ -55,6 +57,8 @@ class VLLMClient(BaseClient):
         )
         self._api_key = os.getenv("VLLM_API_KEY", _DEFAULT_API_KEY)
         self._base_url = base_url
+        self._tokenizer = None
+        self._stop_token_ids = None
         self.client = AsyncOpenAI(
             api_key=self._api_key,
             base_url=base_url,
@@ -63,9 +67,9 @@ class VLLMClient(BaseClient):
         )
 
     async def _call_vllm(self, create_kwargs: dict[str, object]):
-        """Make the vLLM chat-completions call, remapping SDK exceptions to our taxonomy."""
+        """Make a vLLM completion call, remapping SDK exceptions."""
         try:
-            return await self.client.chat.completions.create(**create_kwargs)
+            return await self.client.completions.create(**create_kwargs)
         except openai.APITimeoutError as exc:
             raise ProviderTimeoutError(str(exc)) from exc
         except openai.APIConnectionError as exc:
@@ -75,11 +79,11 @@ class VLLMClient(BaseClient):
 
     @staticmethod
     def _extract_response(response) -> tuple[str, str | None, UsageInfo | None]:
-        """Parse a vLLM chat-completions response into (raw_text, finish_reason, usage)."""
+        """Parse a vLLM completion into (raw_text, finish_reason, usage)."""
         if not response.choices:
             raise ProviderResponseError("vLLM returned no choices")
 
-        raw_text = response.choices[0].message.content
+        raw_text = response.choices[0].text
         if raw_text is None or raw_text.strip() == "":
             raise ProviderResponseError("client response is empty")
 
@@ -93,13 +97,40 @@ class VLLMClient(BaseClient):
 
         return raw_text, response.choices[0].finish_reason, usage
 
+    def _load_tokenizer(self) -> None:
+        if self._tokenizer is not None:
+            return
+        try:
+            from transformers import AutoTokenizer, GenerationConfig
+        except ImportError as exc:
+            raise ImportError(
+                "transformers is required to tokenize prompts for the vLLM backend."
+            ) from exc
+        self._tokenizer = AutoTokenizer.from_pretrained(
+            self.model_name, trust_remote_code=True
+        )
+        generation_config = GenerationConfig.from_pretrained(self.model_name)
+        eos_token_id = generation_config.eos_token_id
+        self._stop_token_ids = (
+            list(eos_token_id) if isinstance(eos_token_id, (list, tuple))
+            else [eos_token_id] if eos_token_id is not None else []
+        )
+
     async def _generate_provider_response(
         self,
         request: ModelRequest,
     ) -> ModelResponse:
+        self._load_tokenizer()
+        prompt_token_ids = self._tokenizer(
+            request.payload, add_special_tokens=True
+        )["input_ids"]
         create_kwargs: dict[str, object] = {
             "model": request.model_name,
-            "messages": [{"role": "user", "content": request.payload}],
+            "prompt": prompt_token_ids,
+            "extra_body": {
+                "stop_token_ids": self._stop_token_ids,
+                "skip_special_tokens": True,
+            },
         }
         if request.temperature is not None:
             create_kwargs["temperature"] = request.temperature

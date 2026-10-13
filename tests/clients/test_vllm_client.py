@@ -1,7 +1,9 @@
 # tests/clients/test_vllm_client.py
 
 import os
+import sys
 from types import SimpleNamespace
+from types import ModuleType
 from unittest.mock import AsyncMock
 
 import httpx
@@ -18,10 +20,10 @@ from choicebench.clients.types import (
 
 
 # ---------------------------------------------------------------------------
-# Helpers for building fake chat completion responses
+# Helpers for building fake completion responses
 # ---------------------------------------------------------------------------
 
-def _make_chat_response(
+def _make_completion_response(
     *,
     text: str = "B",
     prompt_tokens: int = 10,
@@ -38,7 +40,7 @@ def _make_chat_response(
             total_tokens=total_tokens,
         )
     choice = SimpleNamespace(
-        message=SimpleNamespace(content=text),
+        text=text,
         finish_reason=finish_reason,
         logprobs=None,
     )
@@ -74,9 +76,9 @@ def model_request():
 
 
 @pytest.fixture
-def mock_chat_create(vllm_client):
+def mock_completion_create(vllm_client):
     mock = AsyncMock()
-    vllm_client.client.chat.completions.create = mock
+    vllm_client.client.completions.create = mock
     return mock
 
 
@@ -86,8 +88,10 @@ def mock_chat_create(vllm_client):
 
 class TestVLLMClientConstruction:
 
-    def test_default_base_url(self, vllm_client):
-        assert vllm_client._base_url == _DEFAULT_BASE_URL
+    def test_default_base_url(self, monkeypatch):
+        monkeypatch.delenv("VLLM_BASE_URL", raising=False)
+        assert _DEFAULT_BASE_URL == "http://localhost:8000/v1"
+        assert VLLMClient(model_name="m")._base_url == _DEFAULT_BASE_URL
 
     def test_custom_base_url(self, vllm_client_custom_url):
         assert vllm_client_custom_url._base_url == "http://gpu-server:9000/v1"
@@ -117,37 +121,57 @@ class TestVLLMClientConstruction:
 class TestVLLMClientGenerate:
     pytestmark = pytest.mark.asyncio
 
-    async def test_returns_correct_text(self, vllm_client, model_request, mock_chat_create):
-        mock_chat_create.return_value = _make_chat_response(text="B")
+    @pytest.fixture(autouse=True)
+    def tokenizer(self, vllm_client):
+        class Tokenizer:
+            eos_token_id = 2
+
+            def __call__(self, text, *, add_special_tokens):
+                assert text == "Which planet is closest to the Sun?\nA. Earth\nB. Mercury\nC. Venus\nD. Mars"
+                assert add_special_tokens is True
+                return {"input_ids": [101, 202, 303]}
+
+        vllm_client._tokenizer = Tokenizer()
+        vllm_client._stop_token_ids = [2, 3]
+
+    async def test_returns_correct_text(self, vllm_client, model_request, mock_completion_create):
+        mock_completion_create.return_value = _make_completion_response(text="B")
         response = await vllm_client._generate_provider_response(model_request)
         assert response.raw_text == "B"
         assert response.provider == "vllm"
+        mock_completion_create.assert_awaited_once_with(
+            model=model_request.model_name,
+            prompt=[101, 202, 303],
+            temperature=0.0,
+            max_tokens=16,
+            extra_body={"stop_token_ids": [2, 3], "skip_special_tokens": True},
+        )
 
     async def test_raises_provider_response_error_on_empty_text(
-        self, vllm_client, model_request, mock_chat_create
+        self, vllm_client, model_request, mock_completion_create
     ):
-        mock_chat_create.return_value = _make_chat_response(text="")
+        mock_completion_create.return_value = _make_completion_response(text="")
         with pytest.raises(ProviderResponseError):
             await vllm_client._generate_provider_response(model_request)
 
     async def test_raises_provider_response_error_on_whitespace_text(
-        self, vllm_client, model_request, mock_chat_create
+        self, vllm_client, model_request, mock_completion_create
     ):
-        mock_chat_create.return_value = _make_chat_response(text="   ")
+        mock_completion_create.return_value = _make_completion_response(text="   ")
         with pytest.raises(ProviderResponseError):
             await vllm_client._generate_provider_response(model_request)
 
     async def test_allows_missing_usage(
-        self, vllm_client, model_request, mock_chat_create
+        self, vllm_client, model_request, mock_completion_create
     ):
-        mock_chat_create.return_value = _make_chat_response(include_usage=False)
+        mock_completion_create.return_value = _make_completion_response(include_usage=False)
         response = await vllm_client._generate_provider_response(model_request)
         assert response.usage is None
 
     async def test_usage_populated_when_present(
-        self, vllm_client, model_request, mock_chat_create
+        self, vllm_client, model_request, mock_completion_create
     ):
-        mock_chat_create.return_value = _make_chat_response(
+        mock_completion_create.return_value = _make_completion_response(
             prompt_tokens=20, completion_tokens=3, total_tokens=23
         )
         response = await vllm_client._generate_provider_response(model_request)
@@ -155,23 +179,48 @@ class TestVLLMClientGenerate:
         assert response.usage.prompt_tokens == 20
         assert response.usage.completion_tokens == 3
 
+    async def test_loads_checkpoint_tokenizer_and_eos_ids_lazily(self, monkeypatch, model_request):
+        class Tokenizer:
+            def __call__(self, text, *, add_special_tokens):
+                assert add_special_tokens is True
+                return {"input_ids": [11, 12]}
+
+        tokenizer = Tokenizer()
+        from_pretrained = lambda path, **kwargs: tokenizer
+        generation = SimpleNamespace(eos_token_id=[2, 3])
+        fake_transformers = ModuleType("transformers")
+        fake_transformers.AutoTokenizer = SimpleNamespace(from_pretrained=from_pretrained)
+        fake_transformers.GenerationConfig = SimpleNamespace(
+            from_pretrained=lambda path: generation
+        )
+        monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
+        client = VLLMClient(model_name=model_request.model_name)
+        mock = AsyncMock(return_value=_make_completion_response(text="B"))
+        client.client.completions.create = mock
+
+        await client._generate_provider_response(model_request)
+
+        mock.assert_awaited_once()
+        assert mock.await_args.kwargs["prompt"] == [11, 12]
+        assert mock.await_args.kwargs["extra_body"]["stop_token_ids"] == [2, 3]
+
     async def test_raises_provider_call_error_for_500(
-        self, vllm_client, model_request, mock_chat_create
+        self, vllm_client, model_request, mock_completion_create
     ):
-        request = httpx.Request("POST", "http://localhost:8000/v1/chat/completions")
+        request = httpx.Request("POST", "http://localhost:8000/v1/completions")
         http_response = httpx.Response(500, request=request)
-        mock_chat_create.side_effect = openai.InternalServerError(
+        mock_completion_create.side_effect = openai.InternalServerError(
             "server error", response=http_response, body={"message": "server error"}
         )
         with pytest.raises(ProviderCallError):
             await vllm_client._generate_provider_response(model_request)
 
     async def test_raises_provider_configuration_error_for_404(
-        self, vllm_client, model_request, mock_chat_create
+        self, vllm_client, model_request, mock_completion_create
     ):
-        request = httpx.Request("POST", "http://localhost:8000/v1/chat/completions")
+        request = httpx.Request("POST", "http://localhost:8000/v1/completions")
         http_response = httpx.Response(404, request=request)
-        mock_chat_create.side_effect = openai.NotFoundError(
+        mock_completion_create.side_effect = openai.NotFoundError(
             "not found", response=http_response, body={"message": "not found"}
         )
         with pytest.raises(ProviderConfigurationError):
