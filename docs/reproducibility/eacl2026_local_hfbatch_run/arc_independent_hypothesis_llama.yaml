@@ -1,0 +1,38 @@
+# LOCAL HF-FP8 BATCHED PRODUCTION CONFIG (2026-10-01, operational, not a frozen artifact).
+# Derived from arc_independent_hypothesis.yaml (itself derived from the frozen config/paper/*.yaml):
+# every field is identical EXCEPT (a) models is narrowed to the llama entry, and (b) that entry
+# gains revision (the single cached snapshot), hf_batch_size: 32 and hf_fast_fp8_qdq: true.
+# Prompts, methods, metrics, dataset manifest, seed and decoding are untouched.
+experiment:
+  name: paper_arc_independent_hypothesis_b32_llama
+models:
+- backend: huggingface
+  model_name_or_path: RedHatAI/Meta-Llama-3.1-8B-Instruct-FP8-dynamic
+  device: cuda
+  torch_dtype: auto
+  generation_kwargs:
+    max_new_tokens: 1024
+    temperature: 0.0
+    do_sample: false
+  revision: 442e7f522277df12f53d63e8384087af31fbfc4b
+  hf_batch_size: 32
+  hf_fast_fp8_qdq: true
+benchmarks:
+- name: arc_challenge
+  split: test
+  transforms: []
+  question_id_manifest: data/manifests/arc_challenge_eval_v2.csv
+methods:
+- name: independent_hypothesis
+  execution_mode: batch
+metrics:
+- accuracy
+- mad
+run:
+  seed: 42
+  resume: true
+  dry_run: false
+  checkpoint_every_n: 50
+  prompt_version: v1_ihs
+  concurrency_limit: 10
+  cache_scope: per_run

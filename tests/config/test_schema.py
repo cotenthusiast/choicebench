@@ -609,3 +609,24 @@ def test_nested_credential_params_are_rejected_at_load(tmp_path):
     )
     with pytest.raises(ConfigError, match="credential-named"):
         load_config(config)
+
+
+def test_hf_batching_options_default_off(tmp_path):
+    cfg = load_config(_write_config(tmp_path, _valid_config()))
+    assert cfg.models[0].hf_batch_size is None
+    assert cfg.models[0].hf_fast_fp8_qdq is False
+
+
+def test_hf_batching_options_parse(tmp_path):
+    data = _valid_config()
+    data["models"][0].update({"hf_batch_size": 32, "hf_fast_fp8_qdq": True})
+    cfg = load_config(_write_config(tmp_path, data))
+    assert cfg.models[0].hf_batch_size == 32
+    assert cfg.models[0].hf_fast_fp8_qdq is True
+
+
+def test_hf_batch_size_rejects_zero(tmp_path):
+    data = _valid_config()
+    data["models"][0]["hf_batch_size"] = 0
+    with pytest.raises(ConfigError, match="hf_batch_size"):
+        load_config(_write_config(tmp_path, data))

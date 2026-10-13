@@ -1,0 +1,41 @@
+# LOCAL HF-FP8 BATCHED PRODUCTION CONFIG (2026-10-01, operational, not a frozen artifact).
+# Derived from mmlu_core_and_cyclic.yaml (itself derived from the frozen config/paper/*.yaml):
+# every field is identical EXCEPT (a) models is narrowed to the qwen entry, and (b) that entry
+# gains revision (the single cached snapshot), hf_batch_size: 32 and hf_fast_fp8_qdq: true.
+# Prompts, methods, metrics, dataset manifest, seed and decoding are untouched.
+experiment:
+  name: paper_mmlu_core_and_cyclic_local_merged_b32_qwen
+models:
+- backend: huggingface
+  model_name_or_path: RedHatAI/Qwen2.5-7B-Instruct-FP8-dynamic
+  device: cuda
+  torch_dtype: auto
+  generation_kwargs:
+    max_new_tokens: 1024
+    temperature: 0.0
+    do_sample: false
+  revision: a4f1d5442ea284bc8e5a3b3e1a4d528f7d6caacb
+  hf_batch_size: 32
+  hf_fast_fp8_qdq: true
+benchmarks:
+- name: mmlu
+  split: test
+  transforms:
+  - unique_question_ids_v1
+  question_id_manifest: data/manifests/mmlu_eval_v2.csv
+methods:
+- name: two_stage
+- name: text_extraction
+- name: cyclic_permutation
+  execution_mode: batch
+metrics:
+- accuracy
+- mad
+run:
+  seed: 42
+  resume: true
+  dry_run: false
+  checkpoint_every_n: 50
+  prompt_version: v1
+  concurrency_limit: 10
+  cache_scope: per_run
