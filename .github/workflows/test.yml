@@ -35,6 +35,9 @@ jobs:
           python scripts/prepare_data.py --hf-path cais/mmlu --hf-subset all --split validation --exclude-duplicate-question-ids --output-name mmlu
           python scripts/prepare_data.py --hf-path allenai/ai2_arc --hf-subset ARC-Challenge --split test --output-name arc_challenge
           python scripts/prepare_data.py --hf-path allenai/ai2_arc --hf-subset ARC-Challenge --split validation --output-name arc_challenge
+          # Some tests still read the legacy flat path; its content is byte-identical to the
+          # artifact's normalized.csv.
+          cp data/processed/arc_challenge/test/norm-v2/src_*/normalized.csv data/processed/arc_challenge_normalized.csv
 
       - name: Run tests
         run: pytest tests/ -v
