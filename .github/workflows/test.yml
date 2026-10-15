@@ -2,6 +2,9 @@ name: tests
 
 on:
   push:
+    # Branch pushes only: archive tags point at old commits whose workflow files predate
+    # later CI fixes, and running them just produces misleading failures.
+    branches: ["**"]
   pull_request:
   workflow_dispatch:
 
