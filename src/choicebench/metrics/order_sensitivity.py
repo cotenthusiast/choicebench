@@ -19,7 +19,9 @@ class OrderSensitivity(BaseMetric):
 
       - `option_distributions_json` (`cyclic_logprob` only): shape
         (n_options, n_options), row k / column j = P(observed picks printed
-        position j | rotation k). Full probability mass.
+        position j | rotation k). Full probability mass. A row that is exactly
+        uniform is the placeholder `cyclic_logprob` stores for a rotation whose
+        score_options() call failed; it is skipped like a null entry below.
       - `per_rotation_choices_json` (`cyclic_permutation`, `two_stage`'s
         rotation rerun, `text_extraction`'s rotation rerun, and the other
         rotation-based flip-rate methods): a plain list of canonical letters
@@ -62,6 +64,11 @@ class OrderSensitivity(BaseMetric):
         n = mat.shape[0]
         canonical_picks = []
         for k in range(n):
+            if np.ptp(mat[k]) == 0.0:
+                # CyclicLogprobRunner stores an exactly-uniform row for a rotation whose
+                # score_options() call failed (see n_permutations_failed). It is a placeholder,
+                # not an observation: np.argmax would read it as "picked position 0".
+                continue
             predicted_position = int(np.argmax(mat[k]))
             correct_position = (correct_index - k) % n
             total_by_position[correct_position] = total_by_position.get(correct_position, 0) + 1
@@ -111,6 +118,8 @@ class OrderSensitivity(BaseMetric):
                 canonical_picks = self._picks_from_matrix(
                     mat_json, correct_index, correct_by_position, total_by_position,
                 )
+                if not canonical_picks:
+                    continue  # every rotation was a failed-call placeholder -- no signal at all
             elif isinstance(per_rotation_json, str):
                 canonical_picks = self._picks_from_letters(
                     per_rotation_json, correct_index, correct_by_position, total_by_position,

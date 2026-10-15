@@ -61,6 +61,61 @@ def test_pure_positional_bias_has_positive_rstd_and_full_flip_rate():
     assert out["order_flip_rate"] == 1.0
 
 
+class TestFailedRotationPlaceholderRows:
+    """cyclic_logprob stores a uniform distribution for a rotation whose score_options() call
+    failed (and records n_permutations_failed). That placeholder is not an observation: np.argmax
+    of a uniform row is position 0, which would otherwise be counted as a positional pick."""
+
+    @staticmethod
+    def _perfect_tracker(n: int, correct_index: int) -> list[list[float]]:
+        mat = []
+        for k in range(n):
+            row = [0.0] * n
+            row[(correct_index - k) % n] = 1.0
+            mat.append(row)
+        return mat
+
+    def test_a_uniform_placeholder_rotation_is_not_counted_as_a_pick(self):
+        n, correct_index = 4, 1
+        mat = self._perfect_tracker(n, correct_index)
+        mat[2] = [1.0 / n] * n  # rotation 2 failed
+        out = OrderSensitivity().compute(pd.DataFrame([_row(mat, correct_index)]))
+        # The three real rotations track content perfectly -> no flip, no positional imbalance.
+        assert out["order_flip_rate"] == 0.0
+        assert out["order_rstd"] == 0.0
+
+    def test_placeholder_does_not_add_a_position_zero_data_point(self):
+        n, correct_index = 4, 3
+        mat = self._perfect_tracker(n, correct_index)
+        mat[1] = [1.0 / n] * n
+        # Rotation 1 would have printed the correct content at (3-1)%4 = 2. The failed rotation must
+        # not contribute to any position's total, so only 3 positions have data.
+        correct_by_position, total_by_position = {}, {}
+        picks = OrderSensitivity._picks_from_matrix(
+            json.dumps(mat), correct_index, correct_by_position, total_by_position)
+        assert sorted(total_by_position) == [0, 1, 3]
+        assert len(picks) == 3
+
+    def test_every_rotation_a_placeholder_excludes_the_question_entirely(self):
+        n = 4
+        df = pd.DataFrame([
+            _row([[1.0 / n] * n for _ in range(n)], correct_index=0),
+            _row(self._perfect_tracker(n, 0), correct_index=0),
+        ])
+        out = OrderSensitivity().compute(df)
+        # Only the second (fully-successful) question counts; with the bug the first one is a
+        # "pure positional bias" question and flips.
+        assert out["order_flip_rate"] == 0.0
+        assert out["order_rstd"] == 0.0
+
+    def test_only_placeholders_gives_nan_like_a_slice_without_rotation_data(self):
+        n = 4
+        df = pd.DataFrame([_row([[1.0 / n] * n for _ in range(n)], correct_index=0)])
+        out = OrderSensitivity().compute(df)
+        assert math.isnan(out["order_rstd"])
+        assert math.isnan(out["order_flip_rate"])
+
+
 def _letters_row(letters: list, correct_index: int) -> dict:
     return {
         "per_rotation_choices_json": json.dumps(letters),
