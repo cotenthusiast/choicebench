@@ -14,6 +14,9 @@ sizes (in the low hundreds to ~1,200 questions).
 
 from __future__ import annotations
 
+import math
+from collections.abc import Sequence
+
 import pandas as pd
 from scipy.stats import binomtest
 
@@ -79,3 +82,37 @@ def mcnemar_exact_test(results_a: pd.DataFrame, results_b: pd.DataFrame) -> dict
         "b": n_b, "c": n_c, "n_discordant": n_discordant,
         "p_value": p_value, "statistic": "exact_binomial",
     }
+
+
+def holm_adjust(p_values: Sequence[float]) -> list[float]:
+    """Holm-Bonferroni step-down adjusted p-values, in the input order.
+
+    Running many paired tests (e.g. every method against the direct-MCQ baseline in
+    every model x benchmark cell) makes some "significant" results likely by chance
+    alone. Holm controls the family-wise error rate: sort the m p-values ascending,
+    multiply the smallest by m, the next by m - 1, and so on, then enforce
+    monotonicity with a running maximum and cap at 1. A hypothesis is rejected at
+    level alpha when its *adjusted* p-value is <= alpha. It is uniformly more
+    powerful than plain Bonferroni (multiply everything by m).
+
+    Args:
+        p_values: raw p-values, each in [0, 1] (e.g. ``mcnemar_exact_test(...)["p_value"]``
+            for every comparison in one family).
+
+    Returns:
+        Adjusted p-values, same length and order as the input.
+
+    Raises:
+        ValueError: if any p-value is NaN or outside [0, 1].
+    """
+    p = [float(v) for v in p_values]
+    for v in p:
+        if math.isnan(v) or not 0.0 <= v <= 1.0:
+            raise ValueError(f"p-values must be in [0, 1] and not NaN; got {v!r}")
+    m = len(p)
+    adjusted = [0.0] * m
+    running_max = 0.0
+    for rank, i in enumerate(sorted(range(m), key=p.__getitem__)):
+        running_max = max(running_max, (m - rank) * p[i])
+        adjusted[i] = min(1.0, running_max)
+    return adjusted

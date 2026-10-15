@@ -3,7 +3,7 @@
 import pandas as pd
 import pytest
 
-from choicebench.analysis.paired_tests import mcnemar_exact_test
+from choicebench.analysis.paired_tests import holm_adjust, mcnemar_exact_test
 
 
 def _df(rows: list[tuple[str, bool | None]]) -> pd.DataFrame:
@@ -90,3 +90,36 @@ class TestMcnemarExactTest:
         rows_b = [("q1", True), ("q1", False)]
         with pytest.raises(ValueError, match="duplicate question_id"):
             mcnemar_exact_test(_df(rows_a), _df(rows_b))
+
+
+class TestHolmAdjust:
+    def test_hand_computed_example_keeps_input_order(self):
+        # sorted ascending: 0.005, 0.01, 0.03, 0.04 -> x4, x3, x2, x1 = 0.02, 0.03, 0.06, 0.04
+        # running maximum -> 0.02, 0.03, 0.06, 0.06; mapped back to input order.
+        assert holm_adjust([0.01, 0.04, 0.03, 0.005]) == pytest.approx([0.03, 0.06, 0.06, 0.02])
+
+    def test_single_p_value_is_unchanged(self):
+        assert holm_adjust([0.037]) == pytest.approx([0.037])
+
+    def test_empty_family(self):
+        assert holm_adjust([]) == []
+
+    def test_adjusted_values_are_capped_at_one(self):
+        # 2 * 0.5 = 1.0, and the running maximum carries it to the larger p-value too.
+        assert holm_adjust([0.5, 0.6]) == pytest.approx([1.0, 1.0])
+
+    def test_ties_get_the_same_adjusted_value(self):
+        # 3 * 0.02 = 0.06 for the first; the others (x2, x1) are smaller, so the running
+        # maximum keeps all three at 0.06.
+        assert holm_adjust([0.02, 0.02, 0.02]) == pytest.approx([0.06, 0.06, 0.06])
+
+    def test_never_smaller_than_raw_never_larger_than_bonferroni(self):
+        raw = [0.001, 0.2, 0.049, 0.8, 0.03, 0.5]
+        adjusted = holm_adjust(raw)
+        for r, a in zip(raw, adjusted):
+            assert r <= a <= min(1.0, len(raw) * r) + 1e-12
+
+    def test_rejects_invalid_p_values(self):
+        for bad in ([0.1, -0.01], [0.1, 1.2], [0.1, float("nan")]):
+            with pytest.raises(ValueError):
+                holm_adjust(bad)
