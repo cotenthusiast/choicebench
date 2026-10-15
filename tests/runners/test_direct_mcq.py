@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from choicebench.clients.types import ProviderTimeoutError
 from choicebench.methods.direct_mcq import DirectMCQRunner
 from choicebench.scoring.types import SCORE_CORRECT, SCORE_INCORRECT, SCORE_UNSCORABLE
@@ -147,3 +149,30 @@ class TestDirectMCQRunnerBuildPrompt:
         assert "B. HTTP" in prompt
         assert "C. HTTPS" in prompt
         assert "D." not in prompt
+
+
+class TestFatalBackendErrors:
+    """A backend that has run out of memory cannot recover mid-run. Recording that as a failed row
+    would checkpoint it as done, so a resumed run would never retry it and every remaining
+    question would become a permanent failure. Such errors must abort the condition instead."""
+
+    def test_cuda_style_out_of_memory_propagates_instead_of_becoming_a_failed_row(self, runner_question_row):
+        class OutOfMemoryError(RuntimeError):  # same class name as torch.cuda.OutOfMemoryError
+            pass
+
+        runner = _make_runner(MockBackend(responses=[OutOfMemoryError("CUDA out of memory")]))
+        with pytest.raises(OutOfMemoryError):
+            runner.run_one(runner_question_row, sample_index=0)
+
+    def test_python_memory_error_propagates(self, runner_question_row):
+        runner = _make_runner(MockBackend(responses=[MemoryError()]))
+        with pytest.raises(MemoryError):
+            runner.run_one(runner_question_row, sample_index=0)
+
+    def test_ordinary_backend_errors_still_become_a_failed_row(self, runner_question_row):
+        result = _make_runner(MockBackend(responses=[RuntimeError("boom")])).run_one(
+            runner_question_row, sample_index=0
+        )
+        assert result["transport_status"] == "failure"
+        assert result["error_type"] == "RuntimeError"
+        assert result["parsed_choice"] is None

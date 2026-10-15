@@ -31,6 +31,15 @@ from choicebench.scoring.scorer import score_prediction
 from choicebench.scoring.types import ScoreResult
 
 
+# Backend errors that cannot be recovered from mid-run. Matched by class name so this module never
+# needs to import torch (torch.cuda.OutOfMemoryError / torch.OutOfMemoryError subclass RuntimeError).
+_FATAL_BACKEND_ERROR_NAMES = frozenset({"OutOfMemoryError", "MemoryError"})
+
+
+def _is_fatal_backend_error(exc: BaseException) -> bool:
+    return any(cls.__name__ in _FATAL_BACKEND_ERROR_NAMES for cls in type(exc).__mro__)
+
+
 class ExperimentRunner(ABC):
     """Abstract base runner for all experimental conditions.
 
@@ -174,6 +183,10 @@ class ExperimentRunner(ABC):
         (BaseClient.generate() never raises for provider-level errors), so
         no additional try/except is needed on this branch.
 
+        For a blocking backend (HuggingFace, Dummy) an ordinary exception becomes
+        a failure ModelResponse, but an out-of-memory error is re-raised: see
+        ``_is_fatal_backend_error``.
+
         Args:
             prompt: The prompt string to send to the backend.
 
@@ -186,6 +199,11 @@ class ExperimentRunner(ABC):
         try:
             raw_text = self.backend.generate(prompt)
         except Exception as exc:
+            if _is_fatal_backend_error(exc):
+                # A failed row is checkpointed as done and never retried on resume; an
+                # out-of-memory backend would silently turn every remaining question
+                # into one. Abort the condition so it resumes from the last checkpoint.
+                raise
             return ModelResponse(
                 provider=self.backend.provider,
                 model_name=self.backend.model_name,
