@@ -2,7 +2,14 @@
 #
 # Abstract interface that all inference backends must implement.
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # clients.types imports config.schema, which imports the backends
+    from choicebench.clients.types import ModelResponse
+
 
 class BaseBackend(ABC):
 
@@ -55,5 +62,35 @@ class BaseBackend(ABC):
         return False
 
     def is_async_capable(self) -> bool:
-        """Return True if this backend supports the async generate_batch() path."""
+        """Return True if this backend supports the async generate_batch() path.
+
+        Runners and run_method() branch on this: an async-capable backend is driven
+        through generate_batch()/generate_single_async(), any other through the
+        blocking generate().
+        """
         return False
+
+    async def generate_single_async(self, prompt: str) -> "ModelResponse":
+        """Run one prompt through the async path and return a ModelResponse.
+
+        Part of the async contract: implemented by every backend whose
+        is_async_capable() is True (APIBackend, BatchAPIBackend, a batched
+        HuggingFaceBackend). Failures are returned as a failure ModelResponse
+        rather than raised, where the backend can classify them.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} is not async-capable (is_async_capable() is False); "
+            "use generate() instead."
+        )
+
+    async def generate_batch(self, prompts: list[str]) -> "list[ModelResponse]":
+        """Run many prompts and return one ModelResponse per prompt, in input order.
+
+        Part of the async contract (see generate_single_async). Backends are free
+        to bound concurrency or chunk internally; callers rely only on the
+        one-response-per-prompt, same-order guarantee.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} is not async-capable (is_async_capable() is False); "
+            "use generate() instead."
+        )
