@@ -48,11 +48,7 @@ class PermutationRunner(ExperimentRunner):
             Flat result dictionary containing trace, model output,
             parse, and score fields.
         """
-        canonical_options = self._build_options(question_row)
-        canonical_letters = list(canonical_options.keys())
-        rotations = self._generate_rotations(canonical_options)
-
-        # Build prompts for each rotation
+        rotations = self._generate_rotations(self._build_options(question_row))
         prompts = [
             self._build_permuted_prompt(question_row, rot.mapping, self._prompts["direct_mcq"])
             for rot in rotations
@@ -60,27 +56,59 @@ class PermutationRunner(ExperimentRunner):
 
         # One backend call per rotation (sequential — backend calls are
         # compute-bound local forward passes or already-blocking API calls).
-        responses = [
-            self._call_backend_generate(prompt)
-            for prompt in prompts
-        ]
+        responses = [self._call_backend_generate(prompt) for prompt in prompts]
 
-        # Parse each response and map back via the rotation's positional
-        # bijection (text-independent — F1 fix).
-        canonical_choices: list[str | None] = []
-        for response, rotation in zip(responses, rotations):
-            if response.is_success():
-                parsed = self._parse(response.raw_text, rotation.mapping)
-                if parsed.final_choice is not None:
-                    canonical_choices.append(
-                        self._canonical_letter(
-                            parsed.final_choice, rotation, canonical_letters
-                        )
-                    )
-                else:
-                    canonical_choices.append(None)
-            else:
-                canonical_choices.append(None)
+        return self._assemble_row(question_row, rotations, prompts, responses, sample_index)
+
+    async def run_many_async(self, question_rows: Sequence[Any]) -> list[dict]:
+        """Async batch execution for PermutationRunner.
+
+        Fans all permutation prompts for all questions out in one
+        generate_batch() call, then reassembles per-question results and
+        runs majority vote through the same _assemble_row() as run_one().
+        """
+        rows = question_rows.to_dict(orient="records")
+        rotations_per_q = [self._generate_rotations(self._build_options(row)) for row in rows]
+
+        # Flatten: one prompt per (question, rotation), question by question, so a question's
+        # prompts and responses are the contiguous slice [offset, offset + len(rotations)).
+        all_prompts: list[str] = [
+            self._build_permuted_prompt(row, rot.mapping, self._prompts["direct_mcq"])
+            for row, rots in zip(rows, rotations_per_q)
+            for rot in rots
+        ]
+        all_responses = await self.backend.generate_batch(all_prompts)
+
+        results = []
+        offset = 0
+        for q_idx, (row, rots) in enumerate(zip(rows, rotations_per_q)):
+            stop = offset + len(rots)
+            results.append(self._assemble_row(
+                row, rots, all_prompts[offset:stop], all_responses[offset:stop], q_idx,
+            ))
+            offset = stop
+        return results
+
+    def _assemble_row(
+            self,
+            question_row: Any,
+            rotations: list[Rotation],
+            prompts: list[str],
+            responses: list[Any],
+            sample_index: int,
+    ) -> dict:
+        """Decode every rotation's reply, majority-vote, score, and build the result row.
+
+        Shared by run_one() (sequential calls) and run_many_async() (one batched call) so the two
+        paths cannot drift apart. ``prompts`` and ``responses`` are in rotation order.
+        """
+        canonical_options = self._build_options(question_row)
+        canonical_letters = list(canonical_options.keys())
+
+        canonical_choices = [
+            self._decode_rotation_response(response, rotation, canonical_letters)
+            for response, rotation in zip(responses, rotations)
+        ]
 
         # Majority vote across canonical answers
         voted_letter = self._majority_vote(
@@ -124,87 +152,23 @@ class PermutationRunner(ExperimentRunner):
         row["per_rotation_choices_json"] = json.dumps(canonical_choices)
         return row
 
-    async def run_many_async(self, question_rows: Sequence[Any]) -> list[dict]:
-        """Async batch execution for PermutationRunner.
+    def _decode_rotation_response(
+            self,
+            response: Any,
+            rotation: Rotation,
+            canonical_letters: list[str],
+    ) -> str | None:
+        """One rotation's reply -> the canonical letter it picked, or None.
 
-        Fans all permutation prompts for all questions out in one
-        generate_batch() call, then reassembles per-question results and
-        runs majority vote — identical logic to run_one() but fully batched.
+        None means no usable answer: the call failed or the reply did not parse to a letter.
+        Parsing is against the rotation's *displayed* options; the inverse is positional.
         """
-        rows = question_rows.to_dict(orient="records")
-        canonical_options_per_q = [self._build_options(row) for row in rows]
-        rotations_per_q = [
-            self._generate_rotations(opts) for opts in canonical_options_per_q
-        ]
-
-        # Flatten: build one prompt per (question, rotation) pair.
-        all_prompts: list[str] = []
-        # prompt_map[i] = (question_index, rotation_index)
-        prompt_map: list[tuple[int, int]] = []
-        for q_idx, (row, rots) in enumerate(zip(rows, rotations_per_q)):
-            for p_idx, rot in enumerate(rots):
-                all_prompts.append(
-                    self._build_permuted_prompt(row, rot.mapping, self._prompts["direct_mcq"])
-                )
-                prompt_map.append((q_idx, p_idx))
-
-        all_responses = await self.backend.generate_batch(all_prompts)
-
-        # Group responses back per question and run majority vote.
-        results = []
-        for q_idx, (row, rots) in enumerate(zip(rows, rotations_per_q)):
-            canonical_options = canonical_options_per_q[q_idx]
-            canonical_letters = list(canonical_options.keys())
-            q_flat_indices = [i for i, (qi, _) in enumerate(prompt_map) if qi == q_idx]
-
-            canonical_choices: list[str | None] = []
-            for flat_i in q_flat_indices:
-                p_idx = prompt_map[flat_i][1]
-                response = all_responses[flat_i]
-                rot = rots[p_idx]
-                if response.is_success():
-                    parsed = self._parse(response.raw_text, rot.mapping)
-                    if parsed.final_choice is not None:
-                        canonical_choices.append(
-                            self._canonical_letter(
-                                parsed.final_choice, rot, canonical_letters
-                            )
-                        )
-                    else:
-                        canonical_choices.append(None)
-                else:
-                    canonical_choices.append(None)
-
-            voted_letter = self._majority_vote(
-                canonical_choices, canonical_options,
-                label_to_source_index=self._build_label_to_source_index(row),
-                seed=self.seed, benchmark_id=self.benchmark_name,
-                question_id=row["question_id"], method_name=self.method_name,
-            )
-            voted_parse = ParseResult(
-                final_choice=voted_letter,
-                status=PARSE_OK if voted_letter else PARSE_MISSING,
-                raw_text=None,
-                normalized_text="",
-                reason="majority_vote",
-            )
-            score_result = None
-            if voted_letter:
-                score_result = self._score(voted_parse, row["correct_option"])
-
-            first_flat = q_flat_indices[0]
-            result_row = self._build_result_row(
-                question_row=row,
-                prompt=all_prompts[first_flat],
-                sample_index=q_idx,
-                model_response=all_responses[first_flat],
-                parsed_result=voted_parse,
-                score_result=score_result,
-            )
-            result_row["per_rotation_choices_json"] = json.dumps(canonical_choices)
-            results.append(result_row)
-
-        return results
+        if not response.is_success():
+            return None
+        parsed = self._parse(response.raw_text, rotation.mapping)
+        if parsed.final_choice is None:
+            return None
+        return self._canonical_letter(parsed.final_choice, rotation, canonical_letters)
 
     @staticmethod
     def _generate_rotations(
