@@ -367,6 +367,35 @@ class TestGetOrBuildBackendExecutionModeCaching:
 
         assert backend_a is backend_b
 
+    def test_non_api_backend_is_built_once_across_execution_modes(self, tmp_path, monkeypatch):
+        """Regression: execution_mode is a no-op for huggingface/dummy backends, so a config
+        mixing sync and batch methods must not build (for HF: load onto the GPU) the model twice."""
+        from choicebench.config.schema import MethodConfig
+
+        run_exp = _load_run_experiment()
+        self._setup(run_exp, tmp_path, monkeypatch)
+
+        built = []
+        real_build = run_exp.build_backend
+
+        def counting_build(*args, **kwargs):
+            built.append(args[0].backend)
+            return real_build(*args, **kwargs)
+
+        monkeypatch.setattr(run_exp, "build_backend", counting_build)
+
+        model = _model("dummy")
+        config = _experiment(MethodConfig(name="direct_mcq"))
+        backend_cache: dict = {}
+
+        sync_backend = run_exp._get_or_build_backend(
+            model, {}, "rid", config, backend_cache, MethodConfig(name="two_stage", execution_mode="sync"))
+        batch_backend = run_exp._get_or_build_backend(
+            model, {}, "rid", config, backend_cache, MethodConfig(name="cyclic_permutation", execution_mode="batch"))
+
+        assert sync_backend is batch_backend
+        assert built == ["dummy"]
+
 
 def test_huggingface_backend_is_loaded_before_return(monkeypatch):
     """Regression: build_backend must call .load() so generate() works.

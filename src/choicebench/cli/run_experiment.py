@@ -704,7 +704,13 @@ def _get_or_build_backend(
     # since a sync-mode method and a batch-mode method sharing one model
     # must never share one backend instance (their execution semantics
     # differ entirely; see MethodConfig.execution_mode).
-    cache_key = (id(model_config), method.execution_mode)
+    #
+    # execution_mode only selects between APIBackend and BatchAPIBackend, so it
+    # is meaningless for huggingface/dummy backends: normalize it to "sync" for
+    # them. Otherwise a config mixing sync and batch methods would build -- and
+    # for HF, load onto the GPU -- the same model twice.
+    execution_mode = method.execution_mode if model_config.backend == "api" else "sync"
+    cache_key = (id(model_config), execution_mode)
     backend = backend_cache.get(cache_key)
     if backend is None:
         runtime_model = model_config
@@ -720,7 +726,7 @@ def _get_or_build_backend(
                 runtime_model = replace(model_config, revision=resolved_model["resolved_commit"])
         backend = build_backend(
             runtime_model, run_id, config.run.seed, config.run.concurrency_limit,
-            condition.get("model_id"), config.run.cache_scope, method.execution_mode,
+            condition.get("model_id"), config.run.cache_scope, execution_mode,
         )
         backend_cache[cache_key] = backend
     return backend
