@@ -119,6 +119,11 @@ class TestHolmAdjust:
         for r, a in zip(raw, adjusted):
             assert r <= a <= min(1.0, len(raw) * r) + 1e-12
 
+    def test_boundary_p_values_zero_and_one_are_valid(self):
+        # 0 and 1 are legal p-values (e.g. mcnemar_exact_test returns exactly 1.0 with no discordant pairs).
+        assert holm_adjust([0.0, 1.0]) == pytest.approx([0.0, 1.0])
+        assert holm_adjust([1.0]) == pytest.approx([1.0])
+
     def test_rejects_invalid_p_values(self):
         for bad in ([0.1, -0.01], [0.1, 1.2], [0.1, float("nan")]):
             with pytest.raises(ValueError):
