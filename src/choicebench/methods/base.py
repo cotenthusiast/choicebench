@@ -80,7 +80,11 @@ class ExperimentRunner(ABC):
 
         Args:
             question_row: Normalized question record.
-            sample_index: Repetition index for this question within the run.
+            sample_index: Index assigned by the caller. run_many() and
+                run_many_async() pass the question's position within the batch
+                they were handed, which restarts at 0 for every checkpoint
+                chunk. It is not a repetition count and does not identify the
+                question: use ``question_id`` for that.
 
         Returns:
             Flat result dictionary ready for serialization.
@@ -212,7 +216,9 @@ class ExperimentRunner(ABC):
         Args:
             question_row: Normalized question record.
             prompt: Prompt string that was sent to the model.
-            sample_index: Repetition index for this question within the run.
+            sample_index: Index assigned by the caller (see ``run_one``): the
+                question's position within its checkpoint chunk, so it is not
+                stable across chunks. ``independent_hypothesis`` always writes 0.
             model_response: The response object returned by the backend,
                 or None if the call was never made.
             parsed_result: Structured parse output, or None.
@@ -222,7 +228,11 @@ class ExperimentRunner(ABC):
 
         Returns:
             Flat dictionary containing all trace, model, parse, and
-            score fields for one experimental observation.
+            score fields for one experimental observation. Note that the
+            ``seed`` column is the experiment seed (``config.run.seed``). The
+            seed sent to a provider is a separate setting
+            (``ModelConfig.provider_seed``, None by default) and is not recorded
+            in the row.
         """
         return {
             # --- trace metadata ---

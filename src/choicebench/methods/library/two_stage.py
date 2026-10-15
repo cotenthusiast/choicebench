@@ -52,7 +52,7 @@ class TwoStageRunner(ExperimentRunner):
 
         Args:
             question_row: Normalized question record.
-            sample_index: Repetition index for this question within the run.
+            sample_index: Caller-assigned index (see ExperimentRunner.run_one).
 
         Returns:
             Flat result dictionary containing trace, model output,
@@ -156,7 +156,7 @@ class TwoStageRunner(ExperimentRunner):
             question_row: Normalized question record.
             free_text_answer: A previously-saved stage-1 free-text response
                 for this question (from a prior two_stage run), reused as-is.
-            sample_index: Repetition index for this question within the run.
+            sample_index: Caller-assigned index (see ExperimentRunner.run_one).
 
         Returns:
             Flat result dictionary: the majority-voted answer across

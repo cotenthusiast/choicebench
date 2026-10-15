@@ -33,6 +33,10 @@ class Accuracy(BaseMetric):
       - accuracy_conditional: correct / scored rows only (rows with no
         parsed_choice at all are excluded from both numerator and
         denominator).
+
+    Edge cases: with zero rows (or, for accuracy_conditional, zero scored rows)
+    the point estimate is reported as 0.0 while its confidence bounds are NaN, so
+    check the bounds (or the row count) before reading a 0.0 as a real result.
     """
 
     @property

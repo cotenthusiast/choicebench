@@ -34,7 +34,7 @@ class DirectMCQRunner(ExperimentRunner):
 
         Args:
             question_row: Normalized question record.
-            sample_index: Repetition index for this question within the run.
+            sample_index: Caller-assigned index (see ExperimentRunner.run_one).
 
         Returns:
             Flat result dictionary containing trace, model output,

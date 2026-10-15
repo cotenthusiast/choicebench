@@ -91,7 +91,7 @@ class VisibleLLMMatcherRunner(ExperimentRunner):
                 per_rotation_raw_text_json. A None entry means that
                 rotation's own Stage-1 call failed upstream -- skipped
                 here, no new call made for it.
-            sample_index: Repetition index for this question within the run.
+            sample_index: Caller-assigned index (see ExperimentRunner.run_one).
 
         Returns:
             Flat result dictionary: the majority-voted answer across

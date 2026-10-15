@@ -89,7 +89,7 @@ class YourMethodRunner(ExperimentRunner):
                 length, up to 10 options/A-J); use self._build_options(row)
                 instead of hardcoding A-D so your method works on any
                 option count.
-            sample_index: Repetition index for this question within the run.
+            sample_index: Caller-assigned index (see ExperimentRunner.run_one).
                 The default run_many() passes a zero-based row index.
 
         Returns:

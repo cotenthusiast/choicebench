@@ -49,6 +49,14 @@ class OrderSensitivity(BaseMetric):
         (translated back to canonical space) is not the same across every
         rotation — i.e. moving the same content to a different position
         changed the model's answer.
+
+    Both sub-metrics ignore correctness-independent failures the same way: a
+    rotation that produced no answer (null / placeholder) contributes no data
+    point. Consequences worth knowing when comparing methods: heavy call or
+    parse failure lowers flip rate (fewer picks to disagree), and a question
+    with a single surviving pick can never flip but still counts in the
+    denominator. Flip rate also ignores correctness entirely: a model that is
+    consistently wrong in every rotation has flip rate 0.
     """
 
     @property

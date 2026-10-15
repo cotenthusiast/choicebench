@@ -189,6 +189,12 @@ def build_rotations(options: dict[str, str]) -> list[Rotation]:
     keys = list(options.keys())
     values = list(options.values())
     n = len(keys)
+    # Rotation i slides the option list left by i (values[i:] + values[:i]), so display
+    # slot j shows the option that started at canonical position (i + j) % n: j steps along
+    # from i, wrapping past the end. For n=4, i=2 the slots (A, B, C, D) show canonical
+    # options (2, 3, 0, 1). Letters never move, only the text under them. The inverse
+    # (canonical position c -> printed slot) is (c - i) % n, which OrderSensitivity uses
+    # to find where the correct answer was printed.
     return [
         Rotation(
             mapping=dict(zip(keys, values[i:] + values[:i])),
