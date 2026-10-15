@@ -82,6 +82,30 @@ def dummy_mismatch_client() -> DummyClient:
     return DummyClient(provider="gemini", model_name="gemini-2.5-flash", behavior="success")
 
 
+class _SleepyClient(DummyClient):
+    """Each provider call takes a fixed wall time, so queueing behind the semaphore is visible."""
+
+    CALL_SECONDS = 0.1
+
+    async def _generate_provider_response(self, request):
+        import asyncio
+        await asyncio.sleep(self.CALL_SECONDS)
+        return await super()._generate_provider_response(request)
+
+
+class TestLatencyExcludesConcurrencyWait:
+    @pytest.mark.asyncio
+    async def test_latency_measures_the_provider_call_not_the_wait_for_a_slot(self, valid_request):
+        import asyncio
+        client = _SleepyClient(provider="openai", model_name="gpt-4.1-mini", concurrency_limit=1)
+        first, second = await asyncio.gather(client.generate(valid_request), client.generate(valid_request))
+        # concurrency_limit=1 serializes the two calls: the second one waits ~0.1s for a slot and
+        # then runs ~0.1s. Its reported latency must be the call (~0.1s), not the sum (~0.2s).
+        assert first.is_success() and second.is_success()
+        assert _SleepyClient.CALL_SECONDS * 0.9 <= first.latency_seconds < _SleepyClient.CALL_SECONDS * 1.7
+        assert _SleepyClient.CALL_SECONDS * 0.9 <= second.latency_seconds < _SleepyClient.CALL_SECONDS * 1.7
+
+
 class TestGenerate:
     """Tests for BaseClient.generate."""
 

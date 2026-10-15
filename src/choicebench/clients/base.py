@@ -139,6 +139,9 @@ class BaseClient(ABC):
 
         Returns:
             A standardized model response (success or structured failure).
+            On success, ``latency_seconds`` is the duration of the successful
+            provider call alone; a failure response reports the total time spent
+            on the request (including waiting for a slot, backoff and retries).
         """
         start_time = time.perf_counter()
 
@@ -171,9 +174,13 @@ class BaseClient(ABC):
 
             try:
                 async with self.semaphore:
+                    # Time the provider call only: not the wait for a concurrency slot
+                    # (which grows with the number of queued requests), nor backoff or
+                    # earlier failed attempts.
+                    call_start = time.perf_counter()
                     response = await self._generate_provider_response(request)
+                    response.latency_seconds = time.perf_counter() - call_start
 
-                response.latency_seconds = time.perf_counter() - start_time
                 response.validate()
                 return response
 
