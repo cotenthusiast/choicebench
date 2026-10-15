@@ -64,6 +64,12 @@ python scripts/run_experiment.py --config config/toy_experiment.yaml --yes
 - Avoid new hardcoded file paths, model names, or magic numbers in `src/`: put them in `config/` or pass them as arguments
 - No print statements in library code: use `logging.getLogger(__name__)`
 - Tests for new methods go in `tests/runners/`; tests for new metrics go in `tests/metrics/`
+- `tests/` checks the implementation; `tests_conformance/` checks the *protocol* against
+  `tests_conformance/FROZEN_SPEC.md`, so its expected values must never be copied from the
+  code under test. Run both before opening a PR: `pytest tests/ && pytest tests_conformance/`
+  (the conformance suite needs the MMLU/ARC sources from `scripts/prepare_data.py`; see the
+  data step in `.github/workflows/test.yml`)
+- For how the layers fit together before you change one, read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
 ## Adding a new benchmark (4 steps)
 

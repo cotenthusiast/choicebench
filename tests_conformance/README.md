@@ -14,12 +14,17 @@ failure, do not edit `src/choicebench` and do not water down the assertion.
 
 ## Implementation status
 
-All 18 sections (A-S) below are implemented and passing: 303 tests total
-(293 passed, 10 `xfail(strict=True)` documenting genuine spec violations
-found while writing the suite -- see each file's own docstrings/xfail
-`reason=` strings for the precise finding and its production location).
+All 18 sections (A-S) below are implemented and passing: 307 tests, no `xfail`s.
 Run the whole suite with `python -m pytest tests_conformance/ -v`, and the
 call-totals report with `python tests_conformance/report_call_totals.py`.
+CI runs it after preparing the MMLU and ARC-Challenge sources (see
+.github/workflows/test.yml); several tests read those prepared sources and skip
+themselves if they are absent.
+
+History: when first written the suite found 10 genuine spec violations and recorded
+them as `xfail(strict=True)`. They were fixed in `6511377`, and the markers were removed
+in `902742b` only after each test was confirmed to pass (XPASS) first. The per-section
+notes below describe those findings as they were at the time.
 
 The section-by-section plan below (written before implementation, per the
 task's own Phase 1/Phase 2 process) is kept as a record of intent. A few

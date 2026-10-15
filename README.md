@@ -521,6 +521,10 @@ src/choicebench/
 condition grid -> backend/method execution -> condition-addressed results ->
 manifest-driven evaluation.
 
+For the layered design (runner / backend / client), the run loop and object
+lifetimes, rotation math, result-row columns, metric definitions and parsing
+tiers, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
 ### Protocol-v2 identity and provenance
 
 ChoiceBench's manifest protocol v2 makes every result self-identifying. Preparation maps the
