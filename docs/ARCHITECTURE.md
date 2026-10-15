@@ -150,7 +150,7 @@ Two columns are easy to misread:
 
 `score_prediction` marks a reply correct or incorrect only when parsing succeeded; ambiguous and missing replies are *unscorable* (`is_correct` is `None`), which counts as wrong in `accuracy` and is excluded from `accuracy_conditional`.
 
-**Known limitation.** The weak tier treats any standalone token that upper-cases to a valid letter as a choice, so the English article "a"/"A" can be read as option A (for example `B because a well tested design is safer` parses as A). The prompts ask for the letter only, so single-token replies should dominate, but free-text replies (reasoning prompts) are exposed. This would inflate option A, the signal position-bias metrics look for.
+**Known limitation.** The English article "a"/"A" can be read as option A in free-text replies. It is deliberately left unchanged because published results depend on the current parser; the details and the measured effect are in [PAPER.md](../PAPER.md#known-parser-limitation-affects-the-published-numbers).
 
 ## 8. Methods
 

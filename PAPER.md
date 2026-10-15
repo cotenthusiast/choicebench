@@ -37,5 +37,40 @@ These branches are kept, and each tip is also pinned by an `archive/*` tag so it
 | `feat/external-results-importer` | A standalone result-importer tool, evaluated separately from the paper and never merged. Removed from the repository (last commit `55c7fb7`). |
 | `conformance-suite`, `final-audit-fixes`, `wip/batched-hf-fp8` | Fully contained in other branches; nothing lost. The commit the conformance spec was written against is tagged `archive/conformance-spec-baseline`. |
 
+## Known parser limitation (affects the published numbers)
+
+The letter parser (`parsing/parser.py`) can read the English article "a"/"A" as option A. Its weakest
+tier accepts any standalone token that upper-cases to a valid letter, and the explicit-selection tier
+accepts the token after "answer is". Examples, run through `parse_model_answer`:
+
+| Model reply | Parsed as | Should be |
+|---|---|---|
+| `A building made of steel would be safer.` | A | no answer |
+| `The best answer is a safer building design.` | A | no answer |
+| `B because a well tested design is safer` | A (the later "a" overrides B) | B |
+
+The prompts ask for the letter only, so single-token replies dominate and are unaffected; the exposure is
+free-text replies (reasoning prompts, two-stage matching). It biases toward A, the position the
+order-sensitivity metrics look at.
+
+**Measured effect.** On the real first-rotation replies in the Kelvin2 result files, re-parsing each reply as-is
+and again with article-like tokens neutralised changed the parse in a minority of rows:
+
+| Method | Rows | Parse changes | wrong -> right | right -> wrong | -> unscorable |
+|---|---|---|---|---|---|
+| `cyclic_permutation` | 16,184 | 349 (2.2 %) | 187 | 56 | 28 |
+| `reasoning_cyclic` | 16,184 | 192 (1.2 %) | 21 | 40 | 124 |
+| `two_stage` | 13,872 | 358 (2.6 %) | 130 | 64 | 118 |
+| `reasoning_two_stage` | 13,872 | 350 (2.5 %) | 213 | 39 | 33 |
+
+Read these as an **upper bound**, not an estimate of the error: the neutraliser is deliberately crude and also fires on
+legitimate letters ("A is the final answer"); the files hold the first rotation's reply only for cyclic methods, and they
+include degenerate local-model output. Majority voting over rotations dilutes the effect further, and the direction is
+mixed.
+
+**Decision.** The parser is deliberately left unchanged: every published number was computed with it, so changing it
+would require re-deriving the results under a new, versioned parsing protocol. The limitation is documented here instead.
+Anyone building on the parser who needs strictness can neutralise article tokens before calling it.
+
 None of the branches above are merged into trunk (`choicebench`) except as noted;
 trunk stays framework-first, with no paper-specific detail.
