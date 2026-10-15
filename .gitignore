@@ -63,3 +63,12 @@ FUTURE_IDEAS.md
 
 # Ownership Guide: local-only teaching document for the repo owner
 docs/OWNERSHIP_GUIDE.md
+
+# Generated figures (regeneratable via figures/plot_linkedin_banner.py)
+figures/*
+!figures/plot_linkedin_banner.py
+
+# Consolidated final-paper data (see data/final_paper/README.md for
+# provenance; the README itself is kept, the data it describes is not)
+data/final_paper/*
+!data/final_paper/README.md
