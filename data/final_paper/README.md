@@ -19,7 +19,7 @@ Verbatim copy of
 `final_paper_authoritative_run_20260721T140619Z/final_outputs_corrected/`
 (originals also mirrored at `~/Backups/final_paper_authoritative_run_20260721T140619Z/`).
 Produced by the `analysis/final-paper-authoritative-run` branch (see
-`PAPER.md` at repo root). `SHA256SUMS` in this directory still verifies
+the README's "Branches and provenance" section). `SHA256SUMS` in this directory still verifies
 against every file (`sha256sum -c SHA256SUMS`).
 
 Use `cell_metrics.csv` (`strict_accuracy` column) for per-model/benchmark/
@@ -40,7 +40,7 @@ it — see `../flip_rate/` instead. (A second, independent dead end also
 exists outside this repo, on the `exp/flip-rate-traces` branch /
 `~/Projects/choicebench-flip-rate-traces` worktree — same story: internally
 reproducible from its own raw traces, but does not match the published
-paper. See the `PAPER.md` note on that branch.)
+paper. See the README's "Branches and provenance" section.)
 
 ## `flip_rate/` — order-sensitivity / flip rate
 
