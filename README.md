@@ -521,9 +521,39 @@ src/choicebench/
 condition grid -> backend/method execution -> condition-addressed results ->
 manifest-driven evaluation.
 
-For the layered design (runner / backend / client), the run loop and object
-lifetimes, rotation math, result-row columns, metric definitions and parsing
-tiers, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+### How the pieces fit together
+
+Three things vary independently, so each gets its own layer:
+
+| Layer | Decides | Lives in |
+|---|---|---|
+| Runner (a method) | what to ask, and how to parse and score the reply | `methods/` |
+| Backend | how to get one model's answer: API, local HuggingFace, dummy | `backends/` |
+| Client | which provider's API to speak | `clients/` |
+
+```mermaid
+flowchart TD
+    R["Runner: builds prompts, parses, scores"] -->|"list[str]"| B["APIBackend: adds model settings"]
+    B -->|ModelRequest| C["CachingClientWrapper: sha256 of the request, on disk"]
+    C -->|hit| B
+    C -->|miss| K["Client: validate, semaphore, retry"]
+    K --> P(["Provider API"])
+    K -->|"ModelResponse, never raises"| C
+```
+
+- The runner only sees *prompts in, `ModelResponse` out*. It never builds a request or imports a provider.
+- Clients never raise for a provider failure; they return a failed `ModelResponse`, so one bad call cannot take down a `gather` of thousands.
+- The cache key covers provider, model, prompt, temperature, `max_tokens`, seed (plus OpenRouter pinning), not the run or question ID. Only successes are cached.
+- The semaphore lives in the client and is held only around the provider call. `latency_seconds` times that call, not the wait for a slot.
+- `APIBackend` is an adapter around an injected client. `HuggingFaceBackend` is the engine itself: no client, no response cache.
+
+**What lives how long.** A *condition* is one `(benchmark, method, model)` combination, with its own checkpoint and result CSV. The backend, client, semaphore and cache are built lazily, once per model for the whole run (a non-API model is built once whatever the method's `execution_mode`). A runner is built per condition; a request, response and result row per call. Only the step across models is concurrent: API models via `asyncio.gather`, HF and dummy models one after another.
+
+**Rotations.** Options are stored without letters and the letters are derived from position. Under rotation `i`, display slot `j` shows the option that started at canonical position `(i + j) % n`. Decoding a reply is positional, so duplicate option texts cannot confuse it, and the inverse (where the correct answer was printed) is `(c - i) % n`.
+
+**The result row.** Four status columns answer four questions: `transport_status` (did the call return), `parse_status` (was a letter extracted), `score_status` (correct, incorrect, unscorable) and `answer_status` (did the row end with an answer). Two columns are easy to misread: `seed` is the experiment seed, not the provider seed, and `sample_index` is the position within the checkpoint chunk, not a question identifier (use `question_id`).
+
+Tests: `pytest tests/` checks the implementation; `pytest tests_conformance/` (paper branch) checks the protocol against `tests_conformance/FROZEN_SPEC.md`, whose expected values never come from the code under test.
 
 ### Protocol-v2 identity and provenance
 
